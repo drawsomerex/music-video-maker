@@ -1,0 +1,16 @@
+# build products & caches
+.build/
+.build-native/
+*.app
+*.zip
+dist/
+# your projects, media and test output never go in the repo
+Output/
+*.mp3
+*.wav
+*.mp4
+*.mvproj
+# macOS / editor
+.DS_Store
+.swiftpm/
+xcuserdata/
