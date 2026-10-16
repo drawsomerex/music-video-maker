@@ -52,13 +52,23 @@ public final class FrameComposer: @unchecked Sendable {
         // Pictures are decoded lazily (when their section starts) and released afterwards; see `releaseImages`.
         let boxes: [ImageBox?] = all.map { s in s.selectedCandidate?.fullFile.map { ImageBox(url: work.appendingPathComponent($0), maxPixel: maxPx) } }
         var sc: [PhotoScene] = []
+        var prevMode = -1
         for i in all.indices {
             let a = i == 0 ? 0 : b[i] - D / 2
             let e = i + 1 < b.count ? b[i + 1] + D / 2 : totalDuration
             let c = all[i].selectedCandidate
-            sc.append(PhotoScene(box: boxes[i], a: a, b: max(e, a + 1), seed: all[i].seed &+ UInt64(i),
+            let sceneSeed = all[i].seed &+ UInt64(i)
+            var modeRng = SeededRNG(sceneSeed &+ 99)
+            var candidateMode = Int(modeRng.next() % 5)
+            if settings.vertical { candidateMode = [0, 2, 3, 1, 4][candidateMode] }
+            if candidateMode == prevMode {
+                candidateMode = (candidateMode + 1 + Int(modeRng.next() % 3)) % 5
+            }
+            prevMode = candidateMode
+            sc.append(PhotoScene(box: boxes[i], a: a, b: max(e, a + 1), seed: sceneSeed,
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
-                                 shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm, beats: beats))
+                                 shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
+                                 beats: beats, preferredMode: candidateMode))
         }
         scenes = sc
         var rng = SeededRNG((dyn ? short!.styleSeed : 0xC0FFEE) ^ UInt64(plan.title.hashValue & 0xFFFF)); var last = -1; var ks: [TransitionKind] = []
@@ -127,11 +137,25 @@ public final class FrameComposer: @unchecked Sendable {
     func pulseScale(_ t: Double) -> Double {
         var s = 1.0
         if dyn {
-            let settle = style.calm ? 1.2 : 0.9, amt = style.calm ? 0.10 : 0.20
-            if t < settle { let p = 1 - t / settle; s *= 1 + amt * p * p * p }   // opening: settle from a tight zoom
-            var env = 0.0
-            for b in beats where b <= t && t - b < 0.45 { env = max(env, exp(-(t - b) / 0.10)) }
-            s *= 1 + style.pulse * env
+            let settle = style.calm ? 1.1 : 0.85, amt = style.calm ? 0.025 : 0.055
+            if t < settle {
+                let p = 0.5 * (1.0 + cos(.pi * (t / settle)))
+                s *= 1 + amt * p
+            }
+            if style.pulse > 0 {
+                let attack = 0.045
+                let decay = 0.16
+                var env = 0.0
+                for b in beats {
+                    let dt = t - (b - attack)
+                    if dt >= 0 && dt < attack {
+                        env = max(env, smooth(dt / attack))
+                    } else if dt >= attack && dt < attack + 0.55 {
+                        env = max(env, exp(-(dt - attack) / decay))
+                    }
+                }
+                s *= 1 + style.pulse * env
+            }
         }
         return s
     }

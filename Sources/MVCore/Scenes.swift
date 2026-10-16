@@ -1,124 +1,183 @@
 // Ken Burns photo scenes and the transitions between them.
 import Foundation
 import CoreGraphics
+import AppKit
 
-/// A photo (or gradient fallback) with a Ken Burns camera move.
+/// A photo (or gradient fallback) with a smooth, aspect-safe Ken Burns camera move.
+///
+/// Why naive Ken Burns implementations "jump" or stall:
+/// 1. Picking normalized centers outside the valid crop domain `[rw/(2*iw), 1 - rw/(2*iw)]` and clamping per-frame causes
+///    the camera to stay pinned against the image border for part of the shot, suddenly detach with a velocity kink,
+///    race across the middle, and slam into the opposite border.
+/// 2. Interpolating zoom `z` linearly and center `(cx, cy)` independently causes optical magnification speed to vary
+///    and the camera path to curve in screen space.
+///
+/// How this engine works:
+/// - Endpoints `(c0, z0)` and `(c1, z1)` are computed inside the exact valid crop domain for the image & viewport aspect ratios.
+/// - Timeline progress uses a blended cosine S-curve (`u = 0.28 * u0 + 0.72 * 0.5 * (1 - cos(π * u0))`) for gentle acceleration/deceleration.
+/// - Zoom interpolates logarithmically (`z(u) = z0 * (z1 / z0)^u`) so perceived optical magnification speed is constant.
+/// - Center position couples with inverse zoom (`alpha = (1/z0 - 1/z(u)) / (1/z0 - 1/z1)`), guaranteeing that all four edges
+///   of the crop rectangle move in straight lines and every intermediate frame stays 100% inside the image without clamping jumps.
 final class PhotoScene {
     let box: ImageBox?
     let a: Double, b: Double            // video-time interval
     let seed: UInt64
-    // camera: centre (normalised in image) and zoom at u=0 and u=1
-    var c0 = CGPoint(x: 0.5, y: 0.5), c1 = CGPoint(x: 0.5, y: 0.5), z0 = 1.0, z1 = 1.12
+    let focus: CGPoint                  // normalized saliency focus in [0, 1] x [0, 1]
+    let vertical: Bool
+    let energetic: Bool                 // true for punchy Shorts
+    let mode: Int                       // 0 = push-in, 1 = pull-out, 2 = pan L→R, 3 = pan R→L, 4 = diagonal glide
+    private let rndZoom: Double
+    private let rndPanX: Double
+    private let rndPanY: Double
+    private let diagFlip: Bool
 
-    /// "Pattern interrupt" shots: the same picture re-framed every couple of seconds (wide pan → punch-in → opposite pan → alt detail…).
-    struct Shot { var t0: Double, t1: Double, z0: Double, z1: Double; var c0: CGPoint, c1: CGPoint }
-    var shots: [Shot] = []
-    var shake = false
-    /// Calm mode: one continuous camera path through a few waypoints (Catmull-Rom), no cuts.
-    var path: [(z: Double, c: CGPoint)] = []
-    var segLen = 7.0
+    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, beats: [Double] = [], preferredMode: Int? = nil) {
+        self.box = box
+        self.a = a
+        self.b = b
+        self.seed = seed
+        self.focus = CGPoint(x: min(0.88, max(0.12, focus.x)), y: min(0.88, max(0.12, focus.y)))
+        self.vertical = vertical
+        self.energetic = (shotInterval != nil && !calm)
 
-    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, beats: [Double] = []) {
-        self.box = box; self.a = a; self.b = b; self.seed = seed; self.shake = shake
         var rng = SeededRNG(seed &+ 99)
-        var mode = Int(rng.next() % 5)
-        if vertical { mode = [0, 2, 3, 2, 3][mode] }   // tall crop of a wide picture: favour pans across it + push-ins
-        let f = CGPoint(x: 0.5 + (focus.x - 0.5) * 0.9, y: 0.5 + (focus.y - 0.5) * 0.9)
-        let side = Bool.random(using: &rng)
-        func jitter() -> Double { Double(rng.next() % 1000) / 1000 * 0.06 - 0.03 }
-        let fy = min(0.78, max(0.22, f.y))
+        func unitRnd(_ r: inout SeededRNG) -> Double { Double(r.next() % 10000) / 10000.0 }
+
+        if let pm = preferredMode {
+            self.mode = ((pm % 5) + 5) % 5
+        } else {
+            let m = Int(rng.next() % 5)
+            self.mode = vertical ? [0, 2, 3, 1, 4][m] : m
+        }
+        self.rndZoom = unitRnd(&rng)
+        self.rndPanX = unitRnd(&rng) - 0.5
+        self.rndPanY = unitRnd(&rng) - 0.5
+        self.diagFlip = Bool.random(using: &rng)
+    }
+
+    /// Computes start `(c0, z0)` and end `(c1, z1)` camera states guaranteed to lie strictly within the image bounds
+    /// for image size `(iw, ih)` and viewport size `(W, H)`.
+    private func endpoints(iw: Double, ih: Double, W: Int, H: Int) -> (c0: CGPoint, z0: Double, c1: CGPoint, z1: Double) {
+        let target = Double(W) / Double(H)
+        let bw = (iw / ih > target) ? (ih * target) : iw
+        let bh = bw / target
+        // Normalized half-size of the z = 1.0 cover rectangle in [0, 1] image coordinates
+        let halfW0 = 0.5 * (bw / max(1.0, iw))
+        let halfH0 = 0.5 * (bh / max(1.0, ih))
+
+        func clampCenter(_ p: CGPoint, zoom z: Double) -> CGPoint {
+            // Leave a tiny 0.2% margin inside the image border so subpixel rounding never touches the edge
+            let margin = 0.996
+            let maxDX = max(0.0, (0.5 - halfW0 / z) * margin)
+            let maxDY = max(0.0, (0.5 - halfH0 / z) * margin)
+            return CGPoint(
+                x: min(0.5 + maxDX, max(0.5 - maxDX, p.x)),
+                y: min(0.5 + maxDY, max(0.5 - maxDY, p.y))
+            )
+        }
+
+        // Scale the move distance gently by section duration so short (5s) and long (16s) sections have similar, calm speed
+        let duration = max(2.0, b - a)
+        let durScale = min(1.15, max(0.55, duration / 12.0)) * (energetic ? 1.18 : 1.0)
+        let zoomDelta = (0.085 + 0.035 * rndZoom) * durScale
+
+        let z0: Double
+        let z1: Double
+        let raw0: CGPoint
+        let raw1: CGPoint
+
+        // Gentle subject anchor biased toward focus point without forcing extreme corners
+        let subj = CGPoint(
+            x: 0.5 + (focus.x - 0.5) * 0.85,
+            y: 0.5 + (focus.y - 0.5) * 0.80
+        )
+
         switch mode {
-        case 0: z0 = 1.0; z1 = 1.30; c0 = CGPoint(x: 0.5, y: fy); c1 = f                          // push in toward subject
-        case 1: z0 = 1.30; z1 = 1.0; c0 = f; c1 = CGPoint(x: 0.5, y: fy)                          // pull out
-        case 2: z0 = 1.20; z1 = 1.26; c0 = CGPoint(x: 0.0, y: fy + jitter()); c1 = CGPoint(x: 1.0, y: fy + jitter())   // pan →
-        case 3: z0 = 1.26; z1 = 1.20; c0 = CGPoint(x: 1.0, y: fy + jitter()); c1 = CGPoint(x: 0.0, y: fy + jitter())   // pan ←
-        default: z0 = 1.08; z1 = 1.32; c0 = CGPoint(x: side ? 0.2 : 0.8, y: min(0.82, fy + 0.18)); c1 = CGPoint(x: side ? 0.78 : 0.22, y: max(0.18, fy - 0.18)) // diagonal drift + zoom
-        }
-        if let iv = shotInterval { if calm { buildPath(interval: iv, focus: f, rng: &rng) } else { buildShots(interval: iv, focus: f, beats: beats, rng: &rng) } }
-    }
+        case 0:
+            // Slow push-in toward subject focal point
+            z0 = 1.025
+            z1 = z0 + zoomDelta
+            raw0 = CGPoint(x: lerp(0.5, subj.x, 0.45), y: lerp(0.5, subj.y, 0.45))
+            raw1 = subj
 
-    private func buildPath(interval iv: Double, focus f: CGPoint, rng: inout SeededRNG) {
-        func rnd() -> Double { Double(rng.next() % 1000) / 1000 }
-        let total = max(0.5, b - a); let n = max(2, Int((total / iv).rounded(.up)) + 1)
-        segLen = total / Double(n - 1)
-        var x = 0.3 + rnd() * 0.4, tight = rng.next() % 2 == 0
-        for _ in 0..<n {
-            let z = tight ? 1.26 + rnd() * 0.14 : 1.08 + rnd() * 0.10
-            let cx = tight ? f.x + (rnd() - 0.5) * 0.24 : x
-            path.append((z, CGPoint(x: min(0.85, max(0.15, cx)), y: tight ? f.y + (rnd() - 0.5) * 0.12 : min(0.82, max(0.18, f.y + (rnd() - 0.5) * 0.14)))))
-            x = min(0.8, max(0.2, x + (rnd() < 0.5 ? -1 : 1) * (0.18 + rnd() * 0.18)))   // never a big jump between waypoints
-            tight.toggle()
-        }
-    }
+        case 1:
+            // Slow pull-back from subject focal point to wider framing
+            z1 = 1.025
+            z0 = z1 + zoomDelta
+            raw0 = subj
+            raw1 = CGPoint(x: lerp(0.5, subj.x, 0.45), y: lerp(0.5, subj.y, 0.45))
 
-    private func buildShots(interval iv: Double, focus f: CGPoint, beats: [Double], rng: inout SeededRNG) {
-        func rnd() -> Double { Double(rng.next() % 1000) / 1000 }
-        let total = max(0.5, b - a), n = max(1, Int((total / iv).rounded())), len = total / Double(n)
-        let fy = min(0.78, max(0.22, f.y))
-        // Snap internal shot cut times to the nearest musical beat within ±0.35s when available.
-        var boundaries = [Double](repeating: a, count: n + 1)
-        boundaries[0] = a; boundaries[n] = b
-        if n > 1 {
-            for k in 1..<n {
-                let ideal = a + len * Double(k)
-                let minT = boundaries[k - 1] + max(0.6, len * 0.45)
-                let maxT = b - max(0.6, len * 0.45) * Double(n - k)
-                if let snap = beats.filter({ $0 >= minT && $0 <= maxT && abs($0 - ideal) <= 0.35 }).min(by: { abs($0 - ideal) < abs($1 - ideal) }) {
-                    boundaries[k] = snap
-                } else {
-                    boundaries[k] = min(maxT, max(minT, ideal))
-                }
-            }
+        case 2, 3:
+            // Smooth horizontal pan across subject height with subtle zoom drift
+            let zLow = vertical ? 1.04 : 1.10
+            let zHigh = zLow + zoomDelta * 0.55
+            let leftToRight = (mode == 2)
+            z0 = leftToRight ? zLow : zHigh
+            z1 = leftToRight ? zHigh : zLow
+
+            let availX0 = max(0.0, 0.5 - halfW0 / z0)
+            let availX1 = max(0.0, 0.5 - halfW0 / z1)
+            let maxPan = min(availX0, availX1)
+            let panRadius = vertical ? min(maxPan * 0.80, 0.11 * durScale) : (maxPan * 0.88)
+
+            // Center the pan around the subject's X while staying well inside [-maxPan, +maxPan]
+            let centerBiasX = min(0.5 + max(0, maxPan - panRadius), max(0.5 - max(0, maxPan - panRadius), subj.x))
+            let startX = leftToRight ? (centerBiasX - panRadius) : (centerBiasX + panRadius)
+            let endX   = leftToRight ? (centerBiasX + panRadius) : (centerBiasX - panRadius)
+            let yDrift = 0.012 * rndPanY * durScale
+
+            raw0 = CGPoint(x: startX, y: subj.y - yDrift)
+            raw1 = CGPoint(x: endX, y: subj.y + yDrift)
+
+        default:
+            // Cinematic diagonal rostrum glide toward subject
+            z0 = 1.05
+            z1 = z0 + zoomDelta * 0.90
+            let dirX: Double = diagFlip ? 1.0 : -1.0
+            let availX = max(0.0, 0.5 - halfW0 / z0)
+            let availY = max(0.0, 0.5 - halfH0 / z0)
+            let dx = min(availX * 0.80, (vertical ? 0.09 : 0.045) * durScale) * dirX
+            let dy = min(availY * 0.80, 0.035 * durScale) * (rndPanY >= 0 ? 1.0 : -1.0)
+            raw0 = CGPoint(x: subj.x - dx, y: subj.y - dy)
+            raw1 = CGPoint(x: subj.x + dx * 0.5, y: subj.y + dy * 0.5)
         }
-        var lastX = -1.0, kind = Int(rng.next() % 4)
-        for k in 0..<n {
-            kind = (kind + 1 + Int(rng.next() % 2)) % 4
-            let alt = CGPoint(x: 0.2 + rnd() * 0.6, y: min(0.78, max(0.22, fy + (rnd() - 0.5) * 0.28)))
-            var shot: Shot
-            switch kind {
-            case 0:  shot = Shot(t0: 0, t1: 0, z0: 1.06, z1: 1.20, c0: CGPoint(x: 0.22, y: fy), c1: CGPoint(x: 0.78, y: fy))         // pan across at subject height
-            case 1:  shot = Shot(t0: 0, t1: 0, z0: 1.35, z1: 1.62, c0: f, c1: CGPoint(x: f.x + 0.03, y: f.y))                       // punch-in on the subject
-            case 2:  shot = Shot(t0: 0, t1: 0, z0: 1.22, z1: 1.34, c0: CGPoint(x: 0.8, y: fy), c1: CGPoint(x: 0.25, y: fy))        // pan back at subject height
-            default: shot = Shot(t0: 0, t1: 0, z0: 1.30, z1: 1.55, c0: alt, c1: CGPoint(x: alt.x - 0.06, y: alt.y + 0.02))          // detail elsewhere
-            }
-            if abs(shot.c0.x - lastX) < 0.15 { shot.c0.x = 1 - shot.c0.x }                                                          // never reuse the previous framing
-            lastX = shot.c1.x
-            shot.t0 = boundaries[k]; shot.t1 = boundaries[k + 1]
-            shots.append(shot)
-        }
+
+        let c0 = clampCenter(raw0, zoom: z0)
+        let c1 = clampCenter(raw1, zoom: z1)
+        return (c0, z0, c1, z1)
     }
 
     func draw(t: Double, ctx: CGContext, W: Int, H: Int) {
         let u0 = clamp01((t - a) / max(0.001, b - a))
-        let u = 0.5 * u0 + 0.5 * (u0 * u0 * (3 - 2 * u0))
+        // Blended cosine S-curve: silky acceleration and deceleration while staying alive during cross-dissolves
+        let uCos = 0.5 - 0.5 * cos(.pi * u0)
+        let u = 0.28 * u0 + 0.72 * uCos
+
         guard let img = box?.get() else { drawGradient(ctx, W, H, u0); return }
         let iw = Double(img.width), ih = Double(img.height)
         let target = Double(W) / Double(H)
         let bw = iw / ih > target ? ih * target : iw        // base cover rect
         let bh = bw / target
-        var z = lerp(z0, z1, u)
-        var ncx = lerp(c0.x, c1.x, u), ncy = lerp(c0.y, c1.y, u)
-        if !path.isEmpty {
-            let sTime = clamp01((t - a) / max(0.001, b - a)) * Double(path.count - 1)
-            let i = min(path.count - 2, Int(sTime)), u = sTime - Double(i)
-            let p0 = path[max(0, i - 1)], p1 = path[i], p2 = path[i + 1], p3 = path[min(path.count - 1, i + 2)]
-            func cr(_ a: Double, _ b: Double, _ c: Double, _ d: Double) -> Double {
-                0.5 * ((2 * b) + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u * u + (-a + 3 * b - 3 * c + d) * u * u * u) }
-            z = cr(p0.z, p1.z, p2.z, p3.z); ncx = cr(p0.c.x, p1.c.x, p2.c.x, p3.c.x); ncy = cr(p0.c.y, p1.c.y, p2.c.y, p3.c.y)
-        } else if !shots.isEmpty {
-            let k = shots.lastIndex(where: { t >= $0.t0 }) ?? 0
-            let sh = shots[k]
-            let su0 = clamp01((t - sh.t0) / max(0.001, sh.t1 - sh.t0)), su = 0.5 * su0 + 0.5 * (su0 * su0 * (3 - 2 * su0))
-            z = lerp(sh.z0, sh.z1, su); ncx = lerp(sh.c0.x, sh.c1.x, su); ncy = lerp(sh.c0.y, sh.c1.y, su)
-            let dt = t - sh.t0
-            if k > 0 && dt >= 0 && dt < 0.22 {                       // punch: start 12 % tighter and settle
-                let e = 1 - pow(1 - dt / 0.22, 3); z *= 1 + 0.12 * (1 - e)
-                if shake { let d = 1 - dt / 0.22; ncx += 0.012 * sin(dt * 95) * d; ncy += 0.008 * cos(dt * 110) * d }
-            }
-        }
+
+        let ep = endpoints(iw: iw, ih: ih, W: W, H: H)
+
+        // Logarithmic (exponential) zoom interpolation for constant perceived optical magnification speed
+        let z = ep.z0 * pow(ep.z1 / ep.z0, u)
+
+        // Perspective-coupled center interpolation: guarantees every edge of the crop window moves linearly
+        // and never collides with the image boundary mid-shot.
+        let invZ0 = 1.0 / ep.z0
+        let invZ1 = 1.0 / ep.z1
+        let invZ  = 1.0 / z
+        let alpha = abs(invZ1 - invZ0) > 1e-5 ? (invZ - invZ0) / (invZ1 - invZ0) : u
+
+        let ncx = lerp(ep.c0.x, ep.c1.x, alpha)
+        let ncy = lerp(ep.c0.y, ep.c1.y, alpha)
+
         let rw = bw / z, rh = bh / z
         var cx = ncx * iw, cy = ncy * ih
-        cx = min(max(cx, rw / 2), iw - rw / 2); cy = min(max(cy, rh / 2), ih - rh / 2)
+        cx = min(max(cx, rw / 2), iw - rw / 2)
+        cy = min(max(cy, rh / 2), ih - rh / 2)
         let rx = cx - rw / 2, ry = cy - rh / 2
         let s = Double(W) / rw
         ctx.draw(img, in: CGRect(x: -rx * s, y: -(ih - (ry + rh)) * s, width: iw * s, height: ih * s))
@@ -134,14 +193,14 @@ final class PhotoScene {
         ctx.drawLinearGradient(g, start: CGPoint(x: Double(W) * (0.2 + 0.2 * ang), y: Double(H)), end: CGPoint(x: Double(W) * (0.8 - 0.2 * ang), y: 0), options: [.drawsAfterEndLocation, .drawsBeforeStartLocation])
     }
 }
-import AppKit
 
 enum TransitionKind {
+    case dissolve                  // smooth cross-dissolve
     case wipe(angle: Double)       // degrees; 0 = reveals left→right
     case iris(from: CGPoint)       // normalised, origin bottom-left
     case blinds(vertical: Bool, count: Int)
     case push(angle: Double)       // 0 = new image pushes in from the right
-    case zoom(from: Double)        // new picture eases in from a tighter crop
+    case zoom(from: Double)        // new picture eases in from a slightly tighter crop
     case flash                     // quick white flash cut
     case whip(angle: Double)       // fast slide with motion ghosts
 
@@ -150,27 +209,24 @@ enum TransitionKind {
         var c: ShortStyle.Cut
         repeat { c = pool[Int(rng.next() % UInt64(pool.count))] } while c.rawValue == last && pool.count > 1
         switch c {
-        case .zoom: return (.zoom(from: calm ? 1.15 : 1.45), c.rawValue)
-        case .flash: return (.flash, c.rawValue)
-        case .whip: return (.whip(angle: Bool.random(using: &rng) ? 0 : 180), c.rawValue)
-        case .push: return (.push(angle: Bool.random(using: &rng) ? 0 : 180), c.rawValue)
+        case .zoom: return (.zoom(from: calm ? 1.06 : 1.16), c.rawValue)
+        case .flash: return (calm ? .dissolve : .flash, c.rawValue)
+        case .whip: return (calm ? .dissolve : .whip(angle: Bool.random(using: &rng) ? 0 : 180), c.rawValue)
+        case .push: return (calm ? .dissolve : .push(angle: Bool.random(using: &rng) ? 0 : 180), c.rawValue)
         case .wipe: return (.wipe(angle: [0, 180, 35, 215][Int(rng.next() % 4)]), c.rawValue)
         }
     }
 
     static func random(_ rng: inout SeededRNG, avoiding last: Int) -> (TransitionKind, Int) {
         var k: Int
-        repeat { k = Int(rng.next() % 9) } while k == last
+        repeat { k = Int(rng.next() % 7) } while k == last
         switch k {
-        case 0: return (.wipe(angle: 0), k)
-        case 1: return (.wipe(angle: 180), k)
-        case 2: return (.wipe(angle: 90), k)
-        case 3: return (.wipe(angle: 35), k)
-        case 4: return (.wipe(angle: 215), k)
-        case 5: return (.iris(from: CGPoint(x: 0.5, y: 0.5)), k)
-        case 6: return (.blinds(vertical: true, count: 8), k)
-        case 7: return (.push(angle: Bool.random(using: &rng) ? 0 : 180), k)
-        default: return (.blinds(vertical: false, count: 6), k)
+        case 0, 1: return (.dissolve, k)
+        case 2: return (.wipe(angle: 0), k)
+        case 3: return (.wipe(angle: 180), k)
+        case 4: return (.wipe(angle: 35), k)
+        case 5: return (.zoom(from: 1.06), k)
+        default: return (.iris(from: CGPoint(x: 0.5, y: 0.5)), k)
         }
     }
 }
@@ -181,6 +237,12 @@ enum Transition {
         let e = smooth(p)
         let w = Double(W), h = Double(H)
         switch kind {
+        case .dissolve:
+            drawA()
+            ctx.saveGState()
+            ctx.setAlpha(e)
+            drawB()
+            ctx.restoreGState()
         case .wipe(let angle):
             drawA()
             let th = angle * .pi / 180
@@ -217,7 +279,7 @@ enum Transition {
             ctx.saveGState(); ctx.clip(to: rects); drawB(); ctx.restoreGState()
         case .zoom(let from):
             drawA()
-            ctx.saveGState(); ctx.setAlpha(min(1, e * 1.7))
+            ctx.saveGState(); ctx.setAlpha(e)
             let sc = lerp(from, 1.0, e)
             ctx.translateBy(x: w / 2, y: h / 2); ctx.scaleBy(x: sc, y: sc); ctx.translateBy(x: -w / 2, y: -h / 2)
             drawB(); ctx.restoreGState()

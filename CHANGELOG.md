@@ -10,6 +10,7 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 - **Live OpenRouter credit balance, cost estimates & persistent per-song total cost:** Displays your remaining OpenRouter credits alongside the estimated cost per image (`~$0.048`) and bulk generation cost, and persistently tracks and saves the cumulative USD spent on each song (`totalGenerationCostUSD` and `imagesGeneratedCount`) inside `project.mvproj`.
 
 ### Fixed
+- **Silky-smooth, non-jumping Ken Burns camera engine:** Re-engineered `PhotoScene` with aspect-aware valid crop domain clamping, logarithmic (exponential) zoom interpolation (`z0 * (z1 / z0)^u`), perspective-coupled pan interpolation (`alpha = (1/z0 - 1/z(u)) / (1/z0 - 1/z1)`), and duration-scaled cosine S-curve easing so the camera never collides with image borders mid-shot, never stalls or whips across the middle, and never reverses zoom direction or jumps within a picture. Also smoothed beat-pulse envelopes (`0.045s` raised-cosine attack + exponential decay) and added cross-dissolve transitions.
 - **Setup screen "Record Song Playing" layout stability:** Fixed the recording zone and live waveform meter so switching to **Record Song Playing** or actively recording a song never expands the left column vertically or horizontally.
 
 ## [1.0.4] - 2026-10-16
