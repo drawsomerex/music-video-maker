@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **In-app updates, made obvious.** A blue **“Update available — version X”** strip appears across the top of the window with *What's new*, **Update now** and *Later*. *Update now* downloads the new version, checks its SHA-256, installs it and restarts the app by itself, showing a progress bar and the current step. The Help and app menus have **Check for Updates…** (it becomes *Update to Version X…* when one is waiting), and Settings has an **Updates** section with the current version, status, last-checked time and a *Check for updates* button.
+
 ## [1.1.0] - 2026-10-16
 
 ### Fixed

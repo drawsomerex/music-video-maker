@@ -7,6 +7,16 @@ import MVCore
 struct RootView: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
+        VStack(spacing: 0) {
+            UpdateStrip()
+            screens
+        }
+        .animation(.smooth(duration: 0.3), value: updaterVisible)
+    }
+    @EnvironmentObject var updater: Updater
+    var updaterVisible: Bool { updater.isInstalling || (updater.available != nil && !updater.bannerDismissed) }
+
+    var screens: some View {
         ZStack {
             Backdrop()
             if model.needsNativeSetup { NativeSetupView().transition(.opacity) } else {
@@ -490,6 +500,7 @@ struct SettingsView: View {
                 if let err = model.openRouterCreditError { Text(err).font(.callout).foregroundStyle(.red) }
                 Text("About \(OpenRouter.formatUSD(model.perImageCostUSD)) per picture. Each song remembers how much it has cost.").font(.callout).foregroundStyle(.secondary)
             }
+            UpdatesSettingsSection()
             Section("Shortcuts & help") {
                 LabeledContent("Music Video Maker") {
                     HStack {
@@ -516,7 +527,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped).frame(width: 600, height: 560)
+        .formStyle(.grouped).frame(width: 600, height: 640)
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }

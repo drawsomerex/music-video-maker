@@ -30,14 +30,8 @@ struct MusicVideoApp: App {
                         else { FileHandle.standardError.write(Data("no update: \(updater.message ?? "")\n".utf8)) }
                     } else if updater.dueForAutoCheck { await updater.check(silent: true) }
                 }
-                .alert("Update available", isPresented: $updater.showAvailable, presenting: updater.available) { r in
-                    Button("Install & Restart") { Task { await updater.install(r) } }
-                    Button("Later", role: .cancel) {}
-                } message: { r in Text("Music Video Maker \(r.version) is ready (you have \(Updater.current)).\n\n\(r.notes.prefix(600))") }
+                .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
                 .alert("Updates", isPresented: Binding(get: { updater.message != nil }, set: { if !$0 { updater.message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(updater.message ?? "") }
-                .overlay(alignment: .bottom) {
-                    if let p = updater.progress { VStack(spacing: 6) { Text("Downloading update…").font(.caption); ProgressView(value: p).frame(width: 220) }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding(.bottom, 20) }
-                }
                 .sheet(isPresented: $model.showGuide) { QuickGuideView() }
                 .frame(minWidth: 980, minHeight: 680)
                 .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
@@ -47,13 +41,19 @@ struct MusicVideoApp: App {
         .commands {
             CommandGroup(replacing: .help) {
                 Button("Quick Guide") { model.showGuide = true }.keyboardShortcut("?", modifiers: .command)
+                Divider()
+                Button(updater.available.map { "Update to Version \($0.version)…" } ?? "Check for Updates…") {
+                    if updater.available != nil { updater.showAvailable = true } else { Task { await updater.check(silent: false) } }
+                }.disabled(!Updater.enabled || updater.isInstalling)
             }
             CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { Task { await updater.check(silent: false) } }.disabled(!Updater.enabled)
+                Button(updater.available.map { "Update to Version \($0.version)…" } ?? "Check for Updates…") {
+                    if updater.available != nil { updater.showAvailable = true } else { Task { await updater.check(silent: false) } }
+                }.disabled(!Updater.enabled || updater.isInstalling)
             }
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1120, height: 760)
-        Settings { SettingsView().environmentObject(model) }
+        Settings { SettingsView().environmentObject(model).environmentObject(updater) }
     }
 }

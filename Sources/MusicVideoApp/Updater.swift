@@ -13,6 +13,17 @@ final class Updater: ObservableObject {
     @Published var message: String?
     @Published var progress: Double?
     @Published var busy = false
+    @Published var phase = ""                    // what the installer is doing right now ("Downloading…")
+    @Published var lastChecked: Date? = UserDefaults.standard.object(forKey: "lastUpdateCheckDate") as? Date
+    @Published var bannerDismissed = false       // "Later" hides the banner until the next launch
+    var isInstalling: Bool { busy && progress != nil }
+    /// One-line status for menus and Settings.
+    var statusText: String {
+        if let r = available { return "Version \(r.version) is available (you have \(Updater.current))" }
+        if !Updater.enabled { return "Updates are not set up for this copy of the app" }
+        if busy { return "Checking…" }
+        return lastChecked == nil ? "You have version \(Updater.current)" : "You're up to date — version \(Updater.current)"
+    }
 
     static var env: [String: String] { ProcessInfo.processInfo.environment }
     static func log(_ s: String) { if env["MV_UPDATE_SELFTEST"] != nil { FileHandle.standardError.write(Data(("[updater] " + s + "\n").utf8)) } }
@@ -39,6 +50,7 @@ final class Updater: ObservableObject {
         Updater.log("checking \(url)")
         busy = true; defer { busy = false }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
+        lastChecked = Date(); UserDefaults.standard.set(lastChecked, forKey: "lastUpdateCheckDate")
         do {
             var req = URLRequest(url: url); req.timeoutInterval = 15
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept"); req.setValue("MusicVideoMaker", forHTTPHeaderField: "User-Agent")
@@ -57,7 +69,8 @@ final class Updater: ObservableObject {
                 hash = String(decoding: d, as: UTF8.self).split(whereSeparator: { $0.isWhitespace }).first.map(String.init)
             }
             available = Release(version: tag, notes: (o["body"] as? String) ?? "", zip: zip, sha256: hash?.lowercased(), page: (o["html_url"] as? String).flatMap(URL.init(string:)))
-            showAvailable = true
+            bannerDismissed = false
+            showAvailable = !silent          // a silent (automatic) check only shows the banner; a check you asked for opens the details
         } catch { Updater.log("check failed: \(error)"); if !silent { message = "Couldn't check for updates (\(error.localizedDescription))." } }
     }
 
@@ -70,7 +83,7 @@ final class Updater: ObservableObject {
     // MARK: install
 
     func install(_ r: Release) async {
-        busy = true; progress = 0; defer { busy = false; progress = nil }
+        busy = true; progress = 0; phase = "Downloading the update…"; showAvailable = false; defer { busy = false; progress = nil; phase = "" }
         do {
             let fm = FileManager.default
             let work = fm.temporaryDirectory.appendingPathComponent("mv-update-\(UUID().uuidString)")
@@ -78,12 +91,14 @@ final class Updater: ObservableObject {
             let zip = work.appendingPathComponent("update.zip")
             try await download(r.zip, to: zip) { [weak self] f in Task { @MainActor in self?.progress = f * 0.9 } }
 
+            phase = "Checking the download is intact…"
             if let want = r.sha256 {
                 var h = SHA256(); let fh = try FileHandle(forReadingFrom: zip)
                 while let chunk = try fh.read(upToCount: 1 << 20), !chunk.isEmpty { h.update(data: chunk) }
                 let got = h.finalize().map { String(format: "%02x", $0) }.joined()
                 guard got == want else { throw NSError(domain: "Updater", code: 1, userInfo: [NSLocalizedDescriptionKey: "The download didn't match its checksum, so it was discarded."]) }
             }
+            phase = "Unpacking…"
             let stage = work.appendingPathComponent("stage"); try fm.createDirectory(at: stage, withIntermediateDirectories: true)
             try run("/usr/bin/ditto", ["-x", "-k", zip.path, stage.path])
             guard let newApp = try fm.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil).first(where: { $0.pathExtension == "app" }),
@@ -94,7 +109,7 @@ final class Updater: ObservableObject {
             let dest = Bundle.main.bundleURL
             guard fm.isWritableFile(atPath: dest.deletingLastPathComponent().path) else {
                 throw NSError(domain: "Updater", code: 3, userInfo: [NSLocalizedDescriptionKey: "This app is somewhere macOS won't let it update itself (\(dest.deletingLastPathComponent().path)). Move it to Applications and try again."]) }
-            progress = 0.97
+            progress = 0.97; phase = "Installing and restarting…"
 
             // A helper waits for this process to quit, swaps the bundle (keeping a backup until the swap succeeds), and relaunches.
             let script = work.appendingPathComponent("swap.sh")
