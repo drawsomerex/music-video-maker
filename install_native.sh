@@ -1,7 +1,7 @@
 #!/bin/bash
 # Music Video Maker — standalone install with Swift MLX (no oMLX, no Python).
 #
-#   ./install_native.sh                    # build, install to /Applications, download models (balanced, ~2.8 GB)
+#   ./install_native.sh                    # build, install to /Applications, download models (balanced, ~4.1 GB)
 #   ./install_native.sh --tier small       # smaller language model  (~1.5 GB total)
 #   ./install_native.sh --tier best        # bigger language model   (~6.5 GB total)
 #   ./install_native.sh --skip-models      # just the app; it offers the model download on first launch

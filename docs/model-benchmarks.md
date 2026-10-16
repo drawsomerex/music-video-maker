@@ -19,12 +19,14 @@ Heuristic scores overrated tiny models; human reading of outputs is what counts.
 | Model | Size | Peak | Speed | Verdict |
 |---|---|---|---|---|
 | Qwen3.5-9B | 5 GB | 6.3 GB | 26 tok/s | best, correct era/story; too heavy for 8 GB Macs |
-| **Qwen3-4B-Instruct-2507** | 2.3 GB | 3.2 GB | 47 tok/s | good prompts, may guess the wrong era |
+| **Gemma 4 E2B (default)** | 3.55 GB | 3.45 GB | 70 tok/s | good prompts, era "early 1900s" (closest after 9B) |
+| Gemma 4 E4B | 5.15 GB | 5.0 GB | 38 tok/s | slightly richer, too heavy for the gain |
+| Qwen3-4B-Instruct-2507 | 2.3 GB | 3.2 GB | 47 tok/s | good prompts, may guess the wrong era |
 | **Qwen3-1.7B** | ~1 GB | 1.8 GB | 98 tok/s | usable, generic, wrong era |
 | Qwen3.5-0.8B / Qwen3-0.6B | <0.5 GB | 1.4–1.7 GB | 180 tok/s | unusable: pasted lyrics into prompts / repeated one prompt |
 | Qwen3.5-2B/4B, SmolLM3, LFM2.5 | – | – | – | JSON parse failures, wrong facts, or slower with no gain |
 | Llama-3.2-3B, Gemma-3-1B | – | – | – | JSON unusable |
 | Apple FoundationModels | 0 GB | – | 18 s | ≈ 2.6B-class quality |
 
-Decision: tiers stay small = Qwen3-1.7B, balanced = Qwen3-4B-2507 (default), best = Qwen3.5-9B.
+Decision: tiers stay small = Qwen3-1.7B, balanced = Gemma 4 E2B (default, replaced Qwen3-4B-2507: 2× faster, better era), best = Qwen3.5-9B.
 Reproduce with `scripts/bench/`.

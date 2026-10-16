@@ -17,11 +17,11 @@ public enum NativeEngine {
         public var llmRepo: String {
             switch self {
             case .small: return "mlx-community/Qwen3-1.7B-4bit"
-            case .balanced: return "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+            case .balanced: return "mlx-community/gemma-4-e2b-it-4bit"
             case .best: return "mlx-community/Qwen3.5-9B-MLX-4bit"
             }
         }
-        public var approxGB: Double { self == .small ? 1.0 : (self == .balanced ? 2.3 : 6.0) }
+        public var approxGB: Double { self == .small ? 1.0 : (self == .balanced ? 3.6 : 6.0) }
     }
 
     public static let speechRepo = "selcukkubur/parakeet-ultra-mlx"     // CC-BY-4.0, moondream/parakeet-ultra converted for MLX

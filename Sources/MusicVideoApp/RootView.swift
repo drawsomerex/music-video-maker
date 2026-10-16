@@ -76,11 +76,15 @@ struct SetupView: View {
                     if model.estimatedImages > 0 { Text("≈ \(model.estimatedImages) pictures to make").font(.callout).foregroundStyle(.secondary) }
                 }
                 Spacer()
+                Button { model.chooseSaveFolder() } label: {
+                    Label("Saving to \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath)", systemImage: "externaldrive")
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 260)
+                }.buttonStyle(.bordered).help("Folder for all projects, pictures and finished videos. Click to change.")
                 Menu {
                     Button("Open a project folder…") { model.chooseProject() }
                     if !model.recents.isEmpty { Divider(); ForEach(model.recents, id: \.self) { u in Button(u.deletingLastPathComponent().lastPathComponent) { model.openProject(u) } } }
                 } label: { Label("Open Project", systemImage: "folder") }.menuStyle(.borderlessButton).fixedSize()
-                Button { openSettings() } label: { Label("Local AI", systemImage: "cpu") }.buttonStyle(.bordered)
+                Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.bordered)
                 Button { model.start() } label: {
                     Label("Plan the Video", systemImage: "sparkles")
                         .font(.headline).padding(.horizontal, 10).padding(.vertical, 4)
@@ -139,19 +143,62 @@ func timeString(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, 
 
 struct ProgressStage: View {
     @EnvironmentObject var model: AppModel
+    static let planSteps: [(String, Double)] = [("Listening to the song", 0), ("Syncing your lyrics", 0.55), ("Reading the lyrics", 0.62), ("Writing picture prompts", 0.75)]
+    @State private var started = Date()
+
     var body: some View {
         VStack(spacing: 22) {
             Image(systemName: model.stage == .rendering ? "film" : "waveform.and.magnifyingglass")
                 .font(.system(size: 54)).symbolEffect(.pulse).foregroundStyle(.tint)
-            Text(model.stage == .rendering ? "Rendering your video" : "Working on it").font(.title.bold())
-            VStack(spacing: 8) {
-                ProgressView(value: model.progress).progressViewStyle(.linear).frame(width: 420)
-                Text(model.phase).font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            }
-            Text(model.stage == .rendering ? "Hardware-encoded on your Mac." : "Speech recognition and prompt writing run locally through oMLX.")
+            Text(model.stage == .rendering ? "Rendering your video" : "Planning your video").font(.title.bold())
+            ProgressPanel(fraction: model.progress, phase: model.phase, started: started,
+                          steps: model.stage == .rendering ? [] : Self.planSteps.map { $0.0 },
+                          currentStep: Self.planSteps.lastIndex { model.progress >= $0.1 } ?? 0)
+            Text(model.stage == .rendering ? "Hardware-encoded on your Mac. You can leave this running." : "Speech recognition and prompt writing run on this Mac.")
                 .font(.caption).foregroundStyle(.tertiary)
         }.padding()
+        .onAppear { started = Date() }
     }
+}
+
+/// Big, clear progress: percentage, bar, current task, optional step checklist, elapsed time and time left.
+struct ProgressPanel: View {
+    let fraction: Double
+    let phase: String
+    let started: Date
+    var steps: [String] = []
+    var currentStep = 0
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            let el = ctx.date.timeIntervalSince(started)
+            let f = min(max(fraction, 0), 1)
+            VStack(spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(Int(f * 100))%").font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("Elapsed \(clock(el))").monospacedDigit()
+                        if f > 0.04 && f < 0.995 { Text("About \(clock(el / f * (1 - f))) left").monospacedDigit().foregroundStyle(.secondary) }
+                    }.font(.callout)
+                }
+                ProgressView(value: f).progressViewStyle(.linear).scaleEffect(x: 1, y: 2.2, anchor: .center)
+                Text(phase).font(.callout.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading)
+                if !steps.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(steps.enumerated()), id: \.offset) { i, name in
+                            HStack(spacing: 8) {
+                                Image(systemName: i < currentStep ? "checkmark.circle.fill" : (i == currentStep ? "circle.dotted" : "circle"))
+                                    .foregroundStyle(i <= currentStep ? Color.accentColor : Color.secondary.opacity(0.5))
+                                Text(name).foregroundStyle(i <= currentStep ? .primary : .secondary)
+                            }.font(.callout)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .frame(width: 440)
+    }
+    func clock(_ s: Double) -> String { let n = Int(max(0, s)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
 }
 
 // MARK: Done
@@ -196,9 +243,18 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Where things are saved") {
-                folderRow("Projects", model.config.projectsFolder, defaultText: "~/Movies/Music Videos") { model.config.projectsFolder = $0 }
-                folderRow("Finished videos & Shorts", model.config.outputFolder, defaultText: "next to each project") { model.config.outputFolder = $0 }
-                Text("A project folder holds the song, transcript, synced lyrics, pictures and the save file. Videos are written to the second folder if you choose one.").font(.caption).foregroundStyle(.secondary)
+                folderRow("Main folder", model.config.projectsFolder, defaultText: "~/Movies/Music Videos") { model.config.projectsFolder = $0 }
+                folderRow("Finished videos & Shorts", model.config.outputFolder, defaultText: "inside each project (same main folder)") { model.config.outputFolder = $0 }
+                Text("Everything lives in the main folder: one folder per song with the MP3, transcript, synced lyrics, pictures, save file, video and Shorts. Pick a separate folder for finished videos only if you want them elsewhere.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Dock") {
+                LabeledContent("Music Video Maker") {
+                    HStack {
+                        Text(model.inDock ? "In your Dock" : "Not in your Dock").foregroundStyle(.secondary)
+                        Button(model.inDock ? "Remove from Dock" : "Add to Dock") { model.toggleDock() }.controlSize(.small)
+                    }
+                }
+                if let n = model.dockNote { Text(n).font(.caption).foregroundStyle(.secondary) }
             }
             if model.isNativeBuild {
                 Section("On-device AI") {
@@ -215,7 +271,7 @@ struct SettingsView: View {
             }
             }
         }
-        .formStyle(.grouped).frame(width: 560, height: 470)
+        .formStyle(.grouped).frame(width: 560, height: 560)
         .task { await check() }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
         .onChange(of: model.config.sttModel) { save() }.onChange(of: model.config.llmModel) { save() }
@@ -260,14 +316,11 @@ struct NativeSetupView: View {
             Text("Music Video Maker does its speech recognition and prompt writing on this Mac. Pick a size — it downloads once and then works offline.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 460)
             if model.settingUp {
-                VStack(spacing: 8) {
-                    ProgressView(value: model.setupProgress).frame(width: 380)
-                    Text(model.setupPhase).font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                }
+                ProgressPanel(fraction: model.setupProgress, phase: model.setupPhase, started: model.setupStarted)
             } else {
                 Picker("Size", selection: $model.nativeTier) {
-                    Text("Small — about 1.5 GB total").tag("small")
-                    Text("Balanced — about 2.8 GB total (recommended)").tag("balanced")
+                    Text("Small — about 1.5 GB total (fastest, plainer prompts)").tag("small")
+                    Text("Balanced — about 4.1 GB total, Gemma 4 E2B (recommended)").tag("balanced")
                     Text("Best — about 6.5 GB total").tag("best")
                 }.pickerStyle(.radioGroup).labelsHidden()
                 Text("Includes Parakeet Ultra for word-accurate lyric timing (0.5 GB) plus a language model for the prompts. Bigger models write better prompts.")

@@ -33,6 +33,7 @@ final class AppModel: ObservableObject {
     @Published var settingUp = false
     @Published var setupPhase = ""
     @Published var setupProgress = 0.0
+    var setupStarted = Date()
     var isNativeBuild: Bool {
         #if NATIVE_MLX
         return true
@@ -51,7 +52,7 @@ final class AppModel: ObservableObject {
     func runNativeSetup() {
         #if NATIVE_MLX
         guard let tier = NativeEngine.Tier(rawValue: nativeTier) else { return }
-        settingUp = true; setupPhase = "Starting…"; setupProgress = 0
+        settingUp = true; setupStarted = Date(); setupPhase = "Starting…"; setupProgress = 0
         Task {
             do {
                 try await NativeEngine.setup(tier: tier) { [weak self] p, f in Task { @MainActor in self?.setupPhase = p; self?.setupProgress = f } }
@@ -59,6 +60,22 @@ final class AppModel: ObservableObject {
             } catch { settingUp = false; errorMessage = "Setup didn't finish: \(error.localizedDescription). It resumes where it left off when you try again." }
         }
         #endif
+    }
+
+    // Dock
+    @Published var inDock = DockHelper.contains(Bundle.main.bundlePath)
+    @Published var dockNote: String?
+    func toggleDock() {
+        let path = Bundle.main.bundlePath
+        if !inDock && path.contains("/.build") { dockNote = "Move the app to /Applications first, then add it."; return }
+        do { try DockHelper.set(path, present: !inDock); inDock = DockHelper.contains(path); dockNote = nil }
+        catch { dockNote = error.localizedDescription }
+    }
+
+    func chooseSaveFolder() {
+        let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
+        p.prompt = "Save Here"; p.message = "Choose the folder where all projects, pictures and finished videos are saved."
+        if p.runModal() == .OK, let u = p.url { config.projectsFolder = u.path; try? config.save() }
     }
 
     // Projects

@@ -5,6 +5,14 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Changed
+- Balanced tier now uses Gemma 4 E2B (faster, closer to the song's era than Qwen3-4B).
+- Clear progress panel: percentage, bar, current task, step checklist, elapsed and time left (planning, rendering, setup, Shorts).
+- One "Saving to…" button on the main screen sets the folder for all projects, pictures and videos.
+
+### Added
+- Settings → Dock: add/remove the app from the Dock.
+
 ### Added
 - Model benchmarks (`docs/model-benchmarks.md`, `scripts/bench/`) and hidden `mvideo align-check`; confirmed default model tiers.
 

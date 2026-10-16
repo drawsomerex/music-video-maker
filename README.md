@@ -13,7 +13,7 @@ feathered wipes/iris/blinds/push transitions, and karaoke-style lyrics synced to
 
 `./install_native.sh [--tier small|balanced|best] [--skip-models] [--no-install]` checks the Mac, builds with Xcode's compiler, installs to /Applications, then downloads the models once (progress shown; resumes if interrupted). The app also offers the download on first launch.
 
-**Sizes (total on disk):** small ≈ 1.5 GB (Qwen3-1.7B) · **balanced ≈ 2.8 GB (Qwen3-4B-Instruct, default)** · best ≈ 6.5 GB (Qwen3.5-9B). Speech is the same in every tier:
+**Sizes (total on disk):** small ≈ 1.5 GB (Qwen3-1.7B) · **balanced ≈ 4.1 GB (Gemma 4 E2B, default)** · best ≈ 6.5 GB (Qwen3.5-9B). Speech is the same in every tier:
 Parakeet Ultra shrunk to 4-bit keeps word timings within one frame (80 ms) of full precision and transcribes a 4-minute song in under 3 s.
 
 ## Publishing updates & installing on other Macs

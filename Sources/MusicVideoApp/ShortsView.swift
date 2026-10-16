@@ -235,7 +235,7 @@ struct ShortEditor: View {
             }.controlSize(.large)
             Spacer()
             if let p = model.shortProgress {
-                ProgressView(value: p).frame(width: 140); Text("Rendering…").font(.callout).foregroundStyle(.secondary)
+                ProgressView(value: p).frame(width: 180); Text("Rendering \(Int(p * 100))%").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             } else if let out = model.shortOutput {
                 Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }
                 ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }
