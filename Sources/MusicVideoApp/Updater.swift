@@ -1,4 +1,3 @@
-// Self-updater: checks the private GitHub release, verifies the SHA-256, swaps the app and relaunches.
 import SwiftUI
 import CryptoKit
 
@@ -7,24 +6,13 @@ import CryptoKit
 /// Files fetched by the app itself aren't quarantined, so the updated app opens without Gatekeeper warnings.
 @MainActor
 final class Updater: ObservableObject {
-    struct Release: Identifiable { var id: String { version }; var version: String; var notes: String; var zip: URL?; var tag: String = ""; var sha256: String?; var page: URL? }
+    struct Release: Identifiable { var id: String { version }; var version: String; var notes: String; var zip: URL; var sha256: String?; var page: URL? }
 
     @Published var available: Release?
     @Published var showAvailable = false
     @Published var message: String?
     @Published var progress: Double?
     @Published var busy = false
-
-    /// The repo is private, so the app asks GitHub's CLI (signed in as you) for the release instead of reading it anonymously.
-    nonisolated static var gh: String? { ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"].first { FileManager.default.isExecutableFile(atPath: $0) } }
-    nonisolated static func runGH(_ args: [String]) -> Data? {
-        guard let exe = gh else { return nil }
-        let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
-        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
-        guard (try? p.run()) != nil else { return nil }
-        let d = out.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
-        return p.terminationStatus == 0 ? d : nil
-    }
 
     static var env: [String: String] { ProcessInfo.processInfo.environment }
     static func log(_ s: String) { if env["MV_UPDATE_SELFTEST"] != nil { FileHandle.standardError.write(Data(("[updater] " + s + "\n").utf8)) } }
@@ -52,16 +40,6 @@ final class Updater: ObservableObject {
         busy = true; defer { busy = false }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
         do {
-            if Updater.env["MV_UPDATE_API"] == nil, let repo = Updater.repo {
-                guard Updater.gh != nil else { if !silent { message = "Updates come from a private GitHub repo. Install GitHub's CLI (brew install gh) and sign in with “gh auth login”." }; return }
-                let data = await Task.detached { Updater.runGH(["api", "repos/\(repo)/releases/latest"]) }.value
-                guard let data, let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    if !silent { message = "Couldn't reach the private release. Is GitHub's CLI signed in? (gh auth login)" }; return }
-                let tag = ((o["tag_name"] as? String) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
-                guard Updater.isNewer(tag, than: Updater.current) else { if !silent { message = "You're up to date — version \(Updater.current)." }; return }
-                available = Release(version: tag, notes: (o["body"] as? String) ?? "", zip: nil, tag: (o["tag_name"] as? String) ?? "v\(tag)", sha256: nil, page: (o["html_url"] as? String).flatMap(URL.init(string:)))
-                showAvailable = true; return
-            }
             var req = URLRequest(url: url); req.timeoutInterval = 15
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept"); req.setValue("MusicVideoMaker", forHTTPHeaderField: "User-Agent")
             let (data, resp) = try await URLSession.shared.data(for: req)
@@ -78,7 +56,7 @@ final class Updater: ObservableObject {
             if let h = asset({ $0.hasSuffix(".sha256") }), let (d, _) = try? await URLSession.shared.data(from: h) {
                 hash = String(decoding: d, as: UTF8.self).split(whereSeparator: { $0.isWhitespace }).first.map(String.init)
             }
-            available = Release(version: tag, notes: (o["body"] as? String) ?? "", zip: zip, tag: "", sha256: hash?.lowercased(), page: (o["html_url"] as? String).flatMap(URL.init(string:)))
+            available = Release(version: tag, notes: (o["body"] as? String) ?? "", zip: zip, sha256: hash?.lowercased(), page: (o["html_url"] as? String).flatMap(URL.init(string:)))
             showAvailable = true
         } catch { Updater.log("check failed: \(error)"); if !silent { message = "Couldn't check for updates (\(error.localizedDescription))." } }
     }
@@ -98,22 +76,9 @@ final class Updater: ObservableObject {
             let work = fm.temporaryDirectory.appendingPathComponent("mv-update-\(UUID().uuidString)")
             try fm.createDirectory(at: work, withIntermediateDirectories: true)
             let zip = work.appendingPathComponent("update.zip")
-            var wantHash = r.sha256
-            if let url = r.zip {
-                try await download(url, to: zip) { [weak self] f in Task { @MainActor in self?.progress = f * 0.9 } }
-            } else if let repo = Updater.repo {
-                progress = 0.3
-                let ok = await Task.detached { Updater.runGH(["release", "download", r.tag, "--repo", repo, "--pattern", "*native*.zip", "--pattern", "*native*.zip.sha256", "--dir", work.path, "--clobber"]) != nil }.value
-                guard ok, let got = try fm.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first(where: { $0.pathExtension == "zip" }) else {
-                    throw NSError(domain: "Updater", code: 5, userInfo: [NSLocalizedDescriptionKey: "Couldn't download the update from your private GitHub repo."]) }
-                try fm.moveItem(at: got, to: zip)
-                if let sh = try fm.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first(where: { $0.pathExtension == "sha256" }) {
-                    wantHash = (try? String(contentsOf: sh, encoding: .utf8))?.split(whereSeparator: { $0.isWhitespace }).first.map { String($0).lowercased() }
-                }
-                progress = 0.9
-            }
+            try await download(r.zip, to: zip) { [weak self] f in Task { @MainActor in self?.progress = f * 0.9 } }
 
-            if let want = wantHash {
+            if let want = r.sha256 {
                 var h = SHA256(); let fh = try FileHandle(forReadingFrom: zip)
                 while let chunk = try fh.read(upToCount: 1 << 20), !chunk.isEmpty { h.update(data: chunk) }
                 let got = h.finalize().map { String(format: "%02x", $0) }.joined()

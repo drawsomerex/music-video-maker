@@ -13,7 +13,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 - One "Saving to…" button on the main screen sets the folder for all projects, pictures and videos.
 
 ### Changed (privacy)
-- Releases go to a private repo; installer and in-app updater download through the signed-in GitHub CLI.
+- Releases are public; installer and in-app updater download anonymously (no GitHub account needed).
+- App identifier is now com.drawsomerex.musicvideomaker; commit author is the GitHub handle only.
 - Removed song-specific test scoring script and example text.
 
 ### Added

@@ -1,26 +1,23 @@
 #!/bin/bash
 # Installs the latest Music Video Maker release on a Mac — no Xcode, no building.
-#   gh api repos/drawsomerex/music-video-maker/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
-# Private repo: needs GitHub's CLI signed in once (brew install gh; gh auth login). Files fetched this way aren't quarantined,
-# so macOS opens the app without the "unidentified developer" warning.
+#   curl -fsSL https://raw.githubusercontent.com/drawsomerex/music-video-maker/main/install.sh | bash
+# (curl-downloaded files aren't quarantined, so macOS opens the app without the "unidentified developer" warning.)
 set -euo pipefail
 REPO="${MV_REPO:-drawsomerex/music-video-maker}"
 die() { printf "\n✗ %s\n" "$*" >&2; exit 1; }
-[ "$REPO" != "OWNER/NAME" ] || die "This installer hasn't been pointed at a repo yet (release.sh does that on first publish)."
+[ "$REPO" != "drawsomerex/music-video-maker" ] || die "This installer hasn't been pointed at a repo yet (release.sh does that on first publish)."
 [ "$(uname -m)" = "arm64" ] || die "This app needs an Apple Silicon Mac (M1 or newer)."
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || die "macOS 14 or newer is required."
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-# The repo is private, so downloads go through GitHub's own CLI, signed in as you (nothing is public or anonymous).
-GH="$(command -v gh || true)"; [ -z "$GH" ] && for c in /opt/homebrew/bin/gh /usr/local/bin/gh; do [ -x "$c" ] && GH="$c"; done
-[ -n "$GH" ] || die "Install GitHub's CLI first:  brew install gh   (or https://cli.github.com), then run  gh auth login  and try again."
-"$GH" auth status >/dev/null 2>&1 || die "Sign in once with:  gh auth login   — then run this installer again."
-echo "Downloading the latest release of $REPO…"
-"$GH" release download --repo "$REPO" --pattern '*native*.zip' --pattern '*native*.zip.sha256' --dir "$TMP" --clobber >/dev/null 2>&1 || die "Couldn't download the latest release (no access to $REPO, or no release yet)."
-ZIPF="$(ls "$TMP"/*native*.zip 2>/dev/null | head -1)"; [ -n "$ZIPF" ] || die "No downloadable build found in the latest release."
-mv "$ZIPF" "$TMP/app.zip"
-SHAF="$(ls "$TMP"/*.sha256 2>/dev/null | head -1)"
-if [ -n "$SHAF" ]; then
-  WANT="$(awk '{print $1}' "$SHAF")"; GOT="$(shasum -a 256 "$TMP/app.zip" | awk '{print $1}')"
+echo "Looking up the latest release of $REPO…"
+JSON="$(curl -fsSL -H 'Accept: application/vnd.github+json' "${MV_API:-https://api.github.com/repos/$REPO/releases/latest}")"
+URL="$(printf '%s' "$JSON" | grep -o '"browser_download_url": *"[^"]*native[^"]*\.zip"' | head -1 | sed -E 's/.*"(https?[^"]*)"/\1/')"
+SHA_URL="$(printf '%s' "$JSON" | grep -o '"browser_download_url": *"[^"]*native[^"]*\.zip\.sha256"' | head -1 | sed -E 's/.*"(https?[^"]*)"/\1/')"
+[ -n "$URL" ] || die "No downloadable build found in the latest release."
+echo "Downloading $(basename "$URL")…"
+curl -fL --progress-bar "$URL" -o "$TMP/app.zip"
+if [ -n "$SHA_URL" ]; then
+  WANT="$(curl -fsSL "$SHA_URL" | awk '{print $1}')"; GOT="$(shasum -a 256 "$TMP/app.zip" | awk '{print $1}')"
   [ "$WANT" = "$GOT" ] || die "Download didn't match its checksum — not installing."
 fi
 ditto -x -k "$TMP/app.zip" "$TMP/out"

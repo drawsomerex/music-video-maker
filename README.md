@@ -11,7 +11,7 @@ A native macOS app (Apple Silicon) that turns a song into a YouTube-ready video.
 
 ## Quick start (build it yourself)
 ```bash
-git clone https://github.com/drawsomerex/music-video-maker.git && cd music-video-maker     # private repo: you need to be signed in with `gh auth login`
+git clone https://github.com/drawsomerex/music-video-maker.git && cd music-video-maker
 ./install_native.sh                                          # builds, installs to /Applications, downloads the models
 ```
 Open **Music Video Maker** from Launchpad/Spotlight. Optional: *Settings → Dock → Add to Dock*, and *Settings → Where things are saved* (or the “Saving to…” button) to pick the folder for everything.
@@ -36,18 +36,18 @@ Open **Music Video Maker** from Launchpad/Spotlight. Optional: *Settings → Doc
 Parakeet Ultra shrunk to 4-bit keeps word timings within one frame (80 ms) of full precision and transcribes a 4-minute song in under 3 s.
 
 ## Publishing updates & installing on other Macs
-Releases live on a **private GitHub repo** (only accounts you invite can see or download anything) (Releases hold the app zip + checksum). No Apple developer account is needed.
+Releases live on a **public GitHub repo** (Releases hold the app zip + checksum; downloading needs no GitHub account). No Apple developer account is needed.
 
-**You (once):** `brew install gh && gh auth login`, then `./release.sh --create-repo music-video-maker` — creates the private repo, builds, tags `v1.0.1`, uploads the release.
+**You (once):** `brew install gh && gh auth login`, then `./release.sh --create-repo music-video-maker` — creates the public repo, builds, tags `v1.0.1`, uploads the release.
 **You (every update):** change the code, then `./release.sh` (`--bump minor`, `--version 2.0.0`, `--notes "…"` if you like). `./release.sh --dry-run` builds the zip without publishing.
 
-**Any Mac, first time (no Xcode, ~13 MB download):** install GitHub's CLI and sign in once (`brew install gh && gh auth login`), then:
+**Any Mac, first time (no Xcode, no GitHub account, ~13 MB download):**
 ```
-gh api repos/drawsomerex/music-video-maker/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
+curl -fsSL https://raw.githubusercontent.com/drawsomerex/music-video-maker/main/install.sh | bash
 ```
-(`release.sh` prints the exact line.) Downloads happen as your signed-in GitHub account, are checksum-verified, and aren't quarantined, so macOS opens the app with no "unidentified developer" prompt. The first launch offers the one-time model download.
+The download is checksum-verified and `curl` doesn't tag files as downloaded from the internet, so macOS opens the app with no "unidentified developer" prompt. The first launch offers the one-time model download.
 
-**After that the app updates itself** (through the same `gh` sign-in): it checks GitHub once a day on launch (and via *Music Video Maker ▸ Check for Updates…*), shows the release notes, and on *Install & Restart* downloads the zip, **verifies its SHA-256**, swaps itself in and relaunches. Models are separate, so an update is only ~13 MB.
+**After that the app updates itself:** it checks GitHub once a day on launch (and via *Music Video Maker ▸ Check for Updates…*), shows the release notes, and on *Install & Restart* downloads the zip, **verifies its SHA-256**, swaps itself in and relaunches. Models are separate, so an update is only ~13 MB.
 
 Notes: this applies to the standalone (native) app. A copy built with `./build_app.sh` (the oMLX flavor) updates with `git pull && ./build_app.sh`. The app is ad-hoc signed (no paid certificate), so macOS may ask once more for access to your Movies folder after an update.
 
@@ -124,4 +124,4 @@ oMLX's API key is read from `~/.omlx/settings.json` automatically (override with
 `Sources/MVCore` shared engine (planning, lyric alignment, rendering) · `Sources/MusicVideoApp` SwiftUI app · `Sources/mvideo` command-line tool · `Sources/MVNative` on-device Swift-MLX models · `Vendor/` trimmed mlx-audio-swift · `scripts/` packaging and benchmarks · `docs/model-benchmarks.md` why these models were chosen · `CHANGELOG.md` release notes.
 
 ## Licence
-Private project, all rights reserved by the owner. Third-party components keep their own licences (above).
+Source is public to read; all rights reserved by the owner (no licence granted to copy or redistribute). Third-party components keep their own licences (above).
