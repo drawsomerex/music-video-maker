@@ -10,8 +10,22 @@ public enum Transcriber {
     public static let windowLength = 4.0
     public static let hop = 0.75
 
-    /// Decodes any audio file to 16 kHz mono Int16 samples.
+    private static let pcmLock = NSLock()
+    nonisolated(unsafe) private static var cachedPCMKey = ""
+    nonisolated(unsafe) private static var cachedPCM: [Int16] = []
+
+    static func fileStamp(_ path: String) -> String {
+        let a = try? FileManager.default.attributesOfItem(atPath: path)
+        return "\(path)|\(a?[.size] ?? 0)|\(a?[.modificationDate] ?? Date.distantPast)"
+    }
+
+    /// Decodes any audio file to 16 kHz mono Int16 samples (cached in memory for the current song).
     public static func loadMono16k(path: String) async throws -> [Int16] {
+        let key = fileStamp(path)
+        if let hit: [Int16] = pcmLock.withLock({ (key == cachedPCMKey && !cachedPCM.isEmpty) ? cachedPCM : nil }) {
+            return hit
+        }
+
         let asset = AVURLAsset(url: URL(fileURLWithPath: path))
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else { throw MVError("No audio track found in that file.") }
         let reader = try AVAssetReader(asset: asset)
@@ -28,15 +42,20 @@ public enum Transcriber {
             CMBlockBufferCopyDataBytes(bb, atOffset: 0, dataLength: n * 2, destination: &chunk)
             samples += chunk
         }
+        pcmLock.withLock {
+            cachedPCMKey = key; cachedPCM = samples
+        }
         return samples
     }
 
-    static func wav(_ s: ArraySlice<Int16>) -> Data {
+    public static func wav(_ s: ArraySlice<Int16>, sampleRate: Int = 16000, channels: Int = 1) -> Data {
         var d = Data(); let bytes = s.count * 2
+        let byteRate = sampleRate * channels * 2
+        let blockAlign = channels * 2
         func u32(_ v: Int) { var x = UInt32(v).littleEndian; d.append(Data(bytes: &x, count: 4)) }
         func u16(_ v: Int) { var x = UInt16(v).littleEndian; d.append(Data(bytes: &x, count: 2)) }
         d.append("RIFF".data(using: .ascii)!); u32(36 + bytes); d.append("WAVEfmt ".data(using: .ascii)!)
-        u32(16); u16(1); u16(1); u32(16000); u32(32000); u16(2); u16(16); d.append("data".data(using: .ascii)!); u32(bytes)
+        u32(16); u16(1); u16(channels); u32(sampleRate); u32(byteRate); u16(blockAlign); u16(16); d.append("data".data(using: .ascii)!); u32(bytes)
         s.withUnsafeBufferPointer { d.append(UnsafeBufferPointer(start: $0.baseAddress, count: $0.count)) }
         return d
     }
@@ -79,8 +98,15 @@ public enum Transcriber {
 }
 
 extension Transcriber {
-    /// Peak level (0…1) every 10 ms — for drawing the waveform in the Shorts editor.
-    public static func waveform(audioPath: String) async throws -> [Float] {
+    struct WaveformCache: Codable { var key: String; var peaks: [Float] }
+
+    /// Peak level (0…1) every 10 ms — for drawing the waveform in the Shorts editor. Cached in `work/waveform.json` when `work` is given.
+    public static func waveform(audioPath: String, work: URL? = nil) async throws -> [Float] {
+        let key = fileStamp(audioPath)
+        let cacheURL = work?.appendingPathComponent("waveform.json")
+        if let u = cacheURL, let c = try? JSONDecoder().decode(WaveformCache.self, from: Data(contentsOf: u)), c.key == key, !c.peaks.isEmpty {
+            return c.peaks
+        }
         let pcm = try await loadMono16k(path: audioPath)
         let step = 160
         var out = [Float](); out.reserveCapacity(pcm.count / step + 1)
@@ -91,6 +117,10 @@ extension Transcriber {
             out.append(Float(m) / 32768); i += step
         }
         let peak = max(out.max() ?? 1, 0.05)
-        return out.map { min(1, $0 / peak) }
+        let norm = out.map { min(1, $0 / peak) }
+        if let u = cacheURL {
+            try? JSONEncoder().encode(WaveformCache(key: key, peaks: norm)).write(to: u, options: .atomic)
+        }
+        return norm
     }
 }

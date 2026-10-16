@@ -12,6 +12,8 @@ final class LivePreview: ObservableObject {
     @Published var playing = false
     @Published var duration = 1.0
     @Published var preparing = false
+    @Published var preparingPhase = "Building preview…"
+    @Published var preparingProgress = 0.0
     @Published var captionY: Double?
 
     private var composer: FrameComposer?
@@ -28,27 +30,37 @@ final class LivePreview: ObservableObject {
     /// Builds (or reuses) the composer for this plan/clip. Cheap when nothing changed.
     func load(plan: Plan, work: URL, clip: ShortClip?, audio: URL) async {
         let sig = [clip.map { "\($0.id)|\($0.start)|\($0.end)|\($0.dynamic)|\($0.styleSeed)|\($0.hook)|\($0.cta)|\($0.motion)|\($0.textStyle)|\($0.accent)|\($0.pulse)|\($0.loop)" } ?? "full",
-                   plan.sections.map { $0.selectedCandidate?.fullFile ?? "-" }.joined(separator: ","), "\(plan.lines.count)|\(plan.lines.first?.start ?? 0)|\(plan.title)"].joined(separator: "#")
+                   plan.sections.map {
+                       guard let c = $0.selectedCandidate else { return "-" }
+                       return "\(c.fullFile ?? "-")@\(Int(c.focusX * 1000)),\(Int(c.focusY * 1000))"
+                   }.joined(separator: ","),
+                   "\(plan.lines.count)|\(plan.lines.map { Int($0.start * 100) }.hashValue)|\(plan.title)"].joined(separator: "#")
         vertical = clip != nil
         duration = clip.map(\.duration) ?? (plan.songDuration + plan.audioOffset)
         audioStart = clip?.start ?? 0
         fadeIn = clip?.dynamic ?? false
         if sig == key, composer != nil { return }
         pause()
-        preparing = true
+        preparing = true; preparingPhase = "Analyzing beats & timing…"; preparingProgress = 0.15
         let cap = clip?.captionY ?? plan.captionY
-        let built: FrameComposer = await Task.detached(priority: .userInitiated) {
+        let built: FrameComposer = await Task.detached(priority: .userInitiated) { [weak self] in
             var s = clip != nil ? VideoSettings(height: 960) : VideoSettings(height: 540)
             if clip != nil { s.width = 540 }
             var beats: [Double] = []
-            if let c = clip, c.dynamic, ShortStyle.make(seed: c.styleSeed, clip: c).pulse > 0 { beats = await BeatDetector.beats(audioPath: audio.path, start: c.start, end: c.end) }
+            if let c = clip, c.dynamic {
+                let st = ShortStyle.make(seed: c.styleSeed, clip: c)
+                if st.pulse > 0 || !st.calm { beats = await BeatDetector.beats(audioPath: audio.path, start: c.start, end: c.end, work: work) }
+            }
+            await MainActor.run { self?.preparingPhase = "Composing lyric & scene layers…"; self?.preparingProgress = 0.6 }
             let comp = FrameComposer(plan: plan, work: work, settings: s, short: clip, beats: beats)
             comp.captionBottom = cap
             return comp
         }.value
-        composer = built; key = sig; captionY = cap; preparing = false
+        preparingPhase = "Rendering first frame…"; preparingProgress = 0.9
+        composer = built; key = sig; captionY = cap
         if let p = try? AVAudioPlayer(contentsOf: audio) { player = p; p.prepareToPlay() }
         render(at: min(time, max(0, duration - 0.1)))
+        preparingProgress = 1.0; preparing = false
     }
 
     func invalidate() { key = "" }
@@ -128,7 +140,20 @@ struct LivePreviewPane: View {
                                 }
                                 .onEnded { _ in dragging = false; onCaptionCommit(live.captionY) })
                     }
-                } else { ProgressView(live.preparing ? "Building preview…" : "") }
+                } else {
+                    VStack(spacing: 10) {
+                        ProgressView(value: live.preparingProgress).progressViewStyle(.linear).frame(width: 180)
+                        Text(live.preparingPhase).font(.caption).foregroundStyle(.white.opacity(0.85))
+                    }.padding(16)
+                }
+                if live.preparing && live.image != nil {
+                    VStack(spacing: 6) {
+                        ProgressView(value: live.preparingProgress).progressViewStyle(.linear).frame(width: 160)
+                        Text(live.preparingPhase).font(.caption2).foregroundStyle(.primary)
+                    }
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                }
             }
             .aspectRatio(live.vertical ? 9.0 / 16 : 16.0 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 16)).shadow(radius: 8, y: 3)

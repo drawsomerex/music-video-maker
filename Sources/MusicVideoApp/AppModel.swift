@@ -18,16 +18,40 @@ final class AppModel: ObservableObject {
     @Published var lyrics = ""
     @Published var imageInterval = 15.0
     @Published var quality = 1080
+    @Published var selectedStylePreset = StylePreset.all[0].name
 
     @Published var phase = ""
     @Published var progress = 0.0
     @Published var plan: Plan?
     @Published var workDir: URL?
     @Published var outputURL: URL?
+    @Published var autoRenderShorts = true
+    @Published var renderedShorts: [URL] = []
     @Published var errorMessage: String?
     @Published var notice: String?
     @Published var config = Config.load()
+
+    // Background task progress banner (shown whenever any background task runs)
     @Published var busy = false
+    @Published var busyPhase = ""
+    @Published var busyProgress = 0.0
+    var busyStarted = Date()
+    var mainTask: Task<Void, Never>?
+    var backgroundTask: Task<Void, Never>?
+    var shortRenderTask: Task<Void, Never>?
+
+    // Live Song Recording & Real-Time Transcription
+    @Published var audioInputMode = 0   // 0 = Drop MP3/WAV, 1 = Record Song Playing
+    @Published var recordSource: LiveSongRecorder.Source = .systemAudio
+    @Published var isRecording = false
+    @Published var recordingSeconds = 0.0
+    @Published var recordingLevel: Float = 0
+    @Published var recordingHistory: [Float] = []
+    @Published var liveTranscribing = false
+    @Published var trimSummary: String?
+    private let recorder = LiveSongRecorder()
+    private var recordTimer: Timer?
+    private var lastLiveTranscribeTime = 0.0
 
     // First-run setup of the on-device models (native build only)
     @Published var nativeTier = "balanced"
@@ -89,6 +113,8 @@ final class AppModel: ObservableObject {
     let live = LivePreview()
     @Published var showFullPreview = false
     @Published var shortProgress: Double?
+    @Published var shortPhase = ""
+    var shortStarted = Date()
     @Published var shortOutput: URL?
     @Published var hookBusy = false
     @Published var capped = false   // flashes a note when an edit hit the 3:00 limit
@@ -110,7 +136,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var canStart: Bool { audioURL != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var canStart: Bool { !isRecording && !busy && audioURL != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var estimatedImages: Int { audioDuration > 0 ? max(2, Int((audioDuration / imageInterval).rounded()) + 1) : 0 }
     var missing: [Int] { plan.map(Pipeline.missing) ?? [] }
     var loadedCount: Int { plan.map { $0.sections.count + 1 - Pipeline.missing($0).count } ?? 0 }
@@ -121,6 +147,7 @@ final class AppModel: ObservableObject {
 
     func setAudio(_ url: URL) {
         audioURL = url
+        trimSummary = nil
         if title.isEmpty {
             var t = url.deletingPathExtension().lastPathComponent
             if let r = t.range(of: " (") { t = String(t[..<r.lowerBound]) }
@@ -133,13 +160,171 @@ final class AppModel: ObservableObject {
         { [weak self] phase, p in Task { @MainActor in self?.phase = phase; self?.progress = p } }
     }
 
+    private var busyHandler: ProgressHandler {
+        { [weak self] phase, p in Task { @MainActor in self?.busyPhase = phase; self?.busyProgress = p } }
+    }
+
+    private func runBackground(initialPhase: String, work: @escaping () async throws -> Void) {
+        backgroundTask?.cancel()
+        busy = true; busyStarted = Date(); busyPhase = initialPhase; busyProgress = 0.05
+        backgroundTask = Task {
+            do {
+                try await work()
+            } catch is CancellationError {
+                // User cancelled
+            } catch {
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
+            }
+            busy = false; busyProgress = 0; backgroundTask = nil
+        }
+    }
+
+    func cancelBackgroundTask() {
+        backgroundTask?.cancel()
+        backgroundTask = nil
+        busy = false
+        resyncing = false
+        hookBusy = false
+    }
+
+    func cancelMainTask() {
+        let wasPlanning = (stage == .working)
+        mainTask?.cancel()
+        mainTask = nil
+        stage = wasPlanning ? .setup : .plan
+    }
+
+    func cancelShortRender() {
+        shortRenderTask?.cancel()
+        shortRenderTask = nil
+        shortProgress = nil
+        shortPhase = ""
+    }
+
+    // MARK: Live Song Recording & Real-Time Transcription
+
+    func startRecording() {
+        guard !isRecording else { return }
+        stopPlayback()
+        recordingSeconds = 0
+        recordingLevel = 0
+        recordingHistory = []
+        lastLiveTranscribeTime = 0
+        trimSummary = nil
+        let src = recordSource
+        Task {
+            do {
+                try await recorder.start(source: src)
+                isRecording = true
+                if title.trimmingCharacters(in: .whitespaces).isEmpty {
+                    let df = DateFormatter(); df.dateFormat = "MMM d h-mm a"
+                    title = "Recorded Song (\(df.string(from: Date())))"
+                }
+                recordTimer?.invalidate()
+                recordTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+                    Task { @MainActor in self?.tickRecording() }
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func tickRecording() {
+        guard isRecording else { return }
+        recordingSeconds = recorder.recordedDuration
+        let lvl = recorder.level
+        recordingLevel = lvl
+        recordingHistory.append(lvl)
+        if recordingHistory.count > 90 { recordingHistory.removeFirst(recordingHistory.count - 90) }
+
+        // Real-time transcription every ~4.5 seconds of recorded audio
+        if !liveTranscribing && recordingSeconds - lastLiveTranscribeTime >= 4.5 {
+            let maxRecent = recordingHistory.suffix(40).max() ?? 0
+            guard maxRecent > 0.008 else { return }
+            lastLiveTranscribeTime = recordingSeconds
+            liveTranscribing = true
+            let pcm = recorder.snapshotMono16k()
+            let cfg = config
+            Task {
+                if let text = try? await LiveSongRecorder.transcribePCM16k(pcm, config: cfg), !text.isEmpty {
+                    if self.isRecording { self.lyrics = text }
+                }
+                self.liveTranscribing = false
+            }
+        }
+    }
+
+    func stopRecording() {
+        guard isRecording else { return }
+        recordTimer?.invalidate(); recordTimer = nil
+        isRecording = false; recordingLevel = 0
+        let outDir = outputRoot.appendingPathComponent("Recordings")
+        try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        let safeTitle = (title.trimmingCharacters(in: .whitespaces).isEmpty ? "Recorded Song" : title).replacingOccurrences(of: "/", with: "-")
+        let wavURL = outDir.appendingPathComponent("\(safeTitle)_\(Int(Date().timeIntervalSince1970)).wav")
+        let cfg = config
+        runBackground(initialPhase: "Stopping recording & trimming silence…") { [weak self] in
+            guard let self else { return }
+            let bh = self.busyHandler
+            let res = try await self.recorder.stopAndTrim(outputURL: wavURL) { p, f in
+                bh(p, f * 0.45)
+            }
+            self.audioURL = res.url
+            self.audioDuration = res.duration
+            self.trimSummary = String(format: "Auto-trimmed %.1fs silence at start & %.1fs at end · Final length: %@", res.trimmedStart, res.trimmedEnd, timeString(res.duration))
+            bh("Transcribing full trimmed song with Parakeet…", 0.55)
+            if let text = try? await LiveSongRecorder.transcribeAudioFile(url: res.url, config: cfg), !text.isEmpty {
+                self.lyrics = text
+            }
+            bh("Done", 1.0)
+        }
+    }
+
+    func pasteOverLyrics() {
+        if let s = NSPasteboard.general.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lyrics = s
+        }
+    }
+
+    /// Transcribes whatever audio file is currently loaded into the Lyrics editor.
+    func transcribeLoadedAudio() {
+        guard let u = audioURL else { return }
+        let cfg = config
+        runBackground(initialPhase: "Transcribing lyrics from audio with Parakeet…") { [weak self] in
+            guard let self else { return }
+            self.busyHandler("Listening to song with Parakeet Ultra…", 0.25)
+            let text = try await LiveSongRecorder.transcribeAudioFile(url: u, config: cfg)
+            guard !text.isEmpty else { throw MVError("The speech model didn't detect any sung words in that audio file.") }
+            self.lyrics = text
+            self.busyHandler("Done", 1.0)
+        }
+    }
+
+    /// Trims leading and trailing silence from the currently loaded audio file.
+    func trimLoadedAudioSilence() {
+        guard let u = audioURL else { return }
+        let outDir = outputRoot.appendingPathComponent("Recordings")
+        try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        let dst = outDir.appendingPathComponent(u.deletingPathExtension().lastPathComponent + "_trimmed.wav")
+        runBackground(initialPhase: "Trimming silence from start and end…") { [weak self] in
+            guard let self else { return }
+            let res = try await LiveSongRecorder.trimAudioFile(at: u, outputURL: dst, progress: self.busyHandler)
+            self.audioURL = res.url
+            self.audioDuration = res.duration
+            self.trimSummary = String(format: "Auto-trimmed %.1fs silence at start & %.1fs at end · Final length: %@", res.trimmedStart, res.trimmedEnd, timeString(res.duration))
+        }
+    }
+
     // MARK: Step 1
     func start() {
         guard let audio = audioURL else { return }
         config = Config.load()
         stage = .working; phase = "Starting…"; progress = 0
         let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = imageInterval
-        Task {
+        let presetPrompt = StylePreset.all.first(where: { $0.name == selectedStylePreset })?.prompt ?? ""
+        mainTask?.cancel()
+        mainTask = Task {
             do {
                 // Never overwrite an existing project: a second song/plan with the same title gets "Title 2", "Title 3"…
                 let base = t.replacingOccurrences(of: "/", with: "-")
@@ -148,9 +333,15 @@ final class AppModel: ObservableObject {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let work = Pipeline.workDir(output: folder, title: t)
                 workDir = work
-                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, config: config, progress: handler)
+                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, config: config, progress: handler)
                 stage = .plan; remember(work); loadWaveform()
-            } catch { errorMessage = error.localizedDescription; stage = .setup }
+            } catch is CancellationError {
+                stage = .setup
+            } catch {
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
+                stage = .setup
+            }
+            mainTask = nil
         }
     }
 
@@ -166,41 +357,91 @@ final class AppModel: ObservableObject {
     func setStyle(_ text: String) { plan?.style = text; persist() }
     func setDescription(_ text: String) { plan?.description = text; persist() }
 
-    func regeneratePrompts() {
+    func applyStylePreset(_ name: String) {
+        selectedStylePreset = name
+        if let preset = StylePreset.all.first(where: { $0.name == name }), !preset.prompt.isEmpty {
+            plan?.style = preset.prompt
+            persist()
+        }
+    }
+
+    func regeneratePrompts(keepStyle: Bool = true) {
         guard var p = plan else { return }
-        busy = true
-        Task {
-            do { try await Pipeline.regeneratePrompts(plan: &p, config: config); plan = p; persist(); notice = "Prompts rewritten from the description." }
-            catch { errorMessage = error.localizedDescription }
-            busy = false
+        runBackground(initialPhase: "Writing image prompts from description…") { [weak self] in
+            guard let self else { return }
+            try await Pipeline.regeneratePrompts(plan: &p, keepStyle: keepStyle, config: self.config, progress: self.busyHandler)
+            self.plan = p; self.persist(); self.notice = "Prompts rewritten from the description."
         }
     }
 
     func redescribe() {
         guard var p = plan else { return }
-        busy = true
-        Task {
-            do { try await Pipeline.redescribe(plan: &p, config: config); try await Pipeline.regeneratePrompts(plan: &p, config: config); plan = p; persist() }
-            catch { errorMessage = error.localizedDescription }
-            busy = false
+        runBackground(initialPhase: "Rewriting song description & image prompts…") { [weak self] in
+            guard let self else { return }
+            let bh = self.busyHandler
+            try await Pipeline.redescribe(plan: &p, config: self.config) { ph, f in bh(ph, f * 0.35) }
+            try await Pipeline.regeneratePrompts(plan: &p, keepStyle: true, config: self.config) { ph, f in bh(ph, 0.35 + f * 0.65) }
+            self.plan = p; self.persist()
         }
     }
 
     func load(_ url: URL, section: Int) {
         guard var p = plan, let w = workDir else { return }
-        do { if let warn = try Pipeline.attach(imageAt: url, section: section, plan: &p, work: w) { notice = warn }; plan = p }
-        catch { errorMessage = error.localizedDescription }
+        do {
+            if let warn = try Pipeline.attach(imageAt: url, section: section, plan: &p, work: w) { notice = warn }
+            plan = p; live.invalidate()
+        } catch { errorMessage = error.localizedDescription }
     }
 
     func loadFolder(_ url: URL) {
-        guard var p = plan, let w = workDir else { return }
-        let r = Pipeline.attachFolder(url, plan: &p, work: w); plan = p
-        notice = "Loaded \(r.loaded.count) picture(s)." + (r.warnings.isEmpty ? "" : "\n" + r.warnings.joined(separator: "\n"))
+        guard let p0 = plan, let w = workDir else { return }
+        runBackground(initialPhase: "Loading folder of pictures…") { [weak self] in
+            guard let self else { return }
+            let handler = self.busyHandler
+            let (updated, r) = await Task.detached(priority: .userInitiated) {
+                var p = p0
+                let res = Pipeline.attachFolder(url, plan: &p, work: w, progress: handler)
+                return (p, res)
+            }.value
+            self.plan = updated; self.live.invalidate()
+            self.notice = "Loaded \(r.loaded.count) picture(s)." + (r.warnings.isEmpty ? "" : "\n" + r.warnings.joined(separator: "\n"))
+        }
     }
 
     func removeImage(section: Int) {
         guard var p = plan, let w = workDir else { return }
-        Pipeline.removeImage(section: section, plan: &p, work: w); plan = p
+        Pipeline.removeImage(section: section, plan: &p, work: w); plan = p; live.invalidate()
+    }
+
+    func setFocus(x: Double, y: Double, section: Int) {
+        guard var p = plan else { return }
+        let cx = min(0.95, max(0.05, x)), cy = min(0.95, max(0.05, y))
+        if section < 0 {
+            if p.intro.candidates.indices.contains(p.intro.selected) {
+                p.intro.candidates[p.intro.selected].focusX = cx
+                p.intro.candidates[p.intro.selected].focusY = cy
+            }
+        } else if p.sections.indices.contains(section), p.sections[section].candidates.indices.contains(p.sections[section].selected) {
+            p.sections[section].candidates[p.sections[section].selected].focusX = cx
+            p.sections[section].candidates[p.sections[section].selected].focusY = cy
+        }
+        plan = p; persist(); live.invalidate()
+    }
+
+    func resetFocus(section: Int) {
+        guard let p = plan, let w = workDir else { return }
+        let sec = section < 0 ? p.intro : p.sections[section]
+        guard let thumb = sec.selectedCandidate?.thumbFile,
+              let a = ImageScorer.analyze(fileURL: w.appendingPathComponent(thumb)) else {
+            setFocus(x: 0.5, y: 0.5, section: section); return
+        }
+        setFocus(x: Double(a.focus.x), y: Double(a.focus.y), section: section)
+    }
+
+    func nudgeLine(_ lineIndex: Int, delta: Double) {
+        guard var p = plan, let w = workDir else { return }
+        Pipeline.shiftLine(plan: &p, lineIndex: lineIndex, delta: delta, work: w)
+        plan = p; live.invalidate()
     }
 
     func reuse(section: Int, from source: Int) {
@@ -210,11 +451,10 @@ final class AppModel: ObservableObject {
 
     func rewritePrompt(section: Int) {
         guard var p = plan else { return }
-        busy = true
-        Task {
-            do { try await Pipeline.rewritePrompt(plan: &p, section: section, config: config); plan = p; persist() }
-            catch { errorMessage = error.localizedDescription }
-            busy = false
+        runBackground(initialPhase: "Writing another prompt take…") { [weak self] in
+            guard let self else { return }
+            try await Pipeline.rewritePrompt(plan: &p, section: section, config: self.config, progress: self.busyHandler)
+            self.plan = p; self.persist()
         }
     }
 
@@ -231,19 +471,67 @@ final class AppModel: ObservableObject {
     }
 
     func render() {
-        guard let p = plan, let w = workDir else { return }
-        stage = .rendering; phase = "Preparing frames"; progress = 0
+        guard var p = plan, let w = workDir else { return }
+        stage = .rendering; phase = "Preparing frames"; progress = 0; renderedShorts = []
         let q = quality
-        Task {
+        let alsoShorts = autoRenderShorts
+        if alsoShorts && p.shorts.isEmpty {
+            p.shorts = Pipeline.autoShorts(plan: p)
+            plan = p; persist()
+        }
+        mainTask?.cancel()
+        mainTask = Task {
             do {
                 let out = Pipeline.videoURL(plan: p, work: w, config: config)
-                try await VideoRenderer.render(plan: p, work: w, output: out, settings: VideoSettings(height: q), progress: handler)
+                let mainWeight = alsoShorts && !p.shorts.isEmpty ? 0.50 : 1.0
+                try await VideoRenderer.render(plan: p, work: w, output: out, settings: VideoSettings(height: q)) { [weak self] ph, f in
+                    Task { @MainActor in
+                        self?.phase = alsoShorts ? "Main video · \(ph)" : ph
+                        self?.progress = f * mainWeight
+                    }
+                }
+                var shortURLs: [URL] = []
+                if alsoShorts && !p.shorts.isEmpty {
+                    let count = p.shorts.count
+                    for i in 0..<count {
+                        try Task.checkCancellation()
+                        var c = p.shorts[i]
+                        let base = mainWeight + (1.0 - mainWeight) * (Double(i) / Double(count))
+                        let span = (1.0 - mainWeight) / Double(count)
+                        if c.hook.isEmpty {
+                            await MainActor.run {
+                                self.phase = "Short \(i + 1) of \(count) · Writing hook title…"
+                                self.progress = base + span * 0.08
+                            }
+                            if let h = await Pipeline.writeHook(plan: p, clip: c, config: config), !h.isEmpty {
+                                c.hook = h
+                                p.shorts[i].hook = h
+                                await MainActor.run { self.plan = p; self.persist() }
+                            }
+                        }
+                        try Task.checkCancellation()
+                        let sOut = try await Pipeline.renderShort(plan: p, work: w, clip: c, config: config) { [weak self] ph, f in
+                            Task { @MainActor in
+                                self?.phase = "Short \(i + 1) of \(count) (\(c.name)) · \(ph)"
+                                self?.progress = base + span * (0.10 + 0.90 * f)
+                            }
+                        }
+                        shortURLs.append(sOut)
+                    }
+                }
+                renderedShorts = shortURLs
                 outputURL = out; stage = .done
-            } catch { errorMessage = error.localizedDescription; stage = .plan }
+            } catch is CancellationError {
+                stage = .plan
+            } catch {
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
+                stage = .plan
+            }
+            mainTask = nil
         }
     }
 
-    func reset() { stopPlayback(); stage = .setup; plan = nil; outputURL = nil; progress = 0; waveform = [] }
+    func reset() { stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = [] }
 
     // MARK: Projects
     func remember(_ folder: URL) {
@@ -256,6 +544,10 @@ final class AppModel: ObservableObject {
             var p = try Pipeline.loadPlan(folder)
             // Heal pictures whose files were moved/deleted.
             for i in p.sections.indices { if let c = p.sections[i].selectedCandidate, let f = c.fullFile, !FileManager.default.fileExists(atPath: folder.appendingPathComponent(f).path) { p.sections[i].candidates = []; p.sections[i].selected = -1 } }
+            if p.shorts.isEmpty && !p.lines.isEmpty {
+                p.shorts = Pipeline.autoShorts(plan: p)
+                try? Pipeline.savePlan(p, folder)
+            }
             plan = p; workDir = folder; title = p.title; subject = p.subject; lyrics = p.lines.map(\.text).joined(separator: "\n")
             stage = .plan; remember(folder); loadWaveform()
         } catch { errorMessage = "Couldn't open that project: \(error.localizedDescription)" }
@@ -276,13 +568,12 @@ final class AppModel: ObservableObject {
     func resync() {
         guard var p = plan, let w = workDir else { return }
         resyncing = true
-        Task {
-            do {
-                let cov = try await Pipeline.resync(plan: &p, work: w, config: config)
-                plan = p; notice = String(format: "Lyrics re-synced with exact word timing (%.0f%% of words matched).", cov * 100)
-                refreshPreview(at: 1)
-            } catch { errorMessage = error.localizedDescription }
-            resyncing = false
+        runBackground(initialPhase: "Re-syncing lyrics with Parakeet…") { [weak self] in
+            guard let self else { return }
+            defer { self.resyncing = false }
+            let cov = try await Pipeline.resync(plan: &p, work: w, config: self.config, progress: self.busyHandler)
+            self.plan = p; self.notice = String(format: "Lyrics re-synced with exact word timing (%.0f%% of words matched).", cov * 100)
+            self.refreshPreview(at: 1)
         }
     }
 
@@ -293,12 +584,65 @@ final class AppModel: ObservableObject {
 
     func loadWaveform() {
         guard let u = audioFileURL else { return }
-        Task { waveform = (try? await Transcriber.waveform(audioPath: u.path)) ?? [] }
+        let w = workDir
+        Task { waveform = (try? await Transcriber.waveform(audioPath: u.path, work: w)) ?? [] }
     }
 
     var currentShort: ShortClip? { plan?.shorts.first { $0.id == selectedShort } }
 
     static let defaultShortLength = 30.0
+
+    /// Automatically generates 4–7 ~30-second Shorts breaking at natural stanza and vocal pause boundaries.
+    func autoMakeShorts(replaceExisting: Bool = true) {
+        guard var p = plan else { return }
+        let generated = Pipeline.autoShorts(plan: p)
+        if replaceExisting {
+            p.shorts = generated
+        } else {
+            p.shorts.append(contentsOf: generated)
+        }
+        plan = p; selectedShort = p.shorts.first?.id; persist(); refreshPreview(at: 1)
+        notice = "Created \(generated.count) Shorts (~30s each) cut at natural stanza & lyric boundaries."
+    }
+
+    /// Renders all Shorts in `plan.shorts` sequentially with progress and AI hooks.
+    func renderAllShorts() {
+        guard var p = plan, let w = workDir, !p.shorts.isEmpty else { return }
+        stopPlayback(); shortProgress = 0; shortPhase = "Preparing \(p.shorts.count) Shorts…"; shortStarted = Date(); shortOutput = nil
+        shortRenderTask?.cancel()
+        shortRenderTask = Task {
+            do {
+                let count = p.shorts.count
+                for i in 0..<count {
+                    try Task.checkCancellation()
+                    var c = p.shorts[i]
+                    let base = Double(i) / Double(count)
+                    let span = 1.0 / Double(count)
+                    if c.hook.isEmpty {
+                        shortPhase = "Short \(i + 1)/\(count): Writing hook…"
+                        shortProgress = base + span * 0.08
+                        if let h = await Pipeline.writeHook(plan: p, clip: c, config: config), !h.isEmpty {
+                            c.hook = h; p.shorts[i].hook = h; plan = p; persist()
+                        }
+                    }
+                    try Task.checkCancellation()
+                    _ = try await Pipeline.renderShort(plan: p, work: w, clip: c, config: config) { [weak self] ph, f in
+                        Task { @MainActor in
+                            self?.shortPhase = "Short \(i + 1)/\(count) (\(c.name)): \(ph)"
+                            self?.shortProgress = base + span * (0.10 + 0.90 * f)
+                        }
+                    }
+                }
+                shortOutput = Pipeline.shortsFolder(w)
+                notice = "Rendered all \(count) Shorts to \(Pipeline.shortsFolder(w).lastPathComponent)/."
+            } catch is CancellationError {
+                shortOutput = nil
+            } catch {
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
+            }
+            shortProgress = nil; shortPhase = ""; shortRenderTask = nil
+        }
+    }
 
     /// A new Short: `leadIn` seconds of music, then the first lyric, running 30 s in total (end snapped to a quiet gap).
     func newShort() {
@@ -314,9 +658,15 @@ final class AppModel: ObservableObject {
     func writeHook(_ id: UUID) {
         guard let p = plan, let c = p.shorts.first(where: { $0.id == id }) else { return }
         hookBusy = true
-        Task {
-            if let h = await Pipeline.writeHook(plan: p, clip: c, config: config) { update(id) { $0.hook = h }; refreshPreview(at: 1.0) }
-            hookBusy = false
+        runBackground(initialPhase: "Writing opening hook title with local AI…") { [weak self] in
+            guard let self else { return }
+            defer { self.hookBusy = false }
+            self.busyHandler("Generating punchy hook from Short lyrics…", 0.4)
+            if let h = await Pipeline.writeHook(plan: p, clip: c, config: self.config) {
+                self.update(id) { $0.hook = h }
+                self.refreshPreview(at: 1.0)
+            }
+            self.busyHandler("Done", 1.0)
         }
     }
 
@@ -402,20 +752,30 @@ final class AppModel: ObservableObject {
     /// Renders the Short — or, for A/B testing, 3 variants with different looks (same clip, different seeds).
     func renderShort(_ id: UUID, variants: Int = 1) {
         guard let p = plan, let w = workDir, let c = p.shorts.first(where: { $0.id == id }) else { return }
-        stopPlayback(); shortProgress = 0; shortOutput = nil
-        Task {
+        stopPlayback(); shortProgress = 0; shortPhase = "Preparing Short…"; shortStarted = Date(); shortOutput = nil
+        shortRenderTask?.cancel()
+        shortRenderTask = Task {
             do {
                 for v in 0..<variants {
+                    try Task.checkCancellation()
                     var cv = c; if v > 0 { cv.styleSeed = c.styleSeed &+ UInt64(v) &* 7919 }
+                    let label = variants > 1 ? "Variant \(["A", "B", "C", "D", "E"][min(v, 4)]) (\(v + 1)/\(variants)): " : ""
                     let suffix = variants > 1 ? " (\(["A", "B", "C", "D", "E"][min(v, 4)]))" : ""
                     let base = Double(v) / Double(variants)
-                    shortOutput = try await Pipeline.renderShort(plan: p, work: w, clip: cv, suffix: suffix, config: config) { [weak self] _, f in
-                        Task { @MainActor in self?.shortProgress = base + f / Double(variants) }
+                    shortOutput = try await Pipeline.renderShort(plan: p, work: w, clip: cv, suffix: suffix, config: config) { [weak self] ph, f in
+                        Task { @MainActor in
+                            self?.shortPhase = label + ph
+                            self?.shortProgress = base + f / Double(variants)
+                        }
                     }
                 }
                 if variants > 1 { shortOutput = Pipeline.shortsFolder(w) }
-            } catch { errorMessage = error.localizedDescription }
-            shortProgress = nil
+            } catch is CancellationError {
+                shortOutput = nil
+            } catch {
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
+            }
+            shortProgress = nil; shortPhase = ""; shortRenderTask = nil
         }
     }
 }

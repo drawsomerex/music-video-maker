@@ -257,3 +257,29 @@ public struct Config: Codable {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Config.url.path)
     }
 }
+
+/// Curated visual style presets for image-generation prompts.
+public struct StylePreset: Identifiable, Hashable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let prompt: String
+    public init(name: String, prompt: String) { self.name = name; self.prompt = prompt }
+
+    public static let all: [StylePreset] = [
+        StylePreset(name: "AI Auto (match the song)", prompt: ""),
+        StylePreset(name: "Oil Painting", prompt: "Museum-quality impasto oil painting on linen canvas, rich visible brushstrokes, warm chiaroscuro lighting, deep painterly textures and atmospheric depth."),
+        StylePreset(name: "Acrylic Painting", prompt: "Vibrant modern acrylic painting on canvas, bold expressive brushwork, saturated pigments, crisp layered edges and dynamic contrast."),
+        StylePreset(name: "Vector Image", prompt: "Clean flat vector illustration, bold geometric shapes, crisp bezier lines, mid-century modern screenprint color palette and stylized atmospheric shading."),
+        StylePreset(name: "Realistic", prompt: "Photorealistic 35mm cinematic still frame, natural golden-hour and practical lighting, shallow depth of field, Kodak Vision3 film grain and anamorphic lens bokeh."),
+        StylePreset(name: "Watercolor & Ink", prompt: "Delicate hand-painted watercolor and fountain-pen ink wash on cold-press cotton paper, soft bleeding pigments, luminous highlights and organic paper grain."),
+        StylePreset(name: "Studio Anime", prompt: "Lush hand-painted anime background art, gouache sky and foliage, warm nostalgia, soft sunlight beams and detailed cinematic staging."),
+        StylePreset(name: "Vintage Comic Book", prompt: "Classic inked graphic novel illustration, bold crosshatching, halftone Ben-Day dot shading, dramatic noir shadows and vintage print color registration."),
+        StylePreset(name: "Neon Cyberpunk", prompt: "Atmospheric cyberpunk concept art, rain-slicked neon reflections, cyan and magenta volumetric fog, moody night-time lighting and high-contrast cinematic framing."),
+        StylePreset(name: "Charcoal & Gold Leaf", prompt: "Expressive charcoal and graphite drawing on textured rag paper accented with warm kintsugi gold leaf highlights, dramatic smudges and poetic contrast."),
+        StylePreset(name: "3D Claymation Diorama", prompt: "Handcrafted stop-motion miniature diorama, sculpted polymer clay and felt textures, warm miniature studio spotlights and tilt-shift macro depth of field."),
+        StylePreset(name: "Ukiyo-e Woodblock Print", prompt: "Traditional Japanese Ukiyo-e woodblock print, carved sumi ink outlines, flat mineral pigments on handmade washi paper, stylized waves and clouds."),
+        StylePreset(name: "Stained Glass", prompt: "Luminous cathedral stained-glass mosaic, leaded black contours, jewel-toned translucent glass panels glowing with backlit sunbeams."),
+        StylePreset(name: "Retro 1970s Poster", prompt: "Warm 1970s airbrushed vinyl album cover art, sun-bleached Kodachrome palette, subtle distressed halftone grain and sweeping cinematic horizon."),
+    ]
+}
+

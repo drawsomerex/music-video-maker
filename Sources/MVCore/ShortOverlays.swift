@@ -76,14 +76,22 @@ final class WordLayer: LyricRendering {
             }
         }
         let space = Double(size) * 0.26
+        var bitmapCache: [String: (TextBitmap, TextBitmap, TextBitmap)] = [:]
         for words in raw {
             var rowsOf: [[Item]] = [[]]; var rowW = 0.0
             var all: [Item] = []
             for w in words {
                 let text = w.text.trimmingCharacters(in: CharacterSet(charactersIn: " "))
-                let n = textBitmap(text, font: font, color: .white, shadow: true)
-                let a = textBitmap(text, font: font, color: nsColor(accent), shadow: true)
-                let d = mode == .pill ? textBitmap(text, font: font, color: NSColor(white: 0.05, alpha: 1), shadow: false) : n   // dark text only the pill style uses (saves memory on whole songs)
+                let (n, a, d): (TextBitmap, TextBitmap, TextBitmap)
+                if let cached = bitmapCache[text] {
+                    (n, a, d) = cached
+                } else {
+                    let nb = textBitmap(text, font: font, color: .white, shadow: true)
+                    let ab = textBitmap(text, font: font, color: nsColor(accent), shadow: true)
+                    let db = mode == .pill ? textBitmap(text, font: font, color: NSColor(white: 0.05, alpha: 1), shadow: false) : nb   // dark text only the pill style uses (saves memory on whole songs)
+                    bitmapCache[text] = (nb, ab, db)
+                    (n, a, d) = (nb, ab, db)
+                }
                 let item = Item(start: w.start + timeOffset, end: w.end + timeOffset, normal: n, accent: a, dark: d, cx: 0, cy: 0)
                 let iw = Double(n.size.width)
                 if rowW + iw > maxRow && !rowsOf[rowsOf.count - 1].isEmpty { rowsOf.append([]); rowW = 0 }

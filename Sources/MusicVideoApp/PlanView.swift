@@ -76,7 +76,21 @@ struct PlanView: View {
                     .font(.callout).scrollContentBackground(.hidden).padding(6)
                     .frame(height: 64).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
-                Text("Shared style — appended to every prompt so the pictures match").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                HStack {
+                    Text("Shared style — appended to every prompt so the pictures match").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu {
+                        ForEach(Array(StylePreset.all.dropFirst())) { preset in
+                            Button(preset.name) {
+                                model.applyStylePreset(preset.name)
+                            }
+                        }
+                    } label: {
+                        Label("Style Presets", systemImage: "paintpalette")
+                    }
+                    .controlSize(.small)
+                    .fixedSize()
+                }
                 TextEditor(text: Binding(get: { model.plan?.style ?? "" }, set: { model.setStyle($0) }))
                     .font(.callout).scrollContentBackground(.hidden).padding(6)
                     .frame(height: 46).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
@@ -118,8 +132,39 @@ struct PlanView: View {
                 }
 
                 if !section.lineIDs.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(section.lineIDs, id: \.self) { Text("♪ " + plan.lines[$0].text).font(.callout) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Lyrics in this section").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text("Click ▶ to hear a line · Nudge timing if a line arrives early or late").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        ForEach(section.lineIDs, id: \.self) { lineIdx in
+                            let line = plan.lines[lineIdx]
+                            HStack(spacing: 6) {
+                                Button {
+                                    model.playRange(max(0, line.start - 0.15), line.end + 0.25)
+                                } label: {
+                                    Image(systemName: "play.fill").font(.caption2)
+                                }
+                                .buttonStyle(.bordered).controlSize(.mini).help("Play this lyric line")
+
+                                Text(String(format: "%d:%04.1f", Int(line.start) / 60, line.start.truncatingRemainder(dividingBy: 60)))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 44, alignment: .trailing)
+
+                                Text("♪ " + line.text).font(.callout).lineLimit(1)
+                                Spacer(minLength: 4)
+
+                                HStack(spacing: 2) {
+                                    Button("−0.5s") { model.nudgeLine(lineIdx, delta: -0.5) }
+                                    Button("−0.1s") { model.nudgeLine(lineIdx, delta: -0.1) }
+                                    Button("+0.1s") { model.nudgeLine(lineIdx, delta: 0.1) }
+                                    Button("+0.5s") { model.nudgeLine(lineIdx, delta: 0.5) }
+                                }
+                                .buttonStyle(.bordered).controlSize(.mini).font(.caption2.monospacedDigit())
+                            }
+                        }
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
                 }
                 if let r = section.repeatOf {
@@ -153,14 +198,24 @@ struct PlanView: View {
     var footer: some View {
         HStack(spacing: 14) {
             Button { model.openFullPreview() } label: { Label("Preview video", systemImage: "play.rectangle") }.disabled(model.loadedCount == 0)
-            ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 140)
-            Text("\(model.loadedCount) of \(model.totalImages) pictures loaded").font(.callout).foregroundStyle(.secondary)
+            ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 120)
+            Text("\(model.loadedCount) of \(model.totalImages) pictures").font(.callout).foregroundStyle(.secondary)
             Spacer()
+            Toggle(isOn: $model.autoRenderShorts) {
+                Label("Also make \(plan.shorts.isEmpty ? "4–7" : "\(plan.shorts.count)") Shorts (~30s)", systemImage: "rectangle.portrait.fill")
+                    .font(.callout)
+            }
+            .toggleStyle(.checkbox)
+            .help("Automatically render the main video and \(plan.shorts.isEmpty ? "4–7" : "\(plan.shorts.count)") ~30-second Shorts cut at natural stanza boundaries")
+
             Picker("Quality", selection: $model.quality) {
                 Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160)
-            }.pickerStyle(.segmented).frame(width: 280).labelsHidden()
-            Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: { Label("Render Video", systemImage: "film").font(.headline).padding(.horizontal, 8).padding(.vertical, 3) }
-                .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
+            }.pickerStyle(.segmented).frame(width: 240).labelsHidden()
+            Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: {
+                Label(model.autoRenderShorts ? "Render Video + Shorts" : "Render Video", systemImage: "film")
+                    .font(.headline).padding(.horizontal, 8).padding(.vertical, 3)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.horizontal, 20).padding(.vertical, 12).background(.regularMaterial)
     }
@@ -172,39 +227,93 @@ struct PlanView: View {
     }
 }
 
-/// Big drop target / preview for the current section's picture.
+/// Big drop target / preview for the current section's picture, with interactive focal-point reticle and 9:16 Short crop preview.
 struct DropWell: View {
     @EnvironmentObject var model: AppModel
     let section: Int
     @State private var targeted = false
+    @State private var showShortCrop = true
     var sec: PhotoSection { section < 0 ? model.plan!.intro : model.plan!.sections[section] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your picture").font(.headline)
-            ZStack {
-                if let c = sec.selectedCandidate, let t = c.thumbFile {
-                    Thumb(file: model.workDir!.appendingPathComponent(t)).aspectRatio(16.0 / 9, contentMode: .fill)
-                } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "photo.badge.plus").font(.system(size: 34)).foregroundStyle(.secondary)
-                        Text("Drop the picture here").font(.callout.weight(.medium))
-                        Text("or click to choose a file").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Your picture").font(.headline)
+                if sec.selectedCandidate != nil {
+                    Spacer()
+                    Toggle("Show 9:16 Short crop & focal point", isOn: $showShortCrop)
+                        .toggleStyle(.checkbox).font(.caption).foregroundStyle(.secondary)
+                    Button("Auto Focus") { model.resetFocus(section: section) }
+                        .controlSize(.mini).buttonStyle(.bordered)
+                        .help("Re-detect the face / subject focal point automatically")
+                }
+            }
+            GeometryReader { geo in
+                let w = geo.size.width, h = geo.size.height
+                ZStack {
+                    if let c = sec.selectedCandidate, let t = c.thumbFile {
+                        Thumb(file: model.workDir!.appendingPathComponent(t))
+                            .frame(width: w, height: h)
+                            .clipped()
+                        if showShortCrop {
+                            let fx = CGFloat(c.focusX)
+                            let fy = CGFloat(c.focusY)
+                            // 9:16 vertical crop box inside a 16:9 frame has width = h * (9/16)
+                            let cropW = min(w, h * (9.0 / 16.0))
+                            let cropCenterX = min(w - cropW / 2, max(cropW / 2, fx * w))
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .frame(width: cropW, height: h - 6)
+                                .position(x: cropCenterX, y: h / 2)
+                                .shadow(color: .black.opacity(0.6), radius: 2)
+
+                            // Focal point reticle (y is bottom-up in Vision, convert to top-down for SwiftUI display)
+                            let dispX = fx * w
+                            let dispY = (1.0 - fy) * h
+                            ZStack {
+                                Circle().fill(Color.black.opacity(0.45)).frame(width: 26, height: 26)
+                                Circle().strokeBorder(Color.white, lineWidth: 2).frame(width: 22, height: 22)
+                                Circle().fill(Color.orange).frame(width: 7, height: 7)
+                            }
+                            .position(x: dispX, y: dispY)
+                            .help("Focal point for Ken Burns pan & 9:16 Shorts crop — drag to adjust")
+                        }
+                    } else {
+                        VStack(spacing: 8) {
+                            Image(systemName: "photo.badge.plus").font(.system(size: 34)).foregroundStyle(.secondary)
+                            Text("Drop the picture here").font(.callout.weight(.medium))
+                            Text("or click to choose a file").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(width: w, height: h)
                     }
                 }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            guard sec.selectedCandidate != nil else { return }
+                            let nx = min(0.95, max(0.05, Double(g.location.x / max(1, w))))
+                            let ny = min(0.95, max(0.05, 1.0 - Double(g.location.y / max(1, h))))
+                            model.setFocus(x: nx, y: ny, section: section)
+                        }
+                )
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        if sec.selectedCandidate == nil { choose() }
+                    }
+                )
             }
             .frame(maxWidth: 640).aspectRatio(16.0 / 9, contentMode: .fit)
             .background(RoundedRectangle(cornerRadius: 12).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: sec.selectedCandidate == nil ? [6, 5] : [])).foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.5)))
-            .contentShape(Rectangle())
-            .onTapGesture { choose() }
             .dropDestination(for: URL.self) { urls, _ in
                 guard let u = urls.first else { return false }; model.load(u, section: section); return true
             } isTargeted: { targeted = $0 }
             if let c = sec.selectedCandidate {
                 HStack {
-                    Text("\(c.credit) · \(c.width)×\(c.height)").font(.caption).foregroundStyle(.secondary)
+                    Text("\(c.credit) · \(c.width)×\(c.height) · Drag the orange target to aim the camera pan & 9:16 Short crop").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Replace…") { choose() }.controlSize(.small)
                     Button("Remove", role: .destructive) { model.removeImage(section: section) }.controlSize(.small)

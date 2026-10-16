@@ -20,10 +20,12 @@ public final class FrameComposer: @unchecked Sendable {
     let beats: [Double]
     let loop: Bool
     /// Caption block position (fraction of height from the bottom). Read on every frame, so it can change live in the preview.
-    public var captionBottom: Double? { didSet { lyrics.bottom = captionBottom } }
+    public var captionBottom: Double? { didSet { lyrics.bottom = captionBottom; loopLock.lock(); loopFirstImage = nil; loopLock.unlock() } }
     let D: Double
     let fadeIn: Double, fadeOut: Double
     public let totalDuration: Double
+    private var loopFirstImage: CGImage?
+    private let loopLock = NSLock()
 
     /// `short` renders only that song range (vertical, no title card, times shifted to start at 0).
     public init(plan fullPlan: Plan, work: URL, settings: VideoSettings, short: ShortClip? = nil, beats: [Double] = []) {
@@ -56,7 +58,7 @@ public final class FrameComposer: @unchecked Sendable {
             let c = all[i].selectedCandidate
             sc.append(PhotoScene(box: boxes[i], a: a, b: max(e, a + 1), seed: all[i].seed &+ UInt64(i),
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
-                                 shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm))
+                                 shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm, beats: beats))
         }
         scenes = sc
         var rng = SeededRNG((dyn ? short!.styleSeed : 0xC0FFEE) ^ UInt64(plan.title.hashValue & 0xFFFF)); var last = -1; var ks: [TransitionKind] = []
@@ -100,7 +102,21 @@ public final class FrameComposer: @unchecked Sendable {
 
     /// Frees the pictures of scenes that are finished (called by the renderer between batches).
     public func releaseImages(before t: Double) {
+        if loop, loopFirstImage == nil, t > 1.0 { _ = cachedLoopFirstFrame() }
         for s in scenes where s.b + 1.5 < t { s.box?.unload() }
+    }
+
+    private func cachedLoopFirstFrame() -> CGImage? {
+        loopLock.lock()
+        if let img = loopFirstImage { loopLock.unlock(); return img }
+        loopLock.unlock()
+        let first = makeContext(W, H)
+        renderBase(t: 0, ctx: first)
+        let img = first.makeImage()
+        loopLock.lock()
+        loopFirstImage = img
+        loopLock.unlock()
+        return img
     }
 
     func drawScene(_ i: Int, t: Double, ctx: CGContext) {
@@ -151,11 +167,10 @@ public final class FrameComposer: @unchecked Sendable {
 
     public func render(t: Double, ctx: CGContext) {
         renderBase(t: t, ctx: ctx)
-        // Loop ending: dissolve back into the opening frame so the replay is seamless.
+        // Loop ending: dissolve back into the cached opening frame so the replay is seamless.
         let ld = 0.5
         if loop && t > totalDuration - ld {
-            let first = makeContext(W, H); renderBase(t: 0, ctx: first)
-            if let img = first.makeImage() {
+            if let img = cachedLoopFirstFrame() {
                 ctx.saveGState(); ctx.setAlpha(smooth((t - (totalDuration - ld)) / ld))
                 ctx.draw(img, in: CGRect(x: 0, y: 0, width: W, height: H)); ctx.restoreGState()
             }
@@ -181,8 +196,12 @@ public enum VideoRenderer {
     public static func render(plan: Plan, work: URL, output: URL, settings: VideoSettings = .init(), short: ShortClip? = nil, progress: ProgressHandler? = nil) async throws {
         if let s = short, s.duration > ShortClip.maxDuration + 0.05 { throw MVError("A YouTube Short can't be longer than 3:00 (this clip is \(Int(s.duration / 60)):\(String(format: "%02d", Int(s.duration) % 60))). Shorten it, or use Whole song to split it into parts.") }
         progress?("Preparing frames", 0)
-        let wantsBeats = short.map { $0.dynamic && ShortStyle.make(seed: $0.styleSeed, clip: $0).pulse > 0 } ?? false
-        let beats: [Double] = wantsBeats ? await BeatDetector.beats(audioPath: Pipeline.audioURL(plan, work: work).path, start: short!.start, end: short!.end) : []
+        let wantsBeats = short.map {
+            let st = ShortStyle.make(seed: $0.styleSeed, clip: $0)
+            return $0.dynamic && (st.pulse > 0 || !st.calm)
+        } ?? false
+        let beats: [Double] = wantsBeats ? await BeatDetector.beats(audioPath: Pipeline.audioURL(plan, work: work).path, start: short!.start, end: short!.end, work: work) : []
+        try Task.checkCancellation()
         let composer = FrameComposer(plan: plan, work: work, settings: settings, short: short, beats: beats)
         let W = settings.width, H = settings.height, fps = settings.fps
         let total = Int(ceil(composer.totalDuration * Double(fps)))
@@ -263,9 +282,36 @@ public enum VideoRenderer {
         let group = DispatchGroup()
         group.enter(); group.enter()
         nonisolated(unsafe) var next = 0
+        nonisolated(unsafe) var pendingQueue: [(Int, CVPixelBuffer)] = []
+        nonisolated(unsafe) var vDone = false, aDone = false, cancelled = false
+
+        func cleanupTempFiles() {
+            if let siblings = try? FileManager.default.contentsOfDirectory(atPath: output.deletingLastPathComponent().path) {
+                for f in siblings where f.hasPrefix(output.lastPathComponent + ".sb-") { try? FileManager.default.removeItem(at: output.deletingLastPathComponent().appendingPathComponent(f)) }
+            }
+        }
 
         vIn.requestMediaDataWhenReady(on: vq) {
-            while vIn.isReadyForMoreMediaData && next < total {
+            guard !vDone else { return }
+            while vIn.isReadyForMoreMediaData {
+                if cancelled {
+                    pendingQueue.removeAll()
+                    vDone = true; vIn.markAsFinished(); group.leave(); return
+                }
+                if !pendingQueue.isEmpty {
+                    let (frameIdx, buf) = pendingQueue.removeFirst()
+                    adaptor.append(buf, withPresentationTime: CMTime(value: CMTimeValue(frameIdx), timescale: CMTimeScale(fps)))
+                    let written = frameIdx + 1
+                    if written % max(1, workers()) == 0 || written == total {
+                        let done = Double(written) / Double(total)
+                        let el = Date().timeIntervalSince(startTime)
+                        progress?("Rendering video (\(String(format: "%.1f", Double(written) / max(el, 0.01))) fps)", done)
+                    }
+                    continue
+                }
+                if next >= total {
+                    vDone = true; vIn.markAsFinished(); group.leave(); return
+                }
                 let n = min(workers() * 2, total - next)
                 composer.releaseImages(before: Double(next) / Double(fps))
                 var bufs = [CVPixelBuffer?](repeating: nil, count: n)
@@ -273,6 +319,7 @@ public enum VideoRenderer {
                 bufs.withUnsafeMutableBufferPointer { bp in
                     let ptr = bp.baseAddress!
                     DispatchQueue.concurrentPerform(iterations: n) { k in
+                        if cancelled { return }
                         var pb: CVPixelBuffer?
                         guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb) == kCVReturnSuccess, let buf = pb else { return }
                         CVPixelBufferLockBaseAddress(buf, [])
@@ -284,28 +331,31 @@ public enum VideoRenderer {
                         ptr[k] = buf
                     }
                 }
-                for k in 0..<n {
-                    while !vIn.isReadyForMoreMediaData { usleep(1500) }
-                    if let b = bufs[k] { adaptor.append(b, withPresentationTime: CMTime(value: CMTimeValue(base + k), timescale: CMTimeScale(fps))) }
-                }
+                for k in 0..<n { if let b = bufs[k] { pendingQueue.append((base + k, b)) } }
                 next += n
-                let done = Double(next) / Double(total)
-                let el = Date().timeIntervalSince(startTime)
-                progress?("Rendering video (\(String(format: "%.1f", Double(next) / max(el, 0.01))) fps)", done)
             }
-            if next >= total { vIn.markAsFinished(); group.leave() }
         }
         aIn.requestMediaDataWhenReady(on: aq) {
+            guard !aDone else { return }
             while aIn.isReadyForMoreMediaData {
-                if let sb = aOut.copyNextSampleBuffer() { aIn.append(sb) } else { aIn.markAsFinished(); group.leave(); return }
+                if cancelled { aDone = true; aIn.markAsFinished(); group.leave(); return }
+                if let sb = aOut.copyNextSampleBuffer() { aIn.append(sb) } else { aDone = true; aIn.markAsFinished(); group.leave(); return }
             }
         }
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { c.resume() } }
-        await writer.finishWriting()
-        // AVAssetWriter can leave a temporary sibling file behind when optimizing for network use.
-        if let siblings = try? FileManager.default.contentsOfDirectory(atPath: output.deletingLastPathComponent().path) {
-            for f in siblings where f.hasPrefix(output.lastPathComponent + ".sb-") { try? FileManager.default.removeItem(at: output.deletingLastPathComponent().appendingPathComponent(f)) }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { c.resume() } }
+        } onCancel: {
+            cancelled = true
         }
+        if cancelled || Task.isCancelled {
+            reader.cancelReading()
+            writer.cancelWriting()
+            try? FileManager.default.removeItem(at: output)
+            cleanupTempFiles()
+            throw CancellationError()
+        }
+        await writer.finishWriting()
+        cleanupTempFiles()
         if writer.status != .completed { throw MVError("Encoding failed: \(writer.error?.localizedDescription ?? "unknown")") }
         progress?("Done", 1)
     }

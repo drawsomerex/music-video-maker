@@ -49,13 +49,15 @@ public struct PromptWriter {
     }
 
     /// Returns (style, prompt per section id). Section id −1 is the opening title card.
-    public func write(sections: [PhotoSection], lines: [LyricLine], title: String, subject: String) async throws -> (style: String, prompts: [Int: String]) {
+    /// Resilient to truncated or slightly malformed LLM JSON: salvages partial entries and fills any missing sections individually.
+    public func write(sections: [PhotoSection], lines: [LyricLine], title: String, subject: String, preferredStyle: String = "", progress: ProgressHandler? = nil) async throws -> (style: String, prompts: [Int: String]) {
+        try Task.checkCancellation()
+        let fixedStyle = preferredStyle.trimmingCharacters(in: .whitespacesAndNewlines)
         var body = """
         \(PromptWriter.theme(title: title, subject: subject))
-
+        \(fixedStyle.isEmpty ? "" : "Chosen visual style: \(fixedStyle)\n")
         We are making a lyric music video. Use the song description below as the single source of truth for setting, era, mood and recurring subjects. A human will paste each prompt below into an AI image generator and load the pictures back in, so the images must look like they belong together.
-        1. Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), \
-        colour palette, lighting, era, mood. 20–35 words.
+        1. \(fixedStyle.isEmpty ? "Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), colour palette, lighting, era, mood. 20–35 words." : "Use the chosen visual style above for the \"style\" field.")
         2. For each numbered section write a vivid, concrete, self-contained image prompt (1–2 sentences, 25–45 words) depicting what that section's lyrics describe or evoke: \
         setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. \
         NO text, lettering, signs or logos in the image. Do not repeat the style line inside the prompts. Section -1 is the opening title-card background: an establishing scene for the whole song.
@@ -66,13 +68,66 @@ public struct PromptWriter {
             let t = s.lineIDs.isEmpty ? "(instrumental break — an establishing scene for the song's setting)" : s.lineIDs.map { lines[$0].text }.joined(separator: " / ")
             body += "\(s.id): \(t)\n"
         }
-        let reply = try await omlx.chat(model: omlx.llm, parts: [.text(body)], maxTokens: 4000)
-        guard let o = OMLX.json(from: reply) as? [String: Any], let arr = o["sections"] as? [[String: Any]] else {
-            throw MVError("The language model didn't return usable prompts (it said: “\(reply.prefix(160).replacingOccurrences(of: "\n", with: " "))…”). Try again, or use a larger model.")
-        }
         var out: [Int: String] = [:]
-        for e in arr { if let i = e["i"] as? Int ?? Int("\(e["i"] ?? "")"), let p = e["prompt"] as? String { out[i] = p.trimmingCharacters(in: .whitespacesAndNewlines) } }
-        return ((o["style"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines), out)
+        var styleOut = fixedStyle
+        if let reply = try? await omlx.chat(model: omlx.llm, parts: [.text(body)], maxTokens: 4000) {
+            if let o = OMLX.json(from: reply) as? [String: Any], let arr = o["sections"] as? [[String: Any]] {
+                if styleOut.isEmpty { styleOut = (o["style"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+                for e in arr {
+                    if let i = e["i"] as? Int ?? Int("\(e["i"] ?? "")"), let p = e["prompt"] as? String {
+                        let clean = p.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !clean.isEmpty { out[i] = clean }
+                    }
+                }
+            } else {
+                let salvaged = Self.salvage(from: reply)
+                if styleOut.isEmpty, !salvaged.style.isEmpty { styleOut = salvaged.style }
+                out = salvaged.prompts
+            }
+        }
+        if styleOut.isEmpty {
+            styleOut = "Cinematic widescreen illustration with warm natural lighting, rich atmospheric depth and cohesive color grading."
+        }
+        // Fill any missing sections individually so truncated JSON never aborts the plan.
+        let missing = sections.filter { (out[$0.id] ?? "").count < 12 }
+        if !missing.isEmpty {
+            for (idx, s) in missing.enumerated() {
+                try Task.checkCancellation()
+                progress?("Writing prompt \(idx + 1) of \(missing.count)…", Double(idx) / Double(max(1, missing.count)))
+                if let p = try? await rewrite(section: s, lines: lines, title: title, subject: subject, style: styleOut, current: ""), !p.isEmpty {
+                    out[s.id] = p
+                }
+            }
+        }
+        return (styleOut, out)
+    }
+
+    /// Extracts style and section prompts from truncated or slightly malformed JSON / numbered text.
+    static func salvage(from text: String) -> (style: String, prompts: [Int: String]) {
+        var style = ""
+        var prompts: [Int: String] = [:]
+        if let rx = try? NSRegularExpression(pattern: #""style"\s*:\s*"((?:[^"\\]|\\.)*)""#),
+           let m = rx.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let r = Range(m.range(at: 1), in: text) {
+            style = String(text[r]).replacingOccurrences(of: "\\\"", with: "\"").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let rx = try? NSRegularExpression(pattern: #""i"\s*:\s*"?(-?\d+)"?\s*,\s*"prompt"\s*:\s*"((?:[^"\\]|\\.)*)""#) {
+            for m in rx.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let ir = Range(m.range(at: 1), in: text), let pr = Range(m.range(at: 2), in: text), let i = Int(text[ir]) {
+                    let p = String(text[pr]).replacingOccurrences(of: "\\\"", with: "\"").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !p.isEmpty { prompts[i] = p }
+                }
+            }
+        }
+        if prompts.isEmpty, let rx = try? NSRegularExpression(pattern: #"(?m)^\s*(-?\d+)\s*[:.)]\s*(.+)$"#) {
+            for m in rx.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let ir = Range(m.range(at: 1), in: text), let pr = Range(m.range(at: 2), in: text), let i = Int(text[ir]) {
+                    let p = String(text[pr]).trimmingCharacters(in: CharacterSet(charactersIn: " \"“”"))
+                    if p.count >= 15 { prompts[i] = p }
+                }
+            }
+        }
+        return (style, prompts)
     }
 
     /// Rewrites one section's prompt (the user asked for another take).

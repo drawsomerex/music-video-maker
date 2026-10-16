@@ -48,6 +48,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(name: .shortAndLong, help: "Text file containing the lyrics, or - for stdin (blank line = new stanza)") var lyrics: String
         @Option(name: .shortAndLong, help: "Output folder (default: next to the audio)") var out: String?
         @Option(help: "Roughly one image every N seconds (bigger = fewer images to make)") var every: Double = 15
+        @Option(help: "Visual style preset or custom style string (e.g. oil, acrylic, vector, realistic, watercolor, anime, comic, neon)") var style: String = ""
         @Option(help: "oMLX speech model (default parakeet-ultra-mlx)") var sttModel: String?
         @Option(help: "oMLX language model that writes the prompts") var llmModel: String?
 
@@ -60,9 +61,10 @@ struct MVideo: AsyncParsableCommand {
             else { text = try String(contentsOfFile: (lyrics as NSString).expandingTildeInPath, encoding: .utf8) }
             var cfg = Config.load(); if let m = sttModel { cfg.sttModel = m }; if let m = llmModel { cfg.llmModel = m }
             let work = Pipeline.workDir(output: outDir, title: title)
-            let plan = try await Pipeline.plan(audioPath: audioURL.path, title: title, subject: subject, lyrics: text, work: work, imageInterval: every, config: cfg, progress: progressPrinter)
+            let resolvedStyle = StylePreset.all.first(where: { $0.id == style.lowercased() || $0.name.lowercased() == style.lowercased() })?.prompt ?? style
+            let plan = try await Pipeline.plan(audioPath: audioURL.path, title: title, subject: subject, lyrics: text, work: work, imageInterval: every, preferredStyle: resolvedStyle, config: cfg, progress: progressPrinter)
 
-            print(String(format: "\nLyrics matched to the audio: %.0f%%   Images needed: %d (title card + %d sections)\n", plan.alignmentCoverage * 100, plan.sections.count + 1, plan.sections.count))
+            print(String(format: "\nLyrics matched to the audio: %.0f%%   Images needed: %d (title card + %d sections)   Auto-Shorts queued: %d\n", plan.alignmentCoverage * 100, plan.sections.count + 1, plan.sections.count, plan.shorts.count))
             if plan.alignmentCoverage < 0.5 { print("⚠️  Low match — sync may drift. Check that the lyrics are what's actually sung.\n") }
             print("SONG DESCRIPTION (written from the lyrics): \(plan.description)\n")
             print("STYLE (appended to every prompt): \(plan.style)\n")
@@ -75,7 +77,7 @@ struct MVideo: AsyncParsableCommand {
             }
             print("Prompts file : \(Pipeline.promptsURL(work).path)")
             print("Work folder  : \(work.path)")
-            print("\nNext: generate the pictures (16:9), name them 00.png, 01.png, … and run:\n  mvideo render \"\(work.path)\" --images <folder with your pictures>")
+            print("\nNext: generate the pictures (16:9), name them 00.png, 01.png, … and run:\n  mvideo render \"\(work.path)\" --images <folder with your pictures> --with-shorts")
         }
     }
 
@@ -134,10 +136,11 @@ struct MVideo: AsyncParsableCommand {
 
     // MARK: Step 2
     struct Render: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Step 2 — load your pictures and render the MP4.")
+        static let configuration = CommandConfiguration(abstract: "Step 2 — load your pictures and render the MP4 (and optionally 4–7 ~30s Shorts).")
         @Argument(help: "The “<Title> – work” folder created by `plan`") var work: String
         @Option(help: "Folder of pictures named 00.png (title card), 01.png, 02.png, …") var images: String?
         @Flag(help: "Render even if some sections have no picture (those get a colour gradient)") var allowMissing = false
+        @Flag(help: "Also automatically generate and render 4–7 ~30-second Shorts broken at natural stanza boundaries") var withShorts = false
         @Option(help: "Caption height for the full video (fraction of frame height from the bottom, 0.04…0.86)") var captionY: Double?
         @Option(help: "Video height: 720, 1080, 1440, 2160") var height = 1080
         @Option var fps = 30
@@ -161,6 +164,20 @@ struct MVideo: AsyncParsableCommand {
             let t0 = Date()
             try await VideoRenderer.render(plan: plan, work: w, output: mp4, settings: VideoSettings(height: height, fps: fps, hevc: hevc), progress: progressPrinter)
             print(String(format: "✅ %@  (%.0fs to render)", mp4.path, Date().timeIntervalSince(t0)))
+            if withShorts {
+                if plan.shorts.isEmpty {
+                    plan.shorts = Pipeline.autoShorts(plan: plan)
+                    try Pipeline.savePlan(plan, w)
+                }
+                for (i, var c) in plan.shorts.enumerated() {
+                    if c.hook.isEmpty, let h = await Pipeline.writeHook(plan: plan, clip: c), !h.isEmpty {
+                        c.hook = h; plan.shorts[i].hook = h; try? Pipeline.savePlan(plan, w)
+                    }
+                    let ts = Date()
+                    let sOut = try await Pipeline.renderShort(plan: plan, work: w, clip: c, progress: progressPrinter)
+                    print(String(format: "✅ Short %d/%d: %@  (%.0fs)", i + 1, plan.shorts.count, sOut.path, Date().timeIntervalSince(ts)))
+                }
+            }
         }
     }
 

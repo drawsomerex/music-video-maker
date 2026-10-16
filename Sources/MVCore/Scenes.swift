@@ -18,7 +18,7 @@ final class PhotoScene {
     var path: [(z: Double, c: CGPoint)] = []
     var segLen = 7.0
 
-    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false) {
+    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, beats: [Double] = []) {
         self.box = box; self.a = a; self.b = b; self.seed = seed; self.shake = shake
         var rng = SeededRNG(seed &+ 99)
         var mode = Int(rng.next() % 5)
@@ -26,14 +26,15 @@ final class PhotoScene {
         let f = CGPoint(x: 0.5 + (focus.x - 0.5) * 0.9, y: 0.5 + (focus.y - 0.5) * 0.9)
         let side = Bool.random(using: &rng)
         func jitter() -> Double { Double(rng.next() % 1000) / 1000 * 0.06 - 0.03 }
+        let fy = min(0.78, max(0.22, f.y))
         switch mode {
-        case 0: z0 = 1.0; z1 = 1.30; c0 = CGPoint(x: 0.5, y: 0.5); c1 = f                         // push in toward subject
-        case 1: z0 = 1.30; z1 = 1.0; c0 = f; c1 = CGPoint(x: 0.5, y: 0.5)                         // pull out
-        case 2: z0 = 1.20; z1 = 1.26; c0 = CGPoint(x: 0.0, y: 0.5 + jitter()); c1 = CGPoint(x: 1.0, y: 0.5 + jitter())   // pan →
-        case 3: z0 = 1.26; z1 = 1.20; c0 = CGPoint(x: 1.0, y: 0.5 + jitter()); c1 = CGPoint(x: 0.0, y: 0.5 + jitter())   // pan ←
-        default: z0 = 1.08; z1 = 1.32; c0 = CGPoint(x: side ? 0.2 : 0.8, y: 0.75); c1 = CGPoint(x: side ? 0.78 : 0.22, y: 0.3) // diagonal drift + zoom
+        case 0: z0 = 1.0; z1 = 1.30; c0 = CGPoint(x: 0.5, y: fy); c1 = f                          // push in toward subject
+        case 1: z0 = 1.30; z1 = 1.0; c0 = f; c1 = CGPoint(x: 0.5, y: fy)                          // pull out
+        case 2: z0 = 1.20; z1 = 1.26; c0 = CGPoint(x: 0.0, y: fy + jitter()); c1 = CGPoint(x: 1.0, y: fy + jitter())   // pan →
+        case 3: z0 = 1.26; z1 = 1.20; c0 = CGPoint(x: 1.0, y: fy + jitter()); c1 = CGPoint(x: 0.0, y: fy + jitter())   // pan ←
+        default: z0 = 1.08; z1 = 1.32; c0 = CGPoint(x: side ? 0.2 : 0.8, y: min(0.82, fy + 0.18)); c1 = CGPoint(x: side ? 0.78 : 0.22, y: max(0.18, fy - 0.18)) // diagonal drift + zoom
         }
-        if let iv = shotInterval { if calm { buildPath(interval: iv, focus: f, rng: &rng) } else { buildShots(interval: iv, focus: f, rng: &rng) } }
+        if let iv = shotInterval { if calm { buildPath(interval: iv, focus: f, rng: &rng) } else { buildShots(interval: iv, focus: f, beats: beats, rng: &rng) } }
     }
 
     private func buildPath(interval iv: Double, focus f: CGPoint, rng: inout SeededRNG) {
@@ -44,29 +45,45 @@ final class PhotoScene {
         for _ in 0..<n {
             let z = tight ? 1.26 + rnd() * 0.14 : 1.08 + rnd() * 0.10
             let cx = tight ? f.x + (rnd() - 0.5) * 0.24 : x
-            path.append((z, CGPoint(x: min(0.85, max(0.15, cx)), y: tight ? f.y + (rnd() - 0.5) * 0.12 : 0.5 + (rnd() - 0.5) * 0.12)))
+            path.append((z, CGPoint(x: min(0.85, max(0.15, cx)), y: tight ? f.y + (rnd() - 0.5) * 0.12 : min(0.82, max(0.18, f.y + (rnd() - 0.5) * 0.14)))))
             x = min(0.8, max(0.2, x + (rnd() < 0.5 ? -1 : 1) * (0.18 + rnd() * 0.18)))   // never a big jump between waypoints
             tight.toggle()
         }
     }
 
-    private func buildShots(interval iv: Double, focus f: CGPoint, rng: inout SeededRNG) {
+    private func buildShots(interval iv: Double, focus f: CGPoint, beats: [Double], rng: inout SeededRNG) {
         func rnd() -> Double { Double(rng.next() % 1000) / 1000 }
         let total = max(0.5, b - a), n = max(1, Int((total / iv).rounded())), len = total / Double(n)
+        let fy = min(0.78, max(0.22, f.y))
+        // Snap internal shot cut times to the nearest musical beat within ±0.35s when available.
+        var boundaries = [Double](repeating: a, count: n + 1)
+        boundaries[0] = a; boundaries[n] = b
+        if n > 1 {
+            for k in 1..<n {
+                let ideal = a + len * Double(k)
+                let minT = boundaries[k - 1] + max(0.6, len * 0.45)
+                let maxT = b - max(0.6, len * 0.45) * Double(n - k)
+                if let snap = beats.filter({ $0 >= minT && $0 <= maxT && abs($0 - ideal) <= 0.35 }).min(by: { abs($0 - ideal) < abs($1 - ideal) }) {
+                    boundaries[k] = snap
+                } else {
+                    boundaries[k] = min(maxT, max(minT, ideal))
+                }
+            }
+        }
         var lastX = -1.0, kind = Int(rng.next() % 4)
         for k in 0..<n {
             kind = (kind + 1 + Int(rng.next() % 2)) % 4
-            let alt = CGPoint(x: 0.2 + rnd() * 0.6, y: 0.3 + rnd() * 0.4)
+            let alt = CGPoint(x: 0.2 + rnd() * 0.6, y: min(0.78, max(0.22, fy + (rnd() - 0.5) * 0.28)))
             var shot: Shot
             switch kind {
-            case 0:  shot = Shot(t0: 0, t1: 0, z0: 1.06, z1: 1.20, c0: CGPoint(x: 0.22, y: 0.5), c1: CGPoint(x: 0.78, y: 0.5))       // pan across
+            case 0:  shot = Shot(t0: 0, t1: 0, z0: 1.06, z1: 1.20, c0: CGPoint(x: 0.22, y: fy), c1: CGPoint(x: 0.78, y: fy))         // pan across at subject height
             case 1:  shot = Shot(t0: 0, t1: 0, z0: 1.35, z1: 1.62, c0: f, c1: CGPoint(x: f.x + 0.03, y: f.y))                       // punch-in on the subject
-            case 2:  shot = Shot(t0: 0, t1: 0, z0: 1.22, z1: 1.34, c0: CGPoint(x: 0.8, y: 0.5), c1: CGPoint(x: 0.25, y: 0.5))      // pan back
+            case 2:  shot = Shot(t0: 0, t1: 0, z0: 1.22, z1: 1.34, c0: CGPoint(x: 0.8, y: fy), c1: CGPoint(x: 0.25, y: fy))        // pan back at subject height
             default: shot = Shot(t0: 0, t1: 0, z0: 1.30, z1: 1.55, c0: alt, c1: CGPoint(x: alt.x - 0.06, y: alt.y + 0.02))          // detail elsewhere
             }
             if abs(shot.c0.x - lastX) < 0.15 { shot.c0.x = 1 - shot.c0.x }                                                          // never reuse the previous framing
             lastX = shot.c1.x
-            shot.t0 = a + len * Double(k); shot.t1 = shot.t0 + len
+            shot.t0 = boundaries[k]; shot.t1 = boundaries[k + 1]
             shots.append(shot)
         }
     }

@@ -52,7 +52,7 @@ public enum Pipeline {
 
     /// Transcribes (Parakeet via oMLX), syncs your lyrics, splits the song into image sections and writes a prompt for each.
     public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
-                            config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
+                            preferredStyle: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
         let duration = try await audioDuration(path: audioPath)
         guard duration > 5 else { throw MVError("Couldn't read the audio file (or it's shorter than 5 seconds).") }
 
@@ -63,8 +63,9 @@ public enum Pipeline {
         if !FileManager.default.fileExists(atPath: ownAudio.path) { try? FileManager.default.copyItem(at: srcURL, to: ownAudio) }
 
         let omlx = OMLX(config: config)
-        progress?("Connecting to oMLX", 0)
+        progress?("Connecting to AI engine", 0)
         try await omlx.ensureReady()
+        try Task.checkCancellation()
         let parsed = LyricAligner.parse(lyrics)
         guard !parsed.lines.isEmpty else { throw MVError("Paste the lyrics first.") }
 
@@ -84,6 +85,7 @@ public enum Pipeline {
                 heard = w; try? JSONEncoder().encode(WordCache(key: "\(omlx.stt)|\(stamp)", words: w)).write(to: wordsCache)
             }
         }
+        try Task.checkCancellation()
         if let words = heard {
             progress?("Syncing lyrics", 0.55)
             aligned = LyricAligner.align(lines: parsed.lines, words: words, songDuration: duration)
@@ -107,7 +109,13 @@ public enum Pipeline {
             progress?("Syncing lyrics", 0.58)
             aligned = LyricAligner.align(lines: parsed.lines, windows: windows, windowLength: Transcriber.windowLength, songDuration: duration)
         }
+        try Task.checkCancellation()
         let lines = aligned.lines
+
+        // Pre-compute and cache waveform peaks and beat timestamps while the 16kHz PCM is already in memory.
+        let savedAudioPath = FileManager.default.fileExists(atPath: ownAudio.path) ? ownAudio.path : audioPath
+        _ = try? await Transcriber.waveform(audioPath: savedAudioPath, work: work)
+        _ = await BeatDetector.beats(audioPath: savedAudioPath, start: 0, end: duration, work: work)
 
         // Sections
         var sections = Planner.plan(lines: lines, stanzaBreaks: parsed.stanzaBreaks, songDuration: duration, opts: .init(imageInterval: imageInterval))
@@ -131,8 +139,12 @@ public enum Pipeline {
         let writer = PromptWriter(omlx: omlx)
         progress?("Local AI is reading the lyrics", 0.62)
         let description = try await writer.describe(title: title, lyrics: lines.map(\.text), hint: subject)
+        try Task.checkCancellation()
         progress?("Local AI is writing the image prompts", 0.75)
-        let written = try await writer.write(sections: [intro] + sections, lines: lines, title: title, subject: description)
+        let written = try await writer.write(sections: [intro] + sections, lines: lines, title: title, subject: description, preferredStyle: preferredStyle) { phase, f in
+            progress?(phase, 0.75 + 0.22 * f)
+        }
+        try Task.checkCancellation()
         intro.prompt = written.prompts[-1] ?? "A wide establishing scene that captures the setting of \"\(title)\"."
         for i in sections.indices { sections[i].prompt = written.prompts[sections[i].id] ?? "A scene illustrating: " + sections[i].lineIDs.map { lines[$0].text }.joined(separator: " / ") }
 
@@ -140,6 +152,7 @@ public enum Pipeline {
                         audioFile: FileManager.default.fileExists(atPath: ownAudio.path) ? audioName : "", songDuration: duration, lines: lines, intro: intro, sections: sections, description: description, style: written.style, introDuration: introDur, audioOffset: offset,
                         alignmentCoverage: aligned.coverage)
         plan.timing = timing
+        plan.shorts = autoShorts(plan: plan)
         try savePlan(plan, work)
         progress?("Done", 1)
         return plan
@@ -170,6 +183,41 @@ public enum Pipeline {
     }
     struct WordCacheFile: Codable { var key: String; var words: [TimedWord] }
 
+    /// Shifts a single lyric line's timing by `delta` seconds (clamped safely against song edges and neighbouring lines) and updates section bounds.
+    public static func shiftLine(plan: inout Plan, lineIndex: Int, delta: Double, work: URL) {
+        guard plan.lines.indices.contains(lineIndex), !plan.lines[lineIndex].words.isEmpty else { return }
+        let line = plan.lines[lineIndex]
+        let dur = max(0.15, line.end - line.start)
+        let minStart = lineIndex > 0 ? max(0, plan.lines[lineIndex - 1].start + 0.15) : 0
+        let maxStart = lineIndex + 1 < plan.lines.count ? max(minStart, plan.lines[lineIndex + 1].end - dur - 0.15) : max(0, plan.songDuration - dur)
+        let newStart = min(maxStart, max(minStart, line.start + delta))
+        let actualDelta = newStart - line.start
+        guard abs(actualDelta) > 0.001 else { return }
+        for k in plan.lines[lineIndex].words.indices {
+            plan.lines[lineIndex].words[k].start = max(0, min(plan.songDuration, plan.lines[lineIndex].words[k].start + actualDelta))
+            plan.lines[lineIndex].words[k].end = max(plan.lines[lineIndex].words[k].start + 0.08, min(plan.songDuration, plan.lines[lineIndex].words[k].end + actualDelta))
+        }
+        // Trim any slight overlap with the previous or next line
+        if lineIndex > 0, !plan.lines[lineIndex - 1].words.isEmpty {
+            let cap = max(plan.lines[lineIndex - 1].start + 0.12, newStart - 0.02)
+            for k in plan.lines[lineIndex - 1].words.indices {
+                if plan.lines[lineIndex - 1].words[k].end > cap { plan.lines[lineIndex - 1].words[k].end = cap }
+                if plan.lines[lineIndex - 1].words[k].start > cap - 0.05 { plan.lines[lineIndex - 1].words[k].start = max(0, cap - 0.05) }
+            }
+        }
+        if lineIndex + 1 < plan.lines.count, !plan.lines[lineIndex + 1].words.isEmpty {
+            let floor = min(plan.lines[lineIndex + 1].end - 0.12, plan.lines[lineIndex].end + 0.02)
+            for k in plan.lines[lineIndex + 1].words.indices {
+                if plan.lines[lineIndex + 1].words[k].start < floor { plan.lines[lineIndex + 1].words[k].start = floor }
+                if plan.lines[lineIndex + 1].words[k].end < plan.lines[lineIndex + 1].words[k].start + 0.08 {
+                    plan.lines[lineIndex + 1].words[k].end = plan.lines[lineIndex + 1].words[k].start + 0.08
+                }
+            }
+        }
+        plan.sections = Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration)
+        try? savePlan(plan, work)
+    }
+
     // MARK: Prompts
 
     /// What to paste into the image generator for one section (section index −1 = title card).
@@ -198,28 +246,55 @@ public enum Pipeline {
     }
 
     /// Rewrites the song description from the lyrics (optionally steered by a hint) and, if asked, all prompts from it.
-    public static func redescribe(plan: inout Plan, hint: String = "", config: Config = .load()) async throws {
+    public static func redescribe(plan: inout Plan, hint: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws {
+        progress?("Connecting to AI engine", 0.05)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
+        progress?("Reading lyrics & rewriting song description", 0.25)
         plan.description = try await PromptWriter(omlx: omlx).describe(title: plan.title, lyrics: plan.lines.map(\.text), hint: hint)
+        progress?("Done", 1.0)
     }
 
     /// Regenerates the style and every prompt from the (possibly edited) song description. Pictures already loaded are kept.
-    public static func regeneratePrompts(plan: inout Plan, config: Config = .load()) async throws {
+    public static func regeneratePrompts(plan: inout Plan, keepStyle: Bool = false, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
+        progress?("Connecting to AI engine", 0.05)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
-        let w = try await PromptWriter(omlx: omlx).write(sections: [plan.intro] + plan.sections, lines: plan.lines, title: plan.title, subject: plan.description)
-        plan.style = w.style
+        progress?("Writing image prompts for \(plan.sections.count + 1) sections", 0.20)
+        let w = try await PromptWriter(omlx: omlx).write(sections: [plan.intro] + plan.sections, lines: plan.lines, title: plan.title, subject: plan.description, preferredStyle: keepStyle ? plan.style : "") { p, f in
+            progress?(p, 0.25 + 0.70 * f)
+        }
+        if !keepStyle || plan.style.isEmpty { plan.style = w.style }
         if let p = w.prompts[-1] { plan.intro.prompt = p }
         for i in plan.sections.indices { if let p = w.prompts[plan.sections[i].id] { plan.sections[i].prompt = p } }
+        progress?("Done", 1.0)
     }
 
-    public static func rewritePrompt(plan: inout Plan, section index: Int, config: Config = .load()) async throws {
+    public static func rewritePrompt(plan: inout Plan, section index: Int, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
+        progress?("Connecting to AI engine", 0.1)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         let s = index < 0 ? plan.intro : plan.sections[index]
+        progress?("Writing a fresh take for \(index < 0 ? "Title card" : "Section \(index + 1)")", 0.35)
         let p = try await PromptWriter(omlx: omlx).rewrite(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt)
         if index < 0 { plan.intro.prompt = p } else { plan.sections[index].prompt = p }
+        progress?("Done", 1.0)
     }
 
     // MARK: Step 2 — load your pictures
+
+    /// Deletes any orphaned `section_*` image/thumbnail files in `full/` and `thumbs/` no longer referenced by any section in `plan`.
+    public static func cleanupUnreferencedImages(plan: Plan, work: URL) {
+        let allSecs = [plan.intro] + plan.sections
+        let usedFull = Set(allSecs.compactMap { $0.selectedCandidate?.fullFile })
+        let usedThumb = Set(allSecs.compactMap { $0.selectedCandidate?.thumbFile })
+        let fm = FileManager.default
+        for (sub, used) in [("full", usedFull), ("thumbs", usedThumb)] {
+            let dir = work.appendingPathComponent(sub)
+            guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for f in files where f.lastPathComponent.hasPrefix("section_") {
+                let rel = "\(sub)/\(f.lastPathComponent)"
+                if !used.contains(rel) { try? fm.removeItem(at: f) }
+            }
+        }
+    }
 
     /// Loads a picture into a section (−1 = title card). Copies it into the work folder, makes a thumbnail and finds its focal point for the Ken Burns move.
     @discardableResult
@@ -240,6 +315,7 @@ public enum Pipeline {
         c.thumbFile = thumb; c.fullFile = full
         if let a = ImageScorer.analyze(fileURL: work.appendingPathComponent(thumb)) { c.focusX = Double(a.focus.x); c.focusY = Double(a.focus.y) }
         if index < 0 { plan.intro.candidates = [c]; plan.intro.selected = 0 } else { plan.sections[index].candidates = [c]; plan.sections[index].selected = 0 }
+        cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
         let aspect = Double(w) / Double(h)
         if aspect < 1.5 { return "“\(url.lastPathComponent)” isn't widescreen (\(w)×\(h)); the video will crop it to 16:9." }
@@ -249,14 +325,17 @@ public enum Pipeline {
 
     public static func removeImage(section index: Int, plan: inout Plan, work: URL) {
         if index < 0 { plan.intro.candidates = []; plan.intro.selected = -1 } else { plan.sections[index].candidates = []; plan.sections[index].selected = -1 }
+        cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
     }
 
     /// Loads every image in a folder whose file name starts with a section number (00 / intro = title card, 01 = first section, …).
-    public static func attachFolder(_ folder: URL, plan: inout Plan, work: URL) -> (loaded: [Int], warnings: [String]) {
-        let files = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).sorted { $0.lastPathComponent < $1.lastPathComponent }
+    public static func attachFolder(_ folder: URL, plan: inout Plan, work: URL, progress: ProgressHandler? = nil) -> (loaded: [Int], warnings: [String]) {
+        let allFiles = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let files = allFiles.filter { ["png", "jpg", "jpeg", "webp", "heic", "tiff"].contains($0.pathExtension.lowercased()) }
         var loaded: [Int] = []; var warnings: [String] = []
-        for f in files where ["png", "jpg", "jpeg", "webp", "heic", "tiff"].contains(f.pathExtension.lowercased()) {
+        for (k, f) in files.enumerated() {
+            progress?("Loading & analyzing \(f.lastPathComponent) (\(k + 1) of \(files.count))", Double(k) / Double(max(1, files.count)))
             let name = f.deletingPathExtension().lastPathComponent.lowercased()
             let digits = name.prefix(while: { $0.isNumber })
             let idx: Int
@@ -267,6 +346,7 @@ public enum Pipeline {
             do { if let w = try attach(imageAt: f, section: idx, plan: &plan, work: work) { warnings.append(w) }; loaded.append(idx) }
             catch { warnings.append(error.localizedDescription) }
         }
+        progress?("Done", 1.0)
         return (loaded, warnings)
     }
 
@@ -293,6 +373,101 @@ public enum Pipeline {
     public static func shortsFolder(_ work: URL, config: Config = .load()) -> URL {
         let d = (config.outputFolder.isEmpty ? work : outputFolder(for: work, config: config)).appendingPathComponent("Shorts")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true); return d
+    }
+
+    /// Automatically creates 4–7 ~30-second Shorts that break cleanly at stanza / section boundaries and vocal pauses between lyric lines.
+    public static func autoShorts(plan: Plan, targetSeconds: Double = 30.0, minCount: Int = 4, maxCount: Int = 7) -> [ShortClip] {
+        let L = plan.lines
+        let total = max(1.0, plan.songDuration)
+        let maxPossible = max(1, Int(total / 14.0))
+        let rawCount = Int((total / targetSeconds).rounded())
+        let count = min(maxCount, max(min(minCount, maxPossible), rawCount))
+
+        guard L.count >= count else {
+            let step = min(targetSeconds, total / Double(max(1, count)))
+            return (0..<count).map { i in
+                let s = Double(i) * (total - step) / Double(max(1, count - 1))
+                let e = min(total, s + step)
+                var c = ShortClip(name: "Short \(i + 1) — \(plan.title)", start: s, end: e)
+                c.styleSeed = UInt64(101 + i * 37)
+                return c
+            }
+        }
+
+        let sectionEnds = Set(plan.sections.compactMap { $0.lineIDs.last })
+        func boundaryBonus(_ i: Int) -> Double {
+            guard i >= 0 && i + 1 < L.count else { return 0 }
+            let gap = max(0, L[i + 1].start - L[i].end)
+            let sec = sectionEnds.contains(i) ? 2.2 : 0.0
+            let punct = L[i].text.trimmingCharacters(in: .whitespacesAndNewlines).last.map { ".!?".contains($0) ? 0.6 : 0.0 } ?? 0.0
+            return min(3.5, gap * 1.4) + sec + punct
+        }
+
+        // Partition lines 0..<L.count into `count` contiguous groups using DP to balance ~30s duration and natural stanza/breath breaks.
+        let n = L.count
+        let firstT = L.first?.start ?? 0
+        let lastT = L.last?.end ?? total
+        let idealSpan = min(targetSeconds, max(16.0, (lastT - firstT) / Double(count)))
+        let negInf = -1e9
+        var dp = Array(repeating: Array(repeating: negInf, count: n), count: count)
+        var parent = Array(repeating: Array(repeating: 0, count: n), count: count)
+
+        for i in 0..<n {
+            let span = L[i].end - L[0].start
+            let diff = (span - idealSpan) / 8.0
+            dp[0][i] = -(diff * diff) * 1.5 + (i < n - 1 ? boundaryBonus(i) : 0)
+        }
+        if count > 1 {
+            for k in 1..<count {
+                for i in k..<n {
+                    var bestScore = negInf
+                    var bestPrev = k - 1
+                    for prev in (k - 1)..<i {
+                        let span = L[i].end - L[prev + 1].start
+                        let diff = (span - idealSpan) / 8.0
+                        let pen = -(diff * diff) * 1.5 - (span < 10.0 ? 6.0 : 0.0)
+                        let bonus = (i < n - 1) ? boundaryBonus(i) : 0.0
+                        let cand = dp[k - 1][prev] + pen + bonus
+                        if cand > bestScore { bestScore = cand; bestPrev = prev }
+                    }
+                    dp[k][i] = bestScore
+                    parent[k][i] = bestPrev
+                }
+            }
+        }
+
+        var ranges: [(Int, Int)] = []
+        var curEnd = n - 1
+        for k in stride(from: count - 1, through: 0, by: -1) {
+            let startIdx = k == 0 ? 0 : parent[k][curEnd] + 1
+            ranges.append((startIdx, curEnd))
+            curEnd = parent[k][curEnd]
+        }
+        ranges.reverse()
+
+        // Build each ~30s ShortClip from its line range, trimming to ~30s at the best internal stanza/pause break if a segment is longer than 34s.
+        return ranges.enumerated().map { (idx, r) in
+            var a = r.0, b = r.1
+            if L[b].end - L[a].start > 34.0, b > a {
+                var bestEnd = a
+                var bestVal = negInf
+                for j in a...b {
+                    let dur = L[j].end - L[a].start
+                    if dur > 35.0 && j > a { break }
+                    let score = -abs(dur - targetSeconds) * 0.35 + boundaryBonus(j)
+                    if score > bestVal { bestVal = score; bestEnd = j }
+                }
+                b = bestEnd
+            }
+            let snippet = String(L[a].text.prefix(26)).trimmingCharacters(in: .whitespacesAndNewlines)
+            var c = clip(plan: plan, lines: a, to: b, name: "Short \(idx + 1) — \(snippet)", lead: 1.8, tail: 2.0)
+            if c.duration > 35.0 {
+                c.end = min(plan.songDuration, c.start + 32.0)
+            }
+            c.styleSeed = UInt64(101 + idx * 37)
+            c.loop = true
+            return c
+        }
     }
 
     /// The whole song as Shorts: one clip if it fits in 3:00, otherwise the fewest equal-ish parts that each fit,

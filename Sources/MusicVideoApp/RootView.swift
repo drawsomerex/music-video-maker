@@ -18,7 +18,52 @@ struct RootView: View {
             }
             }
         }
+        .overlay(alignment: .top) {
+            if model.busy {
+                BackgroundTaskBanner()
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .animation(.smooth(duration: 0.35), value: model.stage)
+        .animation(.smooth(duration: 0.25), value: model.busy)
+    }
+}
+
+/// Floating on-screen progress bar shown whenever any background operation is running.
+struct BackgroundTaskBanner: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+            let el = max(0, ctx.date.timeIntervalSince(model.busyStarted))
+            let f = min(max(model.busyProgress, 0), 1)
+            HStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.small)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(model.busyPhase.isEmpty ? "Working in background…" : model.busyPhase)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(Int(f * 100))% · \( Int(el) / 60 ):\( String(format: "%02d", Int(el) % 60) )")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    ProgressView(value: max(0.03, f))
+                        .progressViewStyle(.linear)
+                }
+                .frame(width: 360)
+                Button("Cancel") { model.cancelBackgroundTask() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+        }
     }
 }
 
@@ -42,28 +87,103 @@ struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 28) {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
                     header
-                    dropZone
+                    Picker("Audio Source", selection: $model.audioInputMode) {
+                        Label("Drop MP3 / WAV", systemImage: "music.note").tag(0)
+                        Label("Record Song Playing", systemImage: "waveform.badge.mic").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    if model.audioInputMode == 0 {
+                        dropZone
+                    } else {
+                        recordZone
+                    }
+
+                    if let trim = model.trimSummary {
+                        Label(trim, systemImage: "scissors")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.green)
+                    }
+
                     field("Song title", "e.g. Highway Lights", text: $model.title)
                     field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject)
-                    Label("The AI reads your lyrics and writes the song description itself — it drives the picture prompts.", systemImage: "sparkles")
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Picture style").font(.subheadline.weight(.medium))
+                        Picker("Picture style", selection: $model.selectedStylePreset) {
+                            ForEach(StylePreset.all) { preset in
+                                Text(preset.name).tag(preset.name)
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.large)
+                    }
+
+                    Label("The AI reads your lyrics and writes the song description & prompts — plus 4–7 ~30s Shorts cut at stanza breaks.", systemImage: "sparkles")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
-                .frame(width: 360)
+                .frame(width: 370)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text("Lyrics").font(.headline); Spacer()
-                        Text("Blank line = new stanza · [Chorus] tags are used for pacing, never shown").font(.caption).foregroundStyle(.secondary) }
+                    HStack(spacing: 8) {
+                        Text("Lyrics").font(.headline)
+                        if model.liveTranscribing {
+                            HStack(spacing: 4) {
+                                ProgressView().controlSize(.mini)
+                                Text("Transcribing live…").font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                        Spacer()
+                        Button {
+                            model.pasteOverLyrics()
+                        } label: {
+                            Label("Paste Over Lyrics", systemImage: "doc.on.clipboard")
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .help("Replace the lyrics below with the contents of your clipboard")
+
+                        if model.audioURL != nil && !model.isRecording {
+                            Button {
+                                model.transcribeLoadedAudio()
+                            } label: {
+                                Label("Auto-Transcribe", systemImage: "waveform.and.mic")
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .disabled(model.busy)
+                            .help("Transcribe lyrics from the loaded audio file using Parakeet")
+
+                            Button {
+                                model.trimLoadedAudioSilence()
+                            } label: {
+                                Label("Trim Silence", systemImage: "scissors")
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .disabled(model.busy)
+                            .help("Automatically cut off silence at the beginning and after the song ends")
+                        }
+                    }
+                    Text("Blank line = new stanza · [Chorus] tags are used for pacing, never shown · Edit or paste over live-transcribed lyrics anytime")
+                        .font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $model.lyrics)
                         .font(.system(size: 14, design: .rounded))
                         .scrollContentBackground(.hidden)
                         .padding(12)
                         .background(RoundedRectangle(cornerRadius: 14).fill(.background.opacity(0.7)))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(model.isRecording ? Color.red.opacity(0.6) : Color.secondary.opacity(0.25)))
                         .overlay(alignment: .topLeading) {
-                            if model.lyrics.isEmpty { Text("Paste your lyrics here.\nThe on-screen text is exactly what you paste; the transcription only supplies timing.").foregroundStyle(.tertiary).padding(18).allowsHitTesting(false) }
+                            if model.lyrics.isEmpty {
+                                Text(model.audioInputMode == 1
+                                     ? "Start recording a song — lyrics will appear here in real time as it plays.\nAfterwards, you can fix any words or click “Paste Over Lyrics” to paste the official lyrics."
+                                     : "Paste your lyrics here.\nThe on-screen text is exactly what you paste; the transcription only supplies timing.")
+                                    .foregroundStyle(.tertiary).padding(18).allowsHitTesting(false)
+                            }
                         }
                 }
             }
@@ -90,7 +210,7 @@ struct SetupView: View {
                     Label("Plan the Video", systemImage: "sparkles")
                         .font(.headline).padding(.horizontal, 10).padding(.vertical, 4)
                 }
-                .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart)
+                .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart || model.isRecording)
                 .keyboardShortcut(.return, modifiers: .command)
             }
             .padding(.horizontal, 28).padding(.vertical, 14)
@@ -119,7 +239,7 @@ struct SetupView: View {
                     Text("or click to choose").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 120).padding(12)
+            .frame(maxWidth: .infinity, minHeight: 115).padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: model.audioURL == nil ? [6, 5] : [])).foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.5)))
         }
@@ -128,6 +248,68 @@ struct SetupView: View {
             guard let u = urls.first, ["mp3", "wav", "m4a", "aiff", "aif", "flac"].contains(u.pathExtension.lowercased()) else { return false }
             model.setAudio(u); return true
         } isTargeted: { targeted = $0 }
+    }
+
+    var recordZone: some View {
+        VStack(spacing: 10) {
+            Picker("Input", selection: $model.recordSource) {
+                ForEach(LiveSongRecorder.Source.allCases) { src in
+                    Text(src.rawValue).tag(src)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(model.isRecording)
+
+            if model.isRecording {
+                HStack(spacing: 3) {
+                    ForEach(Array(model.recordingHistory.enumerated()), id: \.offset) { _, lvl in
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.red.gradient)
+                            .frame(width: 4, height: max(4, CGFloat(lvl) * 34))
+                    }
+                }
+                .frame(height: 36)
+                Text("Recording \(timeString(model.recordingSeconds)) · Transcribing in real time…")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.red)
+                Button {
+                    model.stopRecording()
+                } label: {
+                    Label("Stop & Auto-Trim Silence", systemImage: "stop.circle.fill")
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
+            } else {
+                if let url = model.audioURL {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text("\(url.lastPathComponent) (\(timeString(model.audioDuration)))")
+                            .font(.caption.weight(.medium)).lineLimit(1)
+                    }
+                }
+                Button {
+                    model.startRecording()
+                } label: {
+                    Label(model.audioURL == nil ? "Start Recording Song" : "Record Again", systemImage: "record.circle")
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
+                Text("Play your song on your Mac (Spotify, Apple Music, browser, etc.) and click Record. Silence at the start and end is cut off automatically.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 115)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 16).fill(model.isRecording ? Color.red.opacity(0.08) : Color.primary.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(model.isRecording ? Color.red.opacity(0.6) : Color.secondary.opacity(0.4), lineWidth: 1.5))
     }
 
     func field(_ label: String, _ prompt: String, text: Binding<String>) -> some View {
@@ -151,12 +333,15 @@ struct ProgressStage: View {
         VStack(spacing: 22) {
             Image(systemName: model.stage == .rendering ? "film" : "waveform.and.magnifyingglass")
                 .font(.system(size: 54)).symbolEffect(.pulse).foregroundStyle(.tint)
-            Text(model.stage == .rendering ? "Rendering your video" : "Planning your video").font(.title.bold())
+            Text(model.stage == .rendering ? (model.autoRenderShorts ? "Rendering your video & Shorts" : "Rendering your video") : "Planning your video").font(.title.bold())
             ProgressPanel(fraction: model.progress, phase: model.phase, started: started,
                           steps: model.stage == .rendering ? [] : Self.planSteps.map { $0.0 },
                           currentStep: Self.planSteps.lastIndex { model.progress >= $0.1 } ?? 0)
             Text(model.stage == .rendering ? "Hardware-encoded on your Mac. You can leave this running." : "Speech recognition and prompt writing run on this Mac.")
                 .font(.caption).foregroundStyle(.tertiary)
+            Button("Cancel", role: .cancel) { model.cancelMainTask() }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
         }.padding()
         .onAppear { started = Date() }
     }
@@ -208,15 +393,31 @@ struct DoneView: View {
     @EnvironmentObject var model: AppModel
     @State private var player: AVPlayer?
     var body: some View {
-        VStack(spacing: 18) {
-            Text("Your video is ready").font(.title.bold())
-            if let p = player { PlayerView(player: p).aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 14)).shadow(radius: 18, y: 8).frame(maxWidth: 860) }
+        VStack(spacing: 16) {
+            Text(model.renderedShorts.isEmpty ? "Your video is ready" : "Your video & \(model.renderedShorts.count) Shorts are ready").font(.title.bold())
+            if let p = player { PlayerView(player: p).aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 14)).shadow(radius: 18, y: 8).frame(maxWidth: 840) }
+            if !model.renderedShorts.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill").foregroundStyle(.tint)
+                    Text("Also rendered \(model.renderedShorts.count) ~30s Shorts broken at stanza boundaries:")
+                        .font(.callout.weight(.medium))
+                    Text(model.renderedShorts.map { $0.deletingPathExtension().lastPathComponent }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.10)))
+            }
             if let u = model.outputURL {
                 Text(u.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 HStack(spacing: 12) {
-                    Button { NSWorkspace.shared.activateFileViewerSelecting([u]) } label: { Label("Show in Finder", systemImage: "folder") }.buttonStyle(.borderedProminent).controlSize(.large)
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([u]) } label: { Label("Show Video in Finder", systemImage: "folder") }.buttonStyle(.borderedProminent).controlSize(.large)
+                    if !model.renderedShorts.isEmpty {
+                        Button { NSWorkspace.shared.activateFileViewerSelecting(model.renderedShorts) } label: {
+                            Label("Show \(model.renderedShorts.count) Shorts in Finder", systemImage: "rectangle.portrait.fill")
+                        }.buttonStyle(.bordered).controlSize(.large)
+                    }
                     ShareLink(item: u) { Label("Share", systemImage: "square.and.arrow.up") }.controlSize(.large)
-                    Button { model.stage = .plan } label: { Label("Back to Pictures", systemImage: "photo.on.rectangle") }.controlSize(.large)
+                    Button { model.stage = .plan } label: { Label("Back to Pictures & Shorts", systemImage: "photo.on.rectangle") }.controlSize(.large)
                     Button { model.reset() } label: { Label("New Video", systemImage: "plus") }.controlSize(.large)
                 }
             }

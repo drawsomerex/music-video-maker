@@ -36,6 +36,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
  <key>LSMinimumSystemVersion</key><string>14.0</string>
  <key>NSHighResolutionCapable</key><true/>
  <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
+ <key>NSMicrophoneUsageDescription</key><string>Music Video Maker uses the microphone or audio input when you record a playing song to transcribe its lyrics in real time.</string>
+ <key>NSAudioCaptureUsageDescription</key><string>Music Video Maker captures system audio when you record a song playing on your Mac to transcribe its lyrics in real time.</string>
 </dict></plist>
 PLIST
 codesign --force --deep --sign - "$APP" 2>/dev/null || true

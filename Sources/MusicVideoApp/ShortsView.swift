@@ -27,11 +27,12 @@ struct ShortsView: View {
     var empty: some View {
         VStack(spacing: 14) {
             Image(systemName: "rectangle.portrait.on.rectangle.portrait").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("Make a YouTube Short").font(.title2.bold())
-            Text("Pick the lyrics you want, fine-tune where the music starts and stops, and render a vertical 1080×1920 clip using your pictures.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 380)
+            Text("Make YouTube Shorts").font(.title2.bold())
+            Text("Automatically split your song into 4–7 ~30-second Shorts at natural stanza boundaries, or pick custom lyrics and fine-tune against the waveform.")
+                .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 420)
             HStack(spacing: 10) {
-                Button { model.newShort() } label: { Label("New Short (30 s)", systemImage: "plus").padding(.horizontal, 8) }.buttonStyle(.borderedProminent).controlSize(.large)
+                Button { model.autoMakeShorts() } label: { Label("Auto-Make 4–7 Shorts (30 s)", systemImage: "sparkles").padding(.horizontal, 8) }.buttonStyle(.borderedProminent).controlSize(.large)
+                Button { model.newShort() } label: { Label("New Custom Short", systemImage: "plus").padding(.horizontal, 8) }.controlSize(.large)
                 Button { model.newWholeSong() } label: { Label("Whole song", systemImage: "music.note.list").padding(.horizontal, 8) }.controlSize(.large)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,13 +49,27 @@ struct ShortsView: View {
                 }
             }.listStyle(.sidebar)
             Divider()
-            HStack {
-                Menu {
-                    Button("New Short (30 s from the lyrics)") { model.newShort() }
-                    Button("Whole song (split into parts if over 3:00)") { model.newWholeSong() }
-                } label: { Label("New", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
-                Spacer()
-                if let id = model.selectedShort { Button(role: .destructive) { model.deleteShort(id) } label: { Image(systemName: "trash") } }
+            VStack(spacing: 8) {
+                HStack {
+                    Menu {
+                        Button("Auto-make 4–7 Shorts (~30 s at stanza breaks)") { model.autoMakeShorts(replaceExisting: true) }
+                        Button("New Short (30 s from the lyrics)") { model.newShort() }
+                        Button("Whole song (split into parts if over 3:00)") { model.newWholeSong() }
+                    } label: { Label("New", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
+                    Spacer()
+                    if let id = model.selectedShort { Button(role: .destructive) { model.deleteShort(id) } label: { Image(systemName: "trash") } }
+                }
+                if let shorts = model.plan?.shorts, shorts.count > 1 {
+                    Button {
+                        model.renderAllShorts()
+                    } label: {
+                        Label("Render All \(shorts.count) Shorts", systemImage: "film.stack")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(model.shortProgress != nil)
+                }
             }.padding(10)
         }
     }
@@ -180,6 +195,14 @@ struct ShortEditor: View {
                 HStack {
                     Text("Opening title").frame(width: 98, alignment: .leading)
                     TextField("blank = the song title (\(plan.title))", text: Binding(get: { c.hook }, set: { v in model.update(clip.id) { $0.hook = v }; model.refreshPreview(at: previewT) })).textFieldStyle(.roundedBorder)
+                    Button {
+                        model.writeHook(clip.id)
+                    } label: {
+                        Label("AI Hook", systemImage: "sparkles")
+                    }
+                    .controlSize(.small)
+                    .disabled(model.hookBusy || model.busy)
+                    .help("Have the local AI write a punchy 3–6 word opening title from this Short's lyrics")
                 }
                 HStack {
                     Text("Closing text").frame(width: 98, alignment: .leading)
@@ -236,7 +259,13 @@ struct ShortEditor: View {
             }.controlSize(.large)
             Spacer()
             if let p = model.shortProgress {
-                ProgressView(value: p).frame(width: 180); Text("Rendering \(Int(p * 100))%").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("\(model.shortPhase.isEmpty ? "Rendering" : model.shortPhase) (\(Int(p * 100))%)")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    ProgressView(value: p).frame(width: 210)
+                }
+                Button("Cancel") { model.cancelShortRender() }
+                    .buttonStyle(.bordered).controlSize(.small)
             } else if let out = model.shortOutput {
                 Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }
                 ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }

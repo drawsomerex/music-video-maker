@@ -52,9 +52,16 @@ final class LyricLayer {
         var rows: [Row] = []
         var idx = 0
         let ns = text as NSString
-        // word char ranges
+        // word char ranges (advance past whitespace and anchor at word start so short words never match inside earlier words)
         var wordRanges: [NSRange] = []; var cursor = 0
-        for w in l.words { let r = ns.range(of: w.text, options: [], range: NSRange(location: cursor, length: ns.length - cursor)); wordRanges.append(r); if r.location != NSNotFound { cursor = r.location + r.length } }
+        for w in l.words {
+            while cursor < ns.length, let sc = UnicodeScalar(ns.character(at: cursor)), CharacterSet.whitespacesAndNewlines.contains(sc) { cursor += 1 }
+            let rem = NSRange(location: cursor, length: max(0, ns.length - cursor))
+            let anchored = ns.range(of: w.text, options: [.anchored], range: rem)
+            let r = anchored.location != NSNotFound ? anchored : ns.range(of: w.text, options: [], range: rem)
+            wordRanges.append(r)
+            if r.location != NSNotFound { cursor = r.location + r.length }
+        }
         let pad = CGFloat(H) * 0.05
         // Balance two-row lines: shrink the wrap width until a 2-row line splits roughly evenly.
         var wrapWidth = maxWidth
