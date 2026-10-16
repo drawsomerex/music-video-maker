@@ -235,7 +235,7 @@ public enum Pipeline {
         md += "Generate each picture at 16:9 (1920×1080 or larger is best), then load it into the matching slot. File names that start with the number (`00.png`, `01.png`, …) are matched automatically.\n\n---\n\n"
         for idx in -1..<plan.sections.count {
             let s = idx < 0 ? plan.intro : plan.sections[idx]
-            let name = idx < 0 ? "00 · Title card" : String(format: "%02d", idx + 1) + " · " + (s.lineIDs.isEmpty ? "Instrumental" : "Section")
+            let name = idx < 0 ? "00 · Title card" : String(format: "%02d", idx + 1) + " · " + (s.lineIDs.isEmpty ? "Instrumental (music only)" : "Section")
             let when = idx < 0 ? "opening" : "\(t(s.start + plan.audioOffset))–\(t(s.end + plan.audioOffset)) (\(Int(s.duration)) s)"
             md += "## \(name) — \(when)\n"
             if !s.lineIDs.isEmpty { md += "\n> " + s.lineIDs.map { plan.lines[$0].text }.joined(separator: "\n> ") + "\n" }
@@ -268,12 +268,34 @@ public enum Pipeline {
         progress?("Done", 1.0)
     }
 
+    /// True when the song starts with music that has no picture of its own (older projects): the first words begin ≥ 3 s after the title card ends.
+    public static func needsInstrumentalIntro(_ plan: Plan) -> Bool {
+        guard plan.audioOffset == 0, let first = plan.lines.first?.start, first >= 3.3, let sec = plan.sections.first, !sec.lineIDs.isEmpty else { return false }
+        return first - plan.introDuration >= 3.0
+    }
+
+    /// Adds a section (and its own unique prompt) for the music before the first words. Existing pictures stay with their sections.
+    public static func addInstrumentalIntro(plan: inout Plan, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
+        guard needsInstrumentalIntro(plan), let first = plan.lines.first?.start else { return }
+        progress?("Connecting to AI engine", 0.1)
+        let omlx = OMLX(config: config); try await omlx.ensureReady()
+        var intro = PhotoSection(id: 0, start: 0, end: first, lineIDs: [], queries: [], candidates: [], selected: -1, seed: 0xA11CE)
+        plan.sections[0].start = first
+        for i in plan.sections.indices { plan.sections[i].id += 1; if let r = plan.sections[i].repeatOf { plan.sections[i].repeatOf = r + 1 } }
+        progress?("Writing a picture idea for the music before the words", 0.4)
+        let others = [plan.intro.prompt] + plan.sections.map(\.prompt)
+        intro.prompt = try await PromptWriter(omlx: omlx).rewriteDistinct(section: intro, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: "", others: others)
+        plan.sections.insert(intro, at: 0)
+        progress?("Done", 1.0)
+    }
+
     public static func rewritePrompt(plan: inout Plan, section index: Int, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
         progress?("Connecting to AI engine", 0.1)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         let s = index < 0 ? plan.intro : plan.sections[index]
         progress?("Writing a fresh take for \(index < 0 ? "Title card" : "Section \(index + 1)")", 0.35)
-        let p = try await PromptWriter(omlx: omlx).rewrite(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt)
+        let others = ([plan.intro.prompt] + plan.sections.map(\.prompt)).filter { $0 != s.prompt }
+        let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2)
         if index < 0 { plan.intro.prompt = p } else { plan.sections[index].prompt = p }
         progress?("Done", 1.0)
     }

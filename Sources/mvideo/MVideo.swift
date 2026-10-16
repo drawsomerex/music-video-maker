@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -131,6 +131,19 @@ struct MVideo: AsyncParsableCommand {
             var plan = try Pipeline.loadPlan(w)
             let cov = try await Pipeline.resync(plan: &plan, work: w, progress: progressPrinter)
             print(String(format: "✅ Re-synced with exact word timing — %.0f%% of your lyric words matched.", cov * 100))
+        }
+    }
+
+    struct AddIntro: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(commandName: "add-intro", abstract: "Older projects: give the music before the first words its own picture slot and prompt.")
+        @Argument(help: "The project folder") var project: String
+        func run() async throws {
+            let w = URL(fileURLWithPath: (project as NSString).expandingTildeInPath)
+            var plan = try Pipeline.loadPlan(w)
+            guard Pipeline.needsInstrumentalIntro(plan) else { print("Nothing to add — the opening music already has a picture, or the words start right away."); return }
+            try await Pipeline.addInstrumentalIntro(plan: &plan, progress: progressPrinter)
+            try Pipeline.savePlan(plan, w)
+            print("✅ Added a picture slot (section 1) for the music before the first words.")
         }
     }
 

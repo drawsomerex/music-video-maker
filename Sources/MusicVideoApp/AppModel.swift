@@ -591,6 +591,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var canAddInstrumentalIntro: Bool { plan.map(Pipeline.needsInstrumentalIntro) ?? false }
+    /// Older projects: gives the music before the first words its own picture slot and prompt.
+    func addInstrumentalIntro() {
+        guard var p = plan else { return }
+        runBackground(initialPhase: "Adding a picture for the music before the words…") { [weak self] in
+            guard let self else { return }
+            try await Pipeline.addInstrumentalIntro(plan: &p, config: self.config, progress: self.busyHandler)
+            self.plan = p; self.selectedSection = 0; self.persist(); self.live.invalidate()
+        }
+    }
+
     func fullPrompt(section: Int) -> String { plan.map { Pipeline.fullPrompt($0, section: section) } ?? "" }
 
     func copy(_ s: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string) }

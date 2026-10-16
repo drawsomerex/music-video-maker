@@ -97,6 +97,18 @@ struct PlanView: View {
                 nextStepCard
                 pictureMaker.frame(width: 370)
             }
+            if model.canAddInstrumentalIntro, let first = plan.lines.first?.start {
+                HStack(spacing: 12) {
+                    Image(systemName: "music.note").foregroundStyle(.orange)
+                    Text("The first words start at \(timeString(first)), but the music before them has no picture of its own. Add one so that part of the song has its own scene.")
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button { model.addInstrumentalIntro() } label: { Label("Add picture for the opening music", systemImage: "plus.circle.fill") }
+                        .buttonStyle(.borderedProminent).disabled(model.busy)
+                        .help("Adds a new part to the list for the music before the first words and writes a picture idea for it. Your other pictures stay exactly where they are.")
+                }
+                .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
+            }
             DisclosureGroup(isExpanded: $showDescription) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -212,7 +224,7 @@ struct PlanView: View {
             SlotRow(number: 0, title: "Title card", subtitle: plan.title, time: "", cand: plan.intro.selectedCandidate, work: model.workDir!, repeatNote: nil).tag(-1)
             ForEach(plan.sections.indices, id: \.self) { i in
                 let s = plan.sections[i]
-                SlotRow(number: i + 1, title: s.lineIDs.isEmpty ? "Instrumental" : "Section \(i + 1)", subtitle: s.lineIDs.first.map { plan.lines[$0].text } ?? "♪",
+                SlotRow(number: i + 1, title: s.lineIDs.isEmpty ? (i == 0 ? "Music before the words" : (i == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Section \(i + 1)", subtitle: s.lineIDs.first.map { plan.lines[$0].text } ?? "♪",
                         time: timeString(s.start + plan.audioOffset), cand: s.selectedCandidate, work: model.workDir!, repeatNote: s.repeatOf.map { "same lyrics as \($0 + 1)" }).tag(i)
             }
         }.listStyle(.sidebar)
@@ -223,7 +235,7 @@ struct PlanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(selection < 0 ? "Title card" : (section.lineIDs.isEmpty ? "Instrumental" : "Section \(selection + 1)")).font(.title2.bold())
+                    Text(selection < 0 ? "Title card" : (section.lineIDs.isEmpty ? (selection == 0 ? "Music before the words" : (selection == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Section \(selection + 1)")).font(.title2.bold())
                     Text(selection < 0 ? "opening slide" : "\(timeString(section.start + plan.audioOffset))–\(timeString(section.end + plan.audioOffset)) · \(Int(section.duration)) s")
                         .foregroundStyle(.secondary)
                     Spacer()

@@ -49,7 +49,8 @@ public enum Planner {
         struct Unit { var lines: [Int]; var s: Double; var e: Double }
         var items: [Unit] = merged.map { Unit(lines: $0, s: lines[$0.first!].start, e: lines[$0.last!].end) }
         var withGaps: [Unit] = []
-        if let f = items.first, f.s > opts.maxLen * 0.7 { withGaps.append(Unit(lines: [], s: 0, e: f.s)) }
+        // Music before the first words gets its own picture once there are ≥ 3 s of it after the title card (which covers the first ~6 s).
+        if let f = items.first, f.s >= 3.3, f.s - min(6.0, f.s - 0.6) >= 3.0 || f.s > opts.maxLen * 0.7 { withGaps.append(Unit(lines: [], s: 0, e: f.s)) }
         for (i, u) in items.enumerated() {
             if i > 0 {
                 let gap = u.s - items[i-1].e
