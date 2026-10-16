@@ -11,7 +11,7 @@ A native macOS app (Apple Silicon) that turns a song into a YouTube-ready video.
 
 ## Quick start (build it yourself)
 ```bash
-git clone https://github.com/OWNER/NAME.git && cd NAME     # private repo: you need to be signed in with `gh auth login`
+git clone https://github.com/drawsomerex/music-video-maker.git && cd music-video-maker     # private repo: you need to be signed in with `gh auth login`
 ./install_native.sh                                          # builds, installs to /Applications, downloads the models
 ```
 Open **Music Video Maker** from Launchpad/Spotlight. Optional: *Settings → Dock → Add to Dock*, and *Settings → Where things are saved* (or the “Saving to…” button) to pick the folder for everything.
@@ -43,7 +43,7 @@ Releases live on a **private GitHub repo** (only accounts you invite can see or 
 
 **Any Mac, first time (no Xcode, ~13 MB download):** install GitHub's CLI and sign in once (`brew install gh && gh auth login`), then:
 ```
-gh api repos/OWNER/NAME/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
+gh api repos/drawsomerex/music-video-maker/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
 ```
 (`release.sh` prints the exact line.) Downloads happen as your signed-in GitHub account, are checksum-verified, and aren't quarantined, so macOS opens the app with no "unidentified developer" prompt. The first launch offers the one-time model download.
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Installs the latest Music Video Maker release on a Mac — no Xcode, no building.
-#   gh api repos/OWNER/NAME/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
+#   gh api repos/drawsomerex/music-video-maker/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
 # Private repo: needs GitHub's CLI signed in once (brew install gh; gh auth login). Files fetched this way aren't quarantined,
 # so macOS opens the app without the "unidentified developer" warning.
 set -euo pipefail
