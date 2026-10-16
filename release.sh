@@ -79,6 +79,11 @@ if f"## [{v}]" not in t:
     t=t.replace("## [Unreleased]\n","## [Unreleased]\n\n## [%s] - %s\n"%(v,datetime.date.today().isoformat()),1)
     open("CHANGELOG.md","w").write(t)
 PY
+# Privacy gate: the public zip must not contain this Mac's user name or home path anywhere.
+LEAK=$(mkdir -p /tmp/mv-leak && rm -rf /tmp/mv-leak/* && ditto -x -k "$ZIP" /tmp/mv-leak && grep -rIlaE "$USER|$HOME" /tmp/mv-leak 2>/dev/null || true)
+LEAK2=$(find /tmp/mv-leak -type f -exec sh -c 'strings -a "$1" | grep -qE "$2" && echo "$1"' _ {} "$HOME" \; 2>/dev/null | head -3)
+[ -z "$LEAK$LEAK2" ] || die "Release blocked: personal path found in $LEAK$LEAK2"
+rm -rf /tmp/mv-leak
 git add -A; git commit -qm "Release v$NEW" || true
 git tag -f "v$NEW"
 git push -q origin HEAD --tags

@@ -6,6 +6,15 @@ VERSION="$(tr -d ' \n' < "$ROOT/VERSION" 2>/dev/null || echo 1.0.0)"
 REPO="$(grep -E '^REPO=' "$ROOT/scripts/release.conf" 2>/dev/null | cut -d= -f2 | tr -d ' ')"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/MusicVideoApp" "$APP/Contents/MacOS/MusicVideoApp"
+# Compiler-embedded source paths (from C++ __FILE__ in MLX) would reveal this Mac's user name; overwrite them with same-length filler.
+python3 - "$APP/Contents/MacOS/MusicVideoApp" "$ROOT" "$HOME" <<'PY'
+import sys
+p, *needles = sys.argv[1:]
+b = open(p, "rb").read()
+for n in sorted(set(needles), key=len, reverse=True):
+    n = n.encode(); b = b.replace(n, b"." * len(n))
+open(p, "wb").write(b)
+PY
 cp "$ROOT/scripts/word_timing.py" "$APP/Contents/Resources/word_timing.py"
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 if [ ! -f "$ROOT/AppIcon.icns" ]; then swift "$ROOT/scripts/make_icon.swift" /tmp/mv-AppIcon.iconset && iconutil -c icns /tmp/mv-AppIcon.iconset -o "$ROOT/AppIcon.icns"; fi
