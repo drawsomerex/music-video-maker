@@ -25,6 +25,7 @@ enum Snapshots {
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())
         save("update-sheet", CGSize(width: 520, height: 420), UpdateSheet())
         save("recording-fix", CGSize(width: 560, height: 360), RecordingFixSheet())
+        save("first-run", CGSize(width: 760, height: 620), NativeSetupView())
         save("guide", CGSize(width: 600, height: 560), QuickGuideView())
         save("settings", CGSize(width: 600, height: 560), SettingsView())
         if model.plan != nil {

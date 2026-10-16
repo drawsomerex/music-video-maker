@@ -74,15 +74,74 @@ final class AppModel: ObservableObject {
         #endif
     }
 
+    // On-device models: what is installed, and live download progress for each (shown in Settings and on the first-run screen)
+    @Published var speechProgress: Double?          // nil = not downloading
+    @Published var llmProgress: Double?
+    @Published var modelNote: String?               // last error / note, shown under the list
+    @Published var modelTick = 0                    // bump to re-read what is on disk
+    var speechReady: Bool { _ = modelTick; return modelState.speech }
+    var llmReady: Bool { _ = modelTick; return modelState.llm }
+    var speechSizeText: String { _ = modelTick; return modelState.speechText }
+    var llmSizeText: String { _ = modelTick; return modelState.llmText }
+    var llmName: String { _ = modelTick; return modelState.llmName }
+    var downloadingModel: Bool { speechProgress != nil || llmProgress != nil }
+    private var modelState: (speech: Bool, llm: Bool, speechText: String, llmText: String, llmName: String) {
+        #if NATIVE_MLX
+        func gb(_ b: Int) -> String { b >= 100_000_000 ? String(format: "%.1f GB", Double(b) / 1e9) : String(format: "%.0f MB", Double(b) / 1e6) }
+        return (NativeEngine.speechInstalled, NativeEngine.llmInstalled, gb(NativeEngine.speechBytes), gb(NativeEngine.llmBytes), NativeEngine.llmName)
+        #else
+        return (true, true, "", "", "Language model")
+        #endif
+    }
+
+    /// Downloads (or re-downloads) Parakeet Ultra. Progress appears on its row.
+    func downloadSpeechModel(force: Bool = false) {
+        #if NATIVE_MLX
+        guard !downloadingModel else { return }
+        speechProgress = 0; modelNote = nil
+        Task {
+            do { try await NativeEngine.installSpeech(force: force) { [weak self] p, f in Task { @MainActor in self?.speechProgress = f; self?.setupPhase = p } } }
+            catch { modelNote = "Parakeet didn't finish downloading: \(error.localizedDescription)" }
+            speechProgress = nil; modelTick += 1; objectWillChange.send()
+        }
+        #endif
+    }
+
+    /// Downloads (or re-downloads) the language model for the chosen size. Progress appears on its row.
+    func downloadLanguageModel(force: Bool = false) {
+        #if NATIVE_MLX
+        guard !downloadingModel, let tier = NativeEngine.Tier(rawValue: nativeTier) else { return }
+        llmProgress = 0; modelNote = nil
+        Task {
+            do { try await NativeEngine.installLanguageModel(tier: tier, force: force) { [weak self] p, f in Task { @MainActor in self?.llmProgress = f; self?.setupPhase = p } } }
+            catch { modelNote = "The language model didn't finish downloading: \(error.localizedDescription)" }
+            llmProgress = nil; modelTick += 1; objectWillChange.send()
+        }
+        #endif
+    }
+
+    /// First-run: download whatever is missing, speech first.
     func runNativeSetup() {
         #if NATIVE_MLX
-        guard let tier = NativeEngine.Tier(rawValue: nativeTier) else { return }
-        settingUp = true; setupStarted = Date(); setupPhase = "Starting…"; setupProgress = 0
+        guard let tier = NativeEngine.Tier(rawValue: nativeTier), !downloadingModel else { return }
+        settingUp = true; setupStarted = Date(); setupPhase = "Starting…"; setupProgress = 0; modelNote = nil
         Task {
             do {
-                try await NativeEngine.setup(tier: tier) { [weak self] p, f in Task { @MainActor in self?.setupPhase = p; self?.setupProgress = f } }
+                if !NativeEngine.speechInstalled {
+                    speechProgress = 0
+                    try await NativeEngine.installSpeech { [weak self] p, f in Task { @MainActor in self?.speechProgress = f; self?.setupPhase = p; self?.setupProgress = f * 0.2 } }
+                    speechProgress = nil; modelTick += 1
+                }
+                if !NativeEngine.llmInstalled {
+                    llmProgress = 0
+                    try await NativeEngine.installLanguageModel(tier: tier) { [weak self] p, f in Task { @MainActor in self?.llmProgress = f; self?.setupPhase = p; self?.setupProgress = 0.2 + f * 0.8 } }
+                    llmProgress = nil; modelTick += 1
+                }
                 settingUp = false; objectWillChange.send()
-            } catch { settingUp = false; errorMessage = "Setup didn't finish: \(error.localizedDescription). It resumes where it left off when you try again." }
+            } catch {
+                settingUp = false; speechProgress = nil; llmProgress = nil; modelTick += 1
+                errorMessage = "Setup didn't finish: \(error.localizedDescription)\n\nPress “Download & set up” again; it continues with what is still missing."
+            }
         }
         #endif
     }

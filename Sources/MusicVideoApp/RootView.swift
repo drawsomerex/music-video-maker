@@ -516,6 +516,14 @@ struct SettingsView: View {
             if model.isNativeBuild {
                 Section("On-device AI") {
                     Text("Listening to your song and writing picture ideas both happen on this Mac. Nothing about your song is sent anywhere.").font(.callout)
+                    ModelRows()
+                    Picker("Size of the language model", selection: $model.nativeTier) {
+                        Text("Small — about 1 GB, fastest").tag("small")
+                        Text("Balanced — about 3.6 GB, Gemma 4 E2B (recommended)").tag("balanced")
+                        Text("Best — about 6 GB").tag("best")
+                    }
+                    .help("Chooses which language model “Download” and “Download again” fetch. Bigger models write better picture ideas but take more space and time.")
+                    .disabled(model.downloadingModel)
                 }
             } else {
                 Section("Local AI — oMLX (advanced)") {
@@ -528,7 +536,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped).frame(width: 600, height: 640)
+        .formStyle(.grouped).frame(width: 640, height: 720)
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
@@ -575,6 +583,7 @@ struct NativeSetupView: View {
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 460)
             if model.settingUp {
                 ProgressPanel(fraction: model.setupProgress, phase: model.setupPhase, started: model.setupStarted)
+                ModelRows().frame(width: 520)
             } else {
                 Picker("Size", selection: $model.nativeTier) {
                     Text("Small — about 1.5 GB total (fastest, plainer prompts)").tag("small")
@@ -583,6 +592,7 @@ struct NativeSetupView: View {
                 }.pickerStyle(.radioGroup).labelsHidden()
                 Text("Includes Parakeet Ultra for word-accurate lyric timing (0.5 GB) plus a language model for the prompts. Bigger models write better prompts.")
                     .font(.caption).foregroundStyle(.tertiary).frame(maxWidth: 440).multilineTextAlignment(.center)
+                ModelRows().frame(width: 520)
                 Button { model.runNativeSetup() } label: { Label("Download & set up", systemImage: "arrow.down.to.line").padding(.horizontal, 10) }
                     .buttonStyle(.borderedProminent).controlSize(.large)
             }

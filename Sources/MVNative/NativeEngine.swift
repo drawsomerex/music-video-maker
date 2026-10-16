@@ -22,6 +22,9 @@ public enum NativeEngine {
             case .best: return "mlx-community/Qwen3.5-9B-MLX-4bit"
             }
         }
+        public var displayName: String {
+            switch self { case .small: return "Qwen3 1.7B"; case .balanced: return "Gemma 4 E2B"; case .best: return "Qwen3.5 9B" }
+        }
         public var approxGB: Double { self == .small ? 1.0 : (self == .balanced ? 3.6 : 6.0) }
     }
 
@@ -33,8 +36,32 @@ public enum NativeEngine {
     public static var speechDir: URL { home.appendingPathComponent("parakeet-ultra-4bit") }
     public static var llmDir: URL { home.appendingPathComponent("language-model") }
 
-    public static var speechInstalled: Bool { FileManager.default.fileExists(atPath: speechDir.appendingPathComponent("model.safetensors").path) }
-    public static var llmInstalled: Bool { FileManager.default.fileExists(atPath: llmDir.appendingPathComponent("config.json").path) }
+    public static var speechInstalled: Bool { fileSize(speechDir.appendingPathComponent("model.safetensors")) > 50_000_000 }
+    static func fileSize(_ u: URL) -> Int { ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? Int) ?? 0 }
+    /// Bytes used by a model folder (for the Settings list).
+    public static func sizeOnDisk(_ dir: URL) -> Int {
+        (FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey])?.compactMap { ($0 as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } }.reduce(0, +)) ?? 0
+    }
+    public static var speechBytes: Int { sizeOnDisk(speechDir) }
+    public static var llmBytes: Int { sizeOnDisk(llmDir) }
+    /// "Gemma 4 E2B" etc., read from the note written at download time.
+    public static var llmName: String {
+        if let n = (try? Data(contentsOf: llmDir.appendingPathComponent(".mv-model.json"))).flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: String] })?["name"] { return n }
+        let type = ((try? Data(contentsOf: llmDir.appendingPathComponent("config.json"))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["model_type"] as? String) ?? ""
+        return type.hasPrefix("gemma4") ? "Gemma 4" : (type.hasPrefix("qwen3_5") ? "Qwen3.5" : (type.hasPrefix("qwen3") ? "Qwen3" : "Language model"))
+    }
+    public static var llmInstalled: Bool { FileManager.default.fileExists(atPath: llmDir.appendingPathComponent("config.json").path) && llmIntact }
+    /// False when files recorded at download time are missing or the wrong size (an interrupted or damaged download). Older installs have no record and count as fine.
+    static var llmIntact: Bool {
+        guard let d = try? Data(contentsOf: llmDir.appendingPathComponent(".mv-manifest.json")), let m = try? JSONSerialization.jsonObject(with: d) as? [String: Int] else {
+            // No record (older install): at least require real weight files, not a saved error page.
+            let weights = ((try? FileManager.default.contentsOfDirectory(at: llmDir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "safetensors" }
+            return !weights.isEmpty && weights.allSatisfy { fileSize($0) > 20_000_000 }
+        }
+        return m.allSatisfy { name, size in ((try? FileManager.default.attributesOfItem(atPath: llmDir.appendingPathComponent(name).path))?[.size] as? Int) == size }
+    }
+    /// Deletes the language model so the setup screen downloads it again (Settings ▸ Repair).
+    public static func resetLanguageModel() { try? FileManager.default.removeItem(at: llmDir) }
     public static var isInstalled: Bool { speechInstalled && llmInstalled }
 
     /// Wires the engine into the core. Call once at launch (native builds only).
@@ -73,7 +100,10 @@ public enum NativeEngine {
         func respond(prompt: String, maxTokens: Int) async throws -> String {
             guard NativeEngine.llmInstalled else { throw MVError("The language model isn't installed yet. Run the install script once.") }
             idle?.cancel()
-            if container == nil { container = try await LLMModelFactory.shared.loadContainer(from: NativeEngine.llmDir, using: #huggingFaceTokenizerLoader()) }
+            if container == nil {
+                do { container = try await LLMModelFactory.shared.loadContainer(from: NativeEngine.llmDir, using: #huggingFaceTokenizerLoader()) }
+                catch { throw MVError("The language model couldn't be opened — its files may be damaged or incomplete. Open Settings ▸ On-device AI and press “Download again” next to the language model.\n\n(Details: \(error.localizedDescription))") }
+            }
             let session = ChatSession(container!, generateParameters: GenerateParameters(maxTokens: maxTokens, temperature: 0.2),
                                       additionalContext: ["enable_thinking": false])
             var text = try await session.respond(to: prompt)

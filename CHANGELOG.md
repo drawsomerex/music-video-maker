@@ -5,6 +5,12 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **Gemma (language model) failing with “key … not found”** on a second Mac. Downloads never checked the server's reply, so a busy or blocking Hugging Face could hand back an error page that was saved as the model file. Downloads now check the server status, verify big files against Hugging Face's checksums (re-downloading a damaged one once), record what was downloaded, and an install whose files are missing, the wrong size or obviously not model weights is treated as *not installed* so the app offers the download again instead of failing during planning.
+
+### Added
+- **On-device models in Settings and on the setup screen.** *Parakeet Ultra* and the language model (e.g. *Gemma 4 E2B*) each show whether they are downloaded and how big they are, a live percentage while downloading, and Download / **Download again** buttons. A size picker (Small / Balanced / Best) chooses which language model is fetched.
+
 ### Changed
 - **Shorts are saved next to the main video**, not in a `Shorts` subfolder (your chosen output folder, or the folder beside the project). Files are named `<Song title> – <clip name>.mp4` so several songs can share one folder. Shorts you already made stay where they are.
 
