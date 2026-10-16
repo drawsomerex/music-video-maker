@@ -5,6 +5,19 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **Captions slightly off pace with the singing.** Every caption now follows a per-song timing offset that defaults to 0.06 s early (audiences read late captions as lagging), and the Shorts word pill now starts moving *before* each word so it lands on the onset instead of 0.1 s after it. New **Show sooner / Show later** buttons under the preview shift every caption of a song in 0.05 s steps; the setting is saved with the project (`captionShift`).
+- Lyric timing for words the speech model missed now stays inside their own line instead of stretching across pauses; sung words hold for a natural length (from the other AI's alignment work, with its extra −30 ms offset removed so the caption offset is the single timing control).
+
+### Changed
+- **Much easier to use.** Every screen was reworded in plain language and every button, field and picker has a tooltip that explains what it does. A **Step bar** (Song → Pictures → Video) shows where you are, a green **next step** card says what to do next, and Help ▸ **Quick Guide** (also the `?` button, and shown on first launch) walks through the whole process.
+- Pictures screen simplified: one "Picture maker" card (make all missing pictures, credit left), the song description and art style are tucked into a section that is closed by default, line-timing buttons are larger, and technical wording ("Reroll", model names) is gone from the main screens.
+- Shorts editor reworded ("Cut my song into clips for me", "Choose the lines myself", "Try a different look", "Move to the nearest pause") with tooltips on every control.
+- Settings reorganised: Where things are saved · Picture maker · Shortcuts & help.
+
+### Added
+- `scripts/bench/lag_scan.py` (checks a constant caption offset against acoustic onsets) and a hidden screenshot mode (`MV_SNAPSHOT_DIR`) for layout checks.
+
 ## [1.0.5] - 2026-10-16
 
 ### Added

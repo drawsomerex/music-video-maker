@@ -136,9 +136,10 @@ final class WordLayer: LyricRendering {
             let centerY = mode == .stack ? Double(H) * (bottom.map { $0 + 0.10 } ?? 0.30) : Double(H) * (bottom ?? 0.20) + p.blockH / 2
             ctx.saveGState(); ctx.setAlpha(alpha)
             let activeIdx = p.items.lastIndex(where: { t >= $0.start - 0.02 })
-            if mode == .pill, let ai = activeIdx {
+            let glideIdx = p.items.lastIndex(where: { t >= $0.start - 0.14 })          // the pill leaves for the next word slightly early
+            if mode == .pill, let ai = glideIdx {
                 let it = p.items[ai]; let prev = ai > 0 ? p.items[ai - 1] : it
-                let k = smooth((t - (it.start - 0.05)) / 0.15)       // pill glides to the word, landing on its onset
+                let k = smooth((t - (it.start - 0.14)) / 0.14)       // pill starts gliding before the word so it lands exactly on the onset
                 let x = lerp(prev.cx, it.cx, k), y = lerp(prev.cy, it.cy, k), w = lerp(Double(prev.normal.size.width), Double(it.normal.size.width), k)
                 let ph = Double(it.normal.size.height) * 0.98, pw = w + Double(it.normal.size.height) * 0.42
                 ctx.setFillColor(accent)

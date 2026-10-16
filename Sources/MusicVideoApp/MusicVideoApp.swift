@@ -22,6 +22,7 @@ struct MusicVideoApp: App {
                 .environmentObject(model)
                 .environmentObject(updater)
                 .task {
+                    if Snapshots.directory != nil { FileHandle.standardError.write(Data("[snapshots] task start\n".utf8)); try? await Task.sleep(nanoseconds: 1_500_000_000); Snapshots.render(model: model); return }
                     Updater.log("task started; enabled=\(Updater.enabled) current=\(Updater.current)")
                     if Updater.env["MV_UPDATE_SELFTEST"] != nil {            // test hook: check, then install without asking
                         await updater.check(silent: false)
@@ -37,12 +38,16 @@ struct MusicVideoApp: App {
                 .overlay(alignment: .bottom) {
                     if let p = updater.progress { VStack(spacing: 6) { Text("Downloading update…").font(.caption); ProgressView(value: p).frame(width: 220) }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding(.bottom, 20) }
                 }
+                .sheet(isPresented: $model.showGuide) { QuickGuideView() }
                 .frame(minWidth: 980, minHeight: 680)
                 .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
                     Button("OK", role: .cancel) {}
                 } message: { Text(model.errorMessage ?? "") }
         }
         .commands {
+            CommandGroup(replacing: .help) {
+                Button("Quick Guide") { model.showGuide = true }.keyboardShortcut("?", modifiers: .command)
+            }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { Task { await updater.check(silent: false) } }.disabled(!Updater.enabled)
             }

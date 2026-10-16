@@ -79,9 +79,9 @@ public final class FrameComposer: @unchecked Sendable {
         kinds = ks
         if dyn && style.textMode != .sweep {
             let mode: WordLayer.Mode = style.textMode == .pill ? .pill : (style.textMode == .stack ? .stack : .pop)
-            lyrics = WordLayer(lines: plan.lines, W: W, H: H, timeOffset: off, mode: mode, accent: style.accent, window: 0...totalDuration)
+            lyrics = WordLayer(lines: plan.lines, W: W, H: H, timeOffset: off + fullPlan.captionShift, mode: mode, accent: style.accent, window: 0...totalDuration)
         } else {
-            lyrics = LyricLayer(lines: plan.lines, W: W, H: H, timeOffset: off, vertical: settings.vertical, window: 0...totalDuration)
+            lyrics = LyricLayer(lines: plan.lines, W: W, H: H, timeOffset: off + fullPlan.captionShift, vertical: settings.vertical, window: 0...totalDuration)
         }
         captionBottom = short?.captionY ?? fullPlan.captionY
         lyrics.bottom = captionBottom

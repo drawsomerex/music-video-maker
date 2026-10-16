@@ -554,6 +554,20 @@ final class AppModel: ObservableObject {
         setFocus(x: Double(a.focus.x), y: Double(a.focus.y), section: section)
     }
 
+    /// Moves every caption of this song earlier (negative) or later (positive); the preview and the finished video both follow it.
+    func nudgeCaptions(by delta: Double) {
+        guard var p = plan else { return }
+        p.captionShift = max(-0.5, min(0.5, ((p.captionShift + delta) * 100).rounded() / 100))
+        plan = p; persist(); live.invalidate()
+    }
+    func resetCaptionTiming() { guard var p = plan else { return }; p.captionShift = Plan.defaultCaptionShift; plan = p; persist(); live.invalidate() }
+    var captionShiftText: String {
+        let v = plan?.captionShift ?? Plan.defaultCaptionShift
+        if abs(v) < 0.005 { return "exactly with the voice" }
+        return String(format: "%.2f s %@", abs(v), v < 0 ? "early" : "late")
+    }
+    @Published var showGuide = QuickGuideView.shouldShowFirst
+
     func nudgeLine(_ lineIndex: Int, delta: Double) {
         guard var p = plan, let w = workDir else { return }
         Pipeline.shiftLine(plan: &p, lineIndex: lineIndex, delta: delta, work: w)

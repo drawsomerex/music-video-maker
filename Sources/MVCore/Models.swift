@@ -120,10 +120,14 @@ public struct Plan: Codable {
     public var totalGenerationCostUSD: Double = 0.0  // cumulative OpenRouter USD spent generating/rerolling images for this song
     public var imagesGeneratedCount: Int = 0         // total AI image generations/rerolls run for this song
     public var lastImageCostUSD: Double? = nil       // most recent actual per-image cost returned by OpenRouter
+    /// Seconds added to every caption time when drawing (negative = captions appear sooner). Seen from the audience's side, captions that
+    /// land exactly on the sound feel late, so new and old projects start slightly early; the user can fine-tune it per song.
+    public var captionShift: Double = Plan.defaultCaptionShift
+    public static let defaultCaptionShift = -0.06
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -146,6 +150,7 @@ public struct Plan: Codable {
         totalGenerationCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalGenerationCostUSD) ?? 0.0
         imagesGeneratedCount = try c.decodeIfPresent(Int.self, forKey: .imagesGeneratedCount) ?? 0
         lastImageCostUSD = try c.decodeIfPresent(Double.self, forKey: .lastImageCostUSD)
+        captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
     }
     public init(title: String, subject: String, audioPath: String, audioFile: String, songDuration: Double, lines: [LyricLine], intro: PhotoSection, sections: [PhotoSection],
                 description: String, style: String, introDuration: Double, audioOffset: Double, alignmentCoverage: Double) {

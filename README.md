@@ -17,9 +17,9 @@ git clone https://github.com/drawsomerex/music-video-maker.git && cd music-video
 Open **Music Video Maker** from Launchpad/Spotlight. Optional: *Settings → Dock → Add to Dock*, and *Settings → Where things are saved* (or the “Saving to…” button) to pick the folder for everything.
 
 ## How to make a video
-1. **Plan** — pick the MP3, type the title, paste the lyrics, press *Plan the Video*. The app syncs your lyrics to the audio, splits the song into sections, writes a song description and one picture prompt per section (progress is shown with percentage and time left).
+1. **Plan** — pick the MP3, type the title, paste the lyrics, press *Plan my video*. The app syncs your lyrics to the audio, splits the song into sections, writes a song description and one picture prompt per section (progress is shown with percentage and time left).
 2. **Make your pictures** — generate them with any image tool (16:9, 1920×1080 or larger, same style), then drag each onto its section (or load a folder named `00.png`, `01.png`, …).
-3. **Render** — press *Render*. The finished MP4 appears in your folder; *Show in Finder* / *Share* from the last screen.
+3. **Make the video** — press *Make my video* (use *Preview* first; if the words look early or late, *Show sooner / Show later* shifts them). The finished MP4 appears in your folder; *Show in Finder* / *Share* from the last screen.
 4. **Shorts** (optional) — open the *YouTube Shorts* tab, pick lyric lines, fine-tune against the waveform, render a 9:16 clip (3:00 max).
 
 ## Install options

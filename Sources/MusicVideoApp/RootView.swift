@@ -87,96 +87,66 @@ struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 28) {
-                VStack(alignment: .leading, spacing: 11) {
+                VStack(alignment: .leading, spacing: 12) {
                     header
-                    Picker("Audio Source", selection: $model.audioInputMode) {
-                        Label("Drop MP3 / WAV", systemImage: "music.note").tag(0)
-                        Label("Record Song Playing", systemImage: "waveform.badge.mic").tag(1)
+                    Picker("Where is your song?", selection: $model.audioInputMode) {
+                        Label("I have an MP3 / WAV file", systemImage: "music.note").tag(0)
+                        Label("Record it as it plays", systemImage: "waveform.badge.mic").tag(1)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .help("Choose “I have an MP3 / WAV file” if the song is saved on this Mac. Choose “Record it as it plays” to capture a song that is playing on this Mac (for example from a web page).")
 
-                    if model.audioInputMode == 0 {
-                        dropZone
-                    } else {
-                        recordZone
-                    }
+                    if model.audioInputMode == 0 { dropZone } else { recordZone }
 
                     if let trim = model.trimSummary {
                         Label(trim, systemImage: "scissors")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.green)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                            .font(.callout.weight(.medium)).foregroundStyle(.green)
+                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
 
-                    field("Song title", "e.g. Highway Lights", text: $model.title)
-                    field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject)
+                    field("Song title", "e.g. Highway Lights", text: $model.title,
+                          help: "The name of your song. It appears on the opening title card and names the folder where everything is saved.")
+                    field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject,
+                          help: "Optional. A short line shown under the title on the opening card. You can leave it empty.")
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Picture style").font(.subheadline.weight(.medium))
-                        Picker("Picture style", selection: $model.selectedStylePreset) {
-                            ForEach(StylePreset.all) { preset in
-                                Text(preset.name).tag(preset.name)
-                            }
+                        Text("Look of the pictures").font(.subheadline.weight(.medium))
+                        Picker("Look of the pictures", selection: $model.selectedStylePreset) {
+                            ForEach(StylePreset.all) { preset in Text(preset.name).tag(preset.name) }
                         }
                         .labelsHidden()
-                        .controlSize(.regular)
+                        .help("The art style for all your pictures, such as oil painting or watercolor. “AI Auto” lets the app choose a style that fits your song. You can change it later.")
                     }
-
-                    Label("The AI reads your lyrics and writes the song description & prompts — plus 4–7 ~30s Shorts cut at stanza breaks.", systemImage: "sparkles")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
                 .frame(width: 370)
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        Text("Lyrics").font(.headline)
+                        Text("Lyrics").font(.title3.bold())
                         if model.liveTranscribing {
-                            HStack(spacing: 4) {
-                                ProgressView().controlSize(.mini)
-                                Text("Transcribing live…").font(.caption).foregroundStyle(.orange)
-                            }
+                            HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Writing the words as they play…").font(.callout).foregroundStyle(.orange) }
                         }
                         Spacer()
-                        Button {
-                            model.pasteOverLyrics()
-                        } label: {
-                            Label("Paste Over Lyrics", systemImage: "doc.on.clipboard")
-                        }
-                        .controlSize(.small)
-                        .buttonStyle(.bordered)
-                        .help("Replace the lyrics below with the contents of your clipboard")
-
+                        Button { model.pasteOverLyrics() } label: { Label("Paste from clipboard", systemImage: "doc.on.clipboard") }
+                            .buttonStyle(.bordered)
+                            .help("Replaces the lyrics below with whatever you last copied (Command-C), for example from a lyrics web page.")
                         if model.audioURL != nil && !model.isRecording {
-                            Button {
-                                model.transcribeLoadedAudio()
-                            } label: {
-                                Label("Auto-Transcribe", systemImage: "waveform.and.mic")
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
-                            .disabled(model.busy)
-                            .help("Transcribe lyrics from the loaded audio file using Parakeet")
-
-                            Button {
-                                model.trimLoadedAudioSilence()
-                            } label: {
-                                Label("Trim Silence", systemImage: "scissors")
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
-                            .disabled(model.busy)
-                            .help("Automatically cut off silence at the beginning and after the song ends")
+                            Menu {
+                                Button { model.transcribeLoadedAudio() } label: { Label("Listen to the song and write the lyrics for me", systemImage: "waveform.and.mic") }
+                                    .disabled(model.busy)
+                                Button { model.trimLoadedAudioSilence() } label: { Label("Cut the silence at the start and end", systemImage: "scissors") }
+                                    .disabled(model.busy)
+                            } label: { Label("More tools", systemImage: "wrench.and.screwdriver") }
+                            .menuStyle(.borderlessButton).fixedSize()
+                            .help("Extra helpers: have the app type out the lyrics by listening to the song, or trim empty silence from the beginning and end of the recording.")
                         }
                     }
-                    Text("Blank line = new stanza · [Chorus] tags are used for pacing, never shown · Edit or paste over live-transcribed lyrics anytime")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Paste your lyrics below. Leave a blank line between verses. Tags like [Chorus] are used for pacing but never shown on screen.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     TextEditor(text: $model.lyrics)
-                        .font(.system(size: 14, design: .rounded))
+                        .font(.system(size: 15, design: .rounded))
                         .scrollContentBackground(.hidden)
                         .padding(12)
                         .background(RoundedRectangle(cornerRadius: 14).fill(.background.opacity(0.7)))
@@ -184,39 +154,47 @@ struct SetupView: View {
                         .overlay(alignment: .topLeading) {
                             if model.lyrics.isEmpty {
                                 Text(model.audioInputMode == 1
-                                     ? "Start recording a song — lyrics will appear here in real time as it plays.\nAfterwards, you can fix any words or click “Paste Over Lyrics” to paste the official lyrics."
-                                     : "Paste your lyrics here.\nThe on-screen text is exactly what you paste; the transcription only supplies timing.")
+                                     ? "Start recording a song. The lyrics will appear here as it plays.\nAfterwards you can fix any words, or use “Paste from clipboard” to paste the official lyrics."
+                                     : "Paste your lyrics here.\nThe words on screen are exactly what you paste here; the app only listens to the song to find the timing.")
                                     .foregroundStyle(.tertiary).padding(18).allowsHitTesting(false)
                             }
                         }
+                        .help("Your lyrics. What you type or paste here is exactly what appears on the screen.")
                 }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 20)
 
             Divider()
-            HStack(spacing: 16) {
-                HStack(spacing: 10) {
+            HStack(spacing: 14) {
+                HStack(spacing: 8) {
                     Text("One picture about every").font(.callout)
-                    Stepper(value: $model.imageInterval, in: 8...40, step: 1) { Text("\(Int(model.imageInterval)) s").monospacedDigit().frame(width: 44, alignment: .trailing) }
-                    if model.estimatedImages > 0 { Text("≈ \(model.estimatedImages) pictures to make").font(.callout).foregroundStyle(.secondary) }
+                    Stepper(value: $model.imageInterval, in: 8...40, step: 1) { Text("\(Int(model.imageInterval)) seconds").monospacedDigit().frame(width: 84, alignment: .trailing) }
+                        .help("How often the picture changes. A smaller number means more pictures to make and a busier video; a bigger number means fewer, longer pictures.")
+                    if model.estimatedImages > 0 { Text("≈ \(model.estimatedImages) pictures").font(.callout).foregroundStyle(.secondary) }
                 }
                 Spacer()
                 Button { model.chooseSaveFolder() } label: {
                     Label("Saving to \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath)", systemImage: "externaldrive")
-                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 260)
-                }.buttonStyle(.bordered).help("Folder for all projects, pictures and finished videos. Click to change.")
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 230)
+                }.buttonStyle(.bordered).help("Everything is saved in this folder: your songs, pictures and finished videos. Click to pick a different folder.")
                 Menu {
                     Button("Open a project folder…") { model.chooseProject() }
                     if !model.recents.isEmpty { Divider(); ForEach(model.recents, id: \.self) { u in Button(u.deletingLastPathComponent().lastPathComponent) { model.openProject(u) } } }
-                } label: { Label("Open Project", systemImage: "folder") }.menuStyle(.borderlessButton).fixedSize()
+                } label: { Label("Open earlier project", systemImage: "folder") }.menuStyle(.borderlessButton).fixedSize()
+                    .help("Go back to a video you started before. All your pictures and settings are kept.")
+                Button { model.showGuide = true } label: { Image(systemName: "questionmark.circle") }.buttonStyle(.bordered)
+                    .help("Show the step-by-step Quick Guide.")
                 Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.bordered)
+                    .help("Folders, the picture maker key, adding the app to your Dock, and more.")
                 Button { model.start() } label: {
-                    Label("Plan the Video", systemImage: "sparkles")
+                    Label("Plan my video", systemImage: "arrow.right.circle.fill")
                         .font(.headline).padding(.horizontal, 10).padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart || model.isRecording)
                 .keyboardShortcut(.return, modifiers: .command)
+                .help(model.canStart ? "Go to the next step. The app listens to your song, matches the lyrics and suggests a picture for each part. Takes a minute or two."
+                                     : "This button turns on once you have chosen a song, typed a title and added lyrics.")
             }
             .padding(.horizontal, 28).padding(.vertical, 14)
             .background(.regularMaterial)
@@ -227,7 +205,7 @@ struct SetupView: View {
     var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "film.stack.fill").font(.system(size: 30)).foregroundStyle(.linearGradient(colors: [.orange, .pink, .purple], startPoint: .top, endPoint: .bottom))
-            VStack(alignment: .leading) { Text("Music Video Maker").font(.title2.bold()); Text("Plan → make your pictures → render").font(.subheadline).foregroundStyle(.secondary) }
+            VStack(alignment: .leading, spacing: 4) { Text("Music Video Maker").font(.title2.bold()); StepBar(current: 1) }
         }
     }
 
@@ -240,8 +218,8 @@ struct SetupView: View {
                     if model.audioDuration > 0 { Text(timeString(model.audioDuration)).font(.caption).foregroundStyle(.secondary) }
                 } else {
                     Image(systemName: "music.note").font(.system(size: 32)).foregroundStyle(.secondary)
-                    Text("Drop an MP3 or WAV here").font(.callout.weight(.medium))
-                    Text("or click to choose").font(.caption).foregroundStyle(.secondary)
+                    Text("Drag your song here").font(.headline)
+                    Text("an MP3 or WAV file — or click to choose one").font(.callout).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -250,6 +228,7 @@ struct SetupView: View {
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: model.audioURL == nil ? [6, 5] : [])).foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.5)))
         }
         .buttonStyle(.plain)
+        .help("Click to choose your song file, or drag the file from Finder onto this box. MP3, WAV, M4A and other common music files work.")
         .frame(maxWidth: .infinity)
         .frame(height: 128)
         .clipped()
@@ -262,7 +241,7 @@ struct SetupView: View {
     var recordZone: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Text("Source:").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text("Record from:").font(.callout.weight(.medium)).foregroundStyle(.secondary)
                 Picker("Input", selection: $model.recordSource) {
                     ForEach(LiveSongRecorder.Source.allCases) { src in
                         Text(src.rawValue).tag(src)
@@ -270,8 +249,8 @@ struct SetupView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .controlSize(.small)
                 .disabled(model.isRecording)
+                .help("Where the sound comes from. “System audio” records whatever your Mac is playing; the other choices use a microphone or audio input.")
             }
 
             if model.isRecording {
@@ -298,13 +277,14 @@ struct SetupView: View {
                 Button {
                     model.stopRecording()
                 } label: {
-                    Label("Stop & Auto-Trim Silence", systemImage: "stop.circle.fill")
+                    Label("Stop recording", systemImage: "stop.circle.fill")
                         .font(.callout.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.regular)
+                .help("Stops recording. Empty silence at the start and end is cut off automatically.")
             } else {
                 if let url = model.audioURL {
                     HStack(spacing: 6) {
@@ -315,8 +295,8 @@ struct SetupView: View {
                             .truncationMode(.middle)
                     }
                 } else {
-                    Text("Play your song on your Mac and click Record. Silence at start & end is auto-trimmed.")
-                        .font(.caption2)
+                    Text("Press the red button, then play your song on this Mac. Press Stop when it ends.")
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
@@ -324,13 +304,14 @@ struct SetupView: View {
                 Button {
                     model.startRecording()
                 } label: {
-                    Label(model.audioURL == nil ? "Start Recording Song" : "Record Again", systemImage: "record.circle")
+                    Label(model.audioURL == nil ? "Start recording" : "Record again", systemImage: "record.circle")
                         .font(.callout.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.regular)
+                .help("Starts recording the sound your Mac is playing. macOS may ask your permission the first time.")
             }
         }
         .padding(.horizontal, 12)
@@ -342,10 +323,10 @@ struct SetupView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(model.isRecording ? Color.red.opacity(0.6) : Color.secondary.opacity(0.4), lineWidth: 1.5))
     }
 
-    func field(_ label: String, _ prompt: String, text: Binding<String>) -> some View {
+    func field(_ label: String, _ prompt: String, text: Binding<String>, help: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.subheadline.weight(.medium))
-            TextField(prompt, text: text).textFieldStyle(.roundedBorder).controlSize(.large)
+            TextField(prompt, text: text).textFieldStyle(.roundedBorder).controlSize(.large).help(help)
         }
     }
 }
@@ -372,6 +353,7 @@ struct ProgressStage: View {
             Button("Cancel", role: .cancel) { model.cancelMainTask() }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
+                .help("Stops what the app is doing. Nothing you made so far is lost.")
         }.padding()
         .onAppear { started = Date() }
     }
@@ -424,6 +406,7 @@ struct DoneView: View {
     @State private var player: AVPlayer?
     var body: some View {
         VStack(spacing: 16) {
+            StepBar(current: 4)
             Text(model.renderedShorts.isEmpty ? "Your video is ready" : "Your video & \(model.renderedShorts.count) Shorts are ready").font(.title.bold())
             if let p = player { PlayerView(player: p).aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 14)).shadow(radius: 18, y: 8).frame(maxWidth: 840) }
             if !model.renderedShorts.isEmpty {
@@ -440,15 +423,20 @@ struct DoneView: View {
             if let u = model.outputURL {
                 Text(u.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 HStack(spacing: 12) {
-                    Button { NSWorkspace.shared.activateFileViewerSelecting([u]) } label: { Label("Show Video in Finder", systemImage: "folder") }.buttonStyle(.borderedProminent).controlSize(.large)
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([u]) } label: { Label("Show video in Finder", systemImage: "folder") }.buttonStyle(.borderedProminent).controlSize(.large)
+                        .help("Opens the folder that holds your finished video, with the video selected.")
                     if !model.renderedShorts.isEmpty {
                         Button { NSWorkspace.shared.activateFileViewerSelecting(model.renderedShorts) } label: {
                             Label("Show \(model.renderedShorts.count) Shorts in Finder", systemImage: "rectangle.portrait.fill")
                         }.buttonStyle(.bordered).controlSize(.large)
+                        .help("Opens the folder with your vertical YouTube Shorts.")
                     }
                     ShareLink(item: u) { Label("Share", systemImage: "square.and.arrow.up") }.controlSize(.large)
-                    Button { model.stage = .plan } label: { Label("Back to Pictures & Shorts", systemImage: "photo.on.rectangle") }.controlSize(.large)
-                    Button { model.reset() } label: { Label("New Video", systemImage: "plus") }.controlSize(.large)
+                        .help("Send the video by Messages, Mail or AirDrop.")
+                    Button { model.stage = .plan } label: { Label("Change something", systemImage: "photo.on.rectangle") }.controlSize(.large)
+                        .help("Go back to your pictures to swap one, fix the words, or make Shorts. Nothing is lost.")
+                    Button { model.reset() } label: { Label("Start a new video", systemImage: "plus") }.controlSize(.large)
+                        .help("Starts over with a new song. This video stays saved in its folder.")
                 }
             }
         }
@@ -474,67 +462,61 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Image Generation — OpenRouter (openai/gpt-image-2.5-sunburst)") {
-                SecureField("OpenRouter API Key (sk-or-v1-…)", text: $model.config.openRouterKey)
-                LabeledContent("Credits Remaining") {
-                    HStack(spacing: 8) {
-                        if model.checkingCredits {
-                            ProgressView().controlSize(.mini)
-                        } else if let rem = model.openRouterCredits {
-                            let approxImgs = Int(rem / max(0.01, model.perImageCostUSD))
-                            let summaryText = OpenRouter.formatCredits(rem) + " (≈ \(approxImgs) images)"
-                            Text(summaryText)
-                                .font(.callout.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(rem < 0.25 ? Color.orange : Color.green)
-                        } else if model.hasOpenRouterKey {
-                            Text("Click Refresh to check").font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            Text("No API key set").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Button("Refresh") {
-                            save()
-                            model.refreshOpenRouterCredits(silent: false)
-                        }
-                        .controlSize(.small)
-                        .disabled(!model.hasOpenRouterKey || model.checkingCredits)
-                    }
-                }
-                if let err = model.openRouterCreditError {
-                    Text(err).font(.caption).foregroundStyle(.red)
-                }
-                Text("Generates 16:9 Medium images using \(OpenRouter.imageModel) (~\(OpenRouter.formatUSD(model.perImageCostUSD)) per image). Each song saves its total image cost in project.mvproj.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
             Section("Where things are saved") {
                 folderRow("Main folder", model.config.projectsFolder, defaultText: "~/Movies/Music Videos") { model.config.projectsFolder = $0 }
-                folderRow("Finished videos & Shorts", model.config.outputFolder, defaultText: "inside each project (same main folder)") { model.config.outputFolder = $0 }
-                Text("Everything lives in the main folder: one folder per song with the MP3, transcript, synced lyrics, pictures, save file, video and Shorts. Pick a separate folder for finished videos only if you want them elsewhere.").font(.caption).foregroundStyle(.secondary)
+                    .help("Every song gets its own folder inside this one, holding the MP3, lyrics, pictures, the save file, the finished video and Shorts.")
+                folderRow("Finished videos only", model.config.outputFolder, defaultText: "same as the main folder") { model.config.outputFolder = $0 }
+                    .help("Optional. Pick a different folder here only if you want finished videos and Shorts kept somewhere else, such as Desktop.")
+                Text("Each song gets its own folder. You only need the second choice if you want finished videos kept somewhere else.").font(.callout).foregroundStyle(.secondary)
             }
-            Section("Dock") {
+            Section("Picture maker (optional)") {
+                SecureField("OpenRouter key (starts with sk-or-)", text: $model.config.openRouterKey)
+                    .help("Paste your OpenRouter key here to let the app draw the pictures for you. Without a key you can still drag in pictures you made yourself. The key is saved privately on this Mac (in a file only your account can read) and is only ever sent to OpenRouter.")
+                LabeledContent("Credit left") {
+                    HStack(spacing: 8) {
+                        if model.checkingCredits {
+                            ProgressView().controlSize(.small)
+                        } else if let rem = model.openRouterCredits {
+                            Text(OpenRouter.formatCredits(rem) + " (about \(Int(rem / max(0.01, model.perImageCostUSD))) pictures)")
+                                .font(.callout.weight(.semibold)).foregroundStyle(rem < 0.25 ? Color.orange : Color.green)
+                        } else {
+                            Text(model.hasOpenRouterKey ? "Press Check" : "No key entered").foregroundStyle(.secondary)
+                        }
+                        Button("Check") { save(); model.refreshOpenRouterCredits(silent: false) }
+                            .disabled(!model.hasOpenRouterKey || model.checkingCredits)
+                            .help("Looks up how much credit is left on your OpenRouter account.")
+                    }
+                }
+                if let err = model.openRouterCreditError { Text(err).font(.callout).foregroundStyle(.red) }
+                Text("About \(OpenRouter.formatUSD(model.perImageCostUSD)) per picture. Each song remembers how much it has cost.").font(.callout).foregroundStyle(.secondary)
+            }
+            Section("Shortcuts & help") {
                 LabeledContent("Music Video Maker") {
                     HStack {
                         Text(model.inDock ? "In your Dock" : "Not in your Dock").foregroundStyle(.secondary)
-                        Button(model.inDock ? "Remove from Dock" : "Add to Dock") { model.toggleDock() }.controlSize(.small)
+                        Button(model.inDock ? "Remove from Dock" : "Add to Dock") { model.toggleDock() }
+                            .help("Puts the app's icon in your Dock so you can open it with one click.")
                     }
                 }
-                if let n = model.dockNote { Text(n).font(.caption).foregroundStyle(.secondary) }
+                if let n = model.dockNote { Text(n).font(.callout).foregroundStyle(.secondary) }
+                LabeledContent("Step-by-step guide") { Button("Show Quick Guide") { model.showGuide = true }.help("Opens the plain-language instructions.") }
             }
             if model.isNativeBuild {
                 Section("On-device AI") {
-                    Text("Speech (Parakeet Ultra) and prompt writing run inside this app with Apple MLX — nothing else needs to be installed.").font(.callout)
+                    Text("Listening to your song and writing picture ideas both happen on this Mac. Nothing about your song is sent anywhere.").font(.callout)
                 }
             } else {
-            Section("Local AI — oMLX") {
-                LabeledContent("Status") { Text(status).foregroundStyle(ids.isEmpty ? .orange : .green) }
-                modelPicker("Speech (Parakeet)", $model.config.sttModel, OMLX.defaultSTT)
-                modelPicker("Writes the image prompts", $model.config.llmModel, OMLX.defaultLLM)
-                TextField("Server URL (blank = http://127.0.0.1:8000)", text: $model.config.omlxURL)
-                SecureField("API key (blank = read from oMLX's own settings)", text: $model.config.omlxKey)
-                Button("Re-check connection") { Task { await check() } }
-            }
+                Section("Local AI — oMLX (advanced)") {
+                    LabeledContent("Status") { Text(status).foregroundStyle(ids.isEmpty ? .orange : .green) }
+                    modelPicker("Speech (Parakeet)", $model.config.sttModel, OMLX.defaultSTT)
+                    modelPicker("Writes the image prompts", $model.config.llmModel, OMLX.defaultLLM)
+                    TextField("Server URL (blank = http://127.0.0.1:8000)", text: $model.config.omlxURL)
+                    SecureField("API key (blank = read from oMLX's own settings)", text: $model.config.omlxKey)
+                    Button("Re-check connection") { Task { await check() } }
+                }
             }
         }
-        .formStyle(.grouped).frame(width: 580, height: 640)
+        .formStyle(.grouped).frame(width: 600, height: 560)
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
@@ -548,8 +530,8 @@ struct SettingsView: View {
                     let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
                     p.prompt = "Use This Folder"
                     if p.runModal() == .OK, let u = p.url { set(u.path); save() }
-                }.controlSize(.small)
-                if !value.isEmpty { Button("Reset") { set(""); save() }.controlSize(.small) }
+                }
+                if !value.isEmpty { Button("Reset") { set(""); save() }.help("Go back to the standard folder.") }
             }
         }
     }

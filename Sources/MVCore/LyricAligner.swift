@@ -193,33 +193,102 @@ public enum LyricAligner {
                 acc += w
             }
         } else {
-            // Interpolate gaps between matched anchors proportional to character count.
+            // Interpolate unmatched spans while respecting line boundaries so leading/trailing unmatched words
+            // never get pulled across inter-line pauses or instrumental breaks.
             var i = 0
             while i < n {
                 if times[i] != nil { i += 1; continue }
                 var j = i; while j < n && times[j] == nil { j += 1 }
-                let prevEnd: Double? = i > 0 ? times[i-1]!.1 : nil
+                let prevEnd: Double? = i > 0 ? times[i - 1]!.1 : nil
                 let nextStart: Double? = j < n ? times[j]!.0 : nil
-                let count = j - i
-                let weights = (i..<j).map { Double(max(lw[$0].text.count, 2)) }
-                let tw = weights.reduce(0, +)
-                var a: Double, b: Double
-                switch (prevEnd, nextStart) {
-                case let (p?, nx?): a = p; b = max(nx, p + 0.05)
-                    // Don't stretch across a long instrumental gap: cap at ~0.45s/word.
-                    let cap = Double(count) * 0.45
-                    if b - a > cap { let spare = (b - a) - cap; a += spare / 2; b -= spare / 2 }
-                case let (p?, nil): a = p; b = min(songDuration, p + Double(count) * 0.4)
-                case let (nil, nx?): b = nx; a = max(0, nx - Double(count) * 0.4)
-                default: a = 0; b = songDuration
+                let prevLine: Int? = i > 0 ? lw[i - 1].line : nil
+                let nextLine: Int? = j < n ? lw[j].line : nil
+
+                var curStart = prevEnd ?? 0.0
+                var curEnd = nextStart ?? songDuration
+                if curEnd < curStart + 0.05 { curEnd = curStart + 0.05 }
+
+                var subIdx = i
+                // 1) Trailing unmatched words belonging to `prevLine` stay attached to `prevEnd`
+                if let pl = prevLine, lw[subIdx].line == pl {
+                    var subEnd = subIdx
+                    while subEnd < j && lw[subEnd].line == pl { subEnd += 1 }
+                    let cnt = subEnd - subIdx
+                    let wts = (subIdx..<subEnd).map { Double(max(lw[$0].text.count, 2)) }
+                    let tw = wts.reduce(0, +)
+                    let maxSpan = nextLine == pl ? (curEnd - curStart) : min(Double(cnt) * 0.32, (curEnd - curStart) * (subEnd == j ? 0.65 : 0.35))
+                    let a = curStart
+                    let b = max(a + 0.04, a + maxSpan)
+                    var acc = 0.0
+                    for k in subIdx..<subEnd {
+                        let w = wts[k - subIdx]
+                        times[k] = (a + (b - a) * acc / tw, a + (b - a) * (acc + w) / tw)
+                        acc += w
+                    }
+                    curStart = min(curEnd, b + 0.12)
+                    subIdx = subEnd
                 }
-                var acc = 0.0
-                for k in i..<j { let w = weights[k - i]; times[k] = (a + (b - a) * acc / tw, a + (b - a) * (acc + w) / tw); acc += w }
+
+                // 2) Leading unmatched words belonging to `nextLine` stay attached right before `nextStart`
+                var tailStart = j
+                if let nl = nextLine, subIdx < j, lw[j - 1].line == nl {
+                    while tailStart > subIdx && lw[tailStart - 1].line == nl { tailStart -= 1 }
+                    let cnt = j - tailStart
+                    let wts = (tailStart..<j).map { Double(max(lw[$0].text.count, 2)) }
+                    let tw = wts.reduce(0, +)
+                    let avail = max(0.04, curEnd - curStart)
+                    let maxSpan = min(Double(cnt) * 0.28, avail * (tailStart == subIdx ? 0.72 : 0.45))
+                    let b = curEnd
+                    let a = max(curStart, b - maxSpan)
+                    var acc = 0.0
+                    for k in tailStart..<j {
+                        let w = wts[k - tailStart]
+                        times[k] = (a + (b - a) * acc / tw, a + (b - a) * (acc + w) / tw)
+                        acc += w
+                    }
+                    curEnd = max(curStart, a - 0.12)
+                }
+
+                // 3) Any remaining unmatched words (e.g. an entire unmatched line in the middle)
+                if subIdx < tailStart {
+                    // Group by line so each unmatched line stays compact instead of stretching across silence
+                    var lineGroups: [( start: Int, end: Int )] = []
+                    var g = subIdx
+                    while g < tailStart {
+                        let lnum = lw[g].line
+                        var ge = g
+                        while ge < tailStart && lw[ge].line == lnum { ge += 1 }
+                        lineGroups.append((g, ge))
+                        g = ge
+                    }
+                    let totalGap = max(0.05, curEnd - curStart)
+                    let sliceSpan = totalGap / Double(lineGroups.count)
+                    for (gi, grp) in lineGroups.enumerated() {
+                        let cnt = grp.end - grp.start
+                        let wts = (grp.start..<grp.end).map { Double(max(lw[$0].text.count, 2)) }
+                        let tw = wts.reduce(0, +)
+                        let winA = curStart + Double(gi) * sliceSpan
+                        let winB = winA + sliceSpan
+                        let cap = Double(cnt) * 0.34
+                        var a = winA, b = winB
+                        if b - a > cap {
+                            let lead = min(0.45, (b - a - cap) * 0.35)
+                            a += lead
+                            b = a + cap
+                        }
+                        var acc = 0.0
+                        for k in grp.start..<grp.end {
+                            let w = wts[k - grp.start]
+                            times[k] = (a + (b - a) * acc / tw, a + (b - a) * (acc + w) / tw)
+                            acc += w
+                        }
+                    }
+                }
                 i = j
             }
         }
 
-        // Monotonic cleanup + sane durations
+        // Monotonic cleanup + natural sung syllable hold durations
         var out: [LyricLine] = []
         var tcur = 0.0
         var idx = 0
@@ -227,14 +296,29 @@ public enum LyricAligner {
             var words: [TimedWord] = []
             while idx < n && lw[idx].line == li {
                 var (s, e) = times[idx]!
-                s = max(s, tcur); e = max(e, s + 0.12)
-                e = min(e, s + 2.5)
+                s = max(s, tcur)
+                e = max(e, s + 0.12)
+                e = min(e, s + 2.2)
                 words.append(TimedWord(text: lw[idx].text, start: s, end: e))
                 tcur = s + 0.02
                 idx += 1
             }
-            // end of a word never crosses the next word's start
-            for k in 0..<max(0, words.count - 1) { words[k].end = min(words[k].end, max(words[k].start + 0.08, words[k+1].start)) }
+            // Extend brief TDT token emissions across sustained sung vowels within the same phrase
+            for k in 0..<words.count {
+                let charLen = max(2, words[k].text.filter { $0.isLetter }.count)
+                let naturalHold = min(0.52, max(0.22, Double(charLen) * 0.065))
+                if k + 1 < words.count {
+                    let nextStart = words[k + 1].start
+                    let gapToNext = nextStart - words[k].start
+                    if gapToNext <= 0.65 && (words[k].end - words[k].start) < naturalHold {
+                        words[k].end = min(words[k].start + naturalHold, max(words[k].start + 0.09, nextStart - 0.02))
+                    } else {
+                        words[k].end = min(words[k].end, max(words[k].start + 0.08, nextStart))
+                    }
+                } else if (words[k].end - words[k].start) < naturalHold {
+                    words[k].end = min(songDuration, words[k].start + naturalHold)
+                }
+            }
             out.append(LyricLine(id: li, text: text, words: words))
             if let last = words.last { tcur = max(tcur, last.end) }
         }

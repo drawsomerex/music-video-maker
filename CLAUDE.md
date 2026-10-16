@@ -61,3 +61,9 @@ The app finds releases via the GitHub API and installs `*native*.zip` after chec
 - Word timing comes from token timestamps; oMLX's HTTP transcription endpoint returns text only (so the windowed fallback in `Transcriber` is approximate).
 - Shorts: hard 3:00 limit (`ShortClip.maxDuration`); no picture change in the first/last 3 s; captions window has no slack so selecting lines never shows neighbours (`Pipeline.clip` / `lineRange`).
 - Models' licences: Parakeet Ultra is CC-BY-4.0 (credit it); mlx-audio-swift MIT.
+
+## Gotchas learned the hard way
+- **Never store secrets in the Keychain.** The app is ad-hoc signed, so every new build is a "different app" to the Keychain: reads block on a hidden permission dialog and the whole UI freezes at launch. Keys live in `config.json` (mode 0600).
+- Don't `pkill -x MusicVideoApp` while testing; it also kills the user's own running copy. Launch test builds with `open -n <app> --env K=V --stderr file` and kill by full path.
+- `ImageRenderer` snapshots (`MV_SNAPSHOT_DIR`) can't draw AppKit-backed controls (text fields, lists show as yellow "no" boxes) but are good for checking layout of everything else.
+- Caption timing has one knob: `Plan.captionShift` (seconds, negative = earlier). Don't add offsets elsewhere.

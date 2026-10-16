@@ -39,8 +39,9 @@ struct PlanView: View {
             VStack(spacing: 12) {
                 HStack { Text("Preview — \(plan.title)").font(.headline); Spacer(); Button("Done") { model.showFullPreview = false }.keyboardShortcut(.defaultAction) }
                 LivePreviewPane(live: model.live, defaultCaption: 0.075) { v in model.setCaptionY(v, shortID: nil) }
-                Text("This is the same renderer as the final export, at preview size. Drag the captions to move them for the whole video.").font(.caption).foregroundStyle(.secondary)
-            }.padding(20).frame(width: 780, height: 560)
+                CaptionTimingBar().environmentObject(model)
+                Text("This is exactly what the finished video will look like. Drag the words up or down to move them.").font(.callout).foregroundStyle(.secondary)
+            }.padding(20).frame(width: 800, height: 620)
         }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
@@ -68,167 +69,141 @@ struct PlanView: View {
 
     var modeBar: some View {
         HStack(spacing: 14) {
+            StepBar(current: 2)
+            Divider().frame(height: 22)
             Picker("", selection: $mode) { Text("Full video").tag(0); Text("YouTube Shorts").tag(1) }.pickerStyle(.segmented).frame(width: 260).labelsHidden()
+                .help("“Full video” is the whole song in widescreen. “YouTube Shorts” makes short vertical clips for phones.")
             Text(plan.title).font(.headline).lineLimit(1)
             if plan.timing != "exact" {
-                Label("Lyric timing is approximate", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
-                Button { model.resync() } label: { Label(model.resyncing ? "Re-syncing…" : "Re-sync (exact)", systemImage: "waveform.badge.magnifyingglass") }
-                    .controlSize(.small).disabled(model.resyncing).buttonStyle(.borderedProminent)
+                Label("Word timing is rough", systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange)
+                Button { model.resync() } label: { Label(model.resyncing ? "Working…" : "Fix the timing", systemImage: "waveform.badge.magnifyingglass") }
+                    .disabled(model.resyncing).buttonStyle(.borderedProminent)
+                    .help("Listens to the song again to line every word up exactly. Takes about a minute. Your pictures are not touched.")
             }
             Spacer()
-            HStack(spacing: 6) {
-                Image(systemName: "dollarsign.circle.fill").foregroundStyle(.green)
-                Text("Song Cost: \(OpenRouter.formatUSD(plan.totalGenerationCostUSD))")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                if plan.imagesGeneratedCount > 0 {
-                    Text("(\(plan.imagesGeneratedCount) img)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(Capsule().fill(Color.green.opacity(0.12)))
-            .help("Total OpenRouter image generation cost spent on this song (saved in project.mvproj)")
-
-            Button { model.revealProject() } label: { Label("Show project folder", systemImage: "folder") }.controlSize(.small)
-            Button { model.reset() } label: { Label("Close project", systemImage: "xmark.circle") }.controlSize(.small)
+            Button { model.revealProject() } label: { Label("Show folder", systemImage: "folder") }
+                .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
+            Button { model.reset() } label: { Label("Close", systemImage: "xmark.circle") }
+                .help("Closes this song and returns to the start. Everything is already saved; use “Open earlier project” to come back.")
         }.padding(.horizontal, 20).padding(.vertical, 8).background(.regularMaterial)
     }
 
     // MARK: style + bulk actions
+    @State private var showDescription = false
+
     var styleBar: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Song description — written from your lyrics; drives every prompt").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Spacer()
-                    if model.busy { ProgressView().controlSize(.small) }
-                    Button { model.redescribe() } label: { Label("Rewrite", systemImage: "arrow.clockwise") }.controlSize(.small).disabled(model.busy)
-                    Button { model.regeneratePrompts() } label: { Label("Redo prompts from this", systemImage: "wand.and.stars") }.controlSize(.small).disabled(model.busy)
-                }
-                TextEditor(text: Binding(get: { model.plan?.description ?? "" }, set: { model.setDescription($0) }))
-                    .font(.callout).scrollContentBackground(.hidden).padding(6)
-                    .frame(height: 60).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
-                HStack {
-                    Text("Shared style — appended to every prompt so the pictures match").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Spacer()
-                    Menu {
-                        ForEach(Array(StylePreset.all.dropFirst())) { preset in
-                            Button(preset.name) {
-                                model.applyStylePreset(preset.name)
-                            }
-                        }
-                    } label: {
-                        Label("Style Presets", systemImage: "paintpalette")
-                    }
-                    .controlSize(.small)
-                    .fixedSize()
-                }
-                TextEditor(text: Binding(get: { model.plan?.style ?? "" }, set: { model.setStyle($0) }))
-                    .font(.callout).scrollContentBackground(.hidden).padding(6)
-                    .frame(height: 44).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+        VStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 16) {
+                nextStepCard
+                pictureMaker.frame(width: 370)
             }
-
-            // OpenRouter Image Generation & Credits Panel
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles.rectangle.stack.fill").foregroundStyle(.tint)
-                    Text("OpenRouter · gpt-image-2.5-sunburst (16:9 Med)")
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                    Button {
-                        model.showOpenRouterKeySheet = true
-                    } label: {
-                        Label(model.hasOpenRouterKey ? "API Key" : "Set API Key…", systemImage: "key.fill")
+            DisclosureGroup(isExpanded: $showDescription) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("What the song is about (the app wrote this from your lyrics)").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                        Spacer()
+                        if model.busy { ProgressView().controlSize(.small) }
+                        Button { model.redescribe() } label: { Label("Write it again", systemImage: "arrow.clockwise") }.disabled(model.busy)
+                            .help("Has the AI read your lyrics again and write a new description and new picture ideas. Your own edits to the description are replaced.")
+                        Button { model.regeneratePrompts() } label: { Label("Make new picture ideas", systemImage: "wand.and.stars") }.disabled(model.busy)
+                            .help("Keeps the description below (including any changes you made) and writes fresh picture ideas from it.")
                     }
-                    .controlSize(.mini)
-                    .buttonStyle(.bordered)
-                }
-
-                HStack(spacing: 10) {
-                    if model.hasOpenRouterKey {
-                        HStack(spacing: 4) {
-                            Text("Credits left:")
-                                .font(.caption2).foregroundStyle(.secondary)
-                            if model.checkingCredits {
-                                ProgressView().controlSize(.mini)
-                            } else if let rem = model.openRouterCredits {
-                                Text(OpenRouter.formatCredits(rem))
-                                    .font(.caption.monospacedDigit().weight(.bold))
-                                    .foregroundStyle(rem < model.missingImagesCostUSD ? .orange : .green)
-                            } else {
-                                Button("Check") { model.refreshOpenRouterCredits(silent: false) }
-                                    .controlSize(.mini).buttonStyle(.borderless)
-                            }
-                            Button {
-                                model.refreshOpenRouterCredits(silent: false)
-                            } label: {
-                                Image(systemName: "arrow.clockwise").font(.caption2)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                            .help("Refresh OpenRouter credit balance")
-                        }
-                    } else {
-                        Text("Add your OpenRouter API key to auto-generate images")
-                            .font(.caption2).foregroundStyle(.orange)
+                    TextEditor(text: Binding(get: { model.plan?.description ?? "" }, set: { model.setDescription($0) }))
+                        .font(.callout).scrollContentBackground(.hidden).padding(6)
+                        .frame(height: 70).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+                        .help("You can edit this. Every picture idea is built from it, so changing it changes the pictures.")
+                    HStack {
+                        Text("Art style for every picture (keeps them looking alike)").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                        Spacer()
+                        Menu {
+                            ForEach(Array(StylePreset.all.dropFirst())) { preset in Button(preset.name) { model.applyStylePreset(preset.name) } }
+                        } label: { Label("Choose a style", systemImage: "paintpalette") }
+                        .fixedSize().help("Pick a ready-made art style such as oil painting, watercolor or anime. It is added to every picture idea.")
                     }
-                    Spacer()
-                    Text("~\(OpenRouter.formatUSD(model.perImageCostUSD))/img · Song total: \(OpenRouter.formatUSD(plan.totalGenerationCostUSD))")
-                        .font(.caption2.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 6) {
-                    Button {
-                        model.generateAllMissingImages()
-                    } label: {
-                        Label(
-                            model.missing.isEmpty
-                                ? "All \(model.totalImages) Pictures Ready"
-                                : "Generate \(model.missing.count) Missing (~\(OpenRouter.formatUSD(model.missingImagesCostUSD)))",
-                            systemImage: "wand.and.sparkles"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(model.missing.isEmpty || model.busy)
-                    .help("Generate all missing section pictures with openai/gpt-image-2.5-sunburst (16:9 Medium)")
-
-                    Button {
-                        if model.hasOpenRouterKey {
-                            confirmRegenAll = true
-                        } else {
-                            model.showOpenRouterKeySheet = true
-                        }
-                    } label: {
-                        Text("Reroll All \(model.totalImages) (~\(OpenRouter.formatUSD(model.allImagesCostUSD)))")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(model.busy)
-                    .help("Regenerate all \(model.totalImages) pictures for the entire song (estimated ~\(OpenRouter.formatUSD(model.allImagesCostUSD)))")
-                }
-
-                Divider()
-
-                HStack(spacing: 6) {
-                    Button { model.copyAllPrompts() } label: { Label("Copy prompts", systemImage: "doc.on.doc") }
-                    Button { chooseFolder() } label: { Label("Load folder…", systemImage: "folder") }
-                    Button { if let w = model.workDir { NSWorkspace.shared.open(Pipeline.promptsURL(w)) } } label: { Label("prompts.md", systemImage: "doc.text") }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
+                    TextEditor(text: Binding(get: { model.plan?.style ?? "" }, set: { model.setStyle($0) }))
+                        .font(.callout).scrollContentBackground(.hidden).padding(6)
+                        .frame(height: 50).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+                        .help("The look of the pictures, in words. It is added to every picture idea so all the pictures match.")
+                }.padding(.top, 6)
+            } label: {
+                Label("Song description and art style (written for you; open to change)", systemImage: "text.alignleft").font(.callout.weight(.medium))
             }
-            .padding(10)
-            .frame(width: 390)
-            .background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.55)))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
+            .help("The app already wrote these. Open this only if you want to change how the pictures look.")
         }
         .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
+    }
+
+    /// One plain sentence about what to do next, always visible above the pictures.
+    var nextStepCard: some View {
+        Group {
+            if model.missing.isEmpty {
+                NextStepCard(icon: "checkmark.seal.fill", title: "All \(model.totalImages) pictures are ready",
+                             detail: "Press Preview to watch it, then “Make my video” at the bottom right.", tint: .green)
+            } else if model.hasOpenRouterKey {
+                NextStepCard(icon: "photo.on.rectangle", title: "\(model.loadedCount) of \(model.totalImages) pictures ready",
+                             detail: "Press “Make all missing pictures” to have the app draw the rest, or click a part in the list and drag in your own picture.")
+            } else {
+                NextStepCard(icon: "photo.on.rectangle", title: "\(model.loadedCount) of \(model.totalImages) pictures ready",
+                             detail: "Click a part in the list on the left, then drag in a picture you made. To have the app draw them for you, add an OpenRouter key.")
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    var pictureMaker: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles.rectangle.stack.fill").foregroundStyle(.tint)
+                Text("Picture maker").font(.headline)
+                Spacer()
+                Button { model.showOpenRouterKeySheet = true } label: { Label(model.hasOpenRouterKey ? "Key" : "Add key", systemImage: "key.fill") }
+                    .help(model.hasOpenRouterKey ? "Change or check your OpenRouter key." : "Add your OpenRouter key so the app can draw the pictures. You can also skip this and drag in your own pictures.")
+            }
+            if model.hasOpenRouterKey {
+                HStack(spacing: 6) {
+                    Text("Credit left:").font(.callout).foregroundStyle(.secondary)
+                    if model.checkingCredits { ProgressView().controlSize(.small) }
+                    else if let rem = model.openRouterCredits {
+                        Text(OpenRouter.formatCredits(rem)).font(.callout.monospacedDigit().weight(.bold)).foregroundStyle(rem < model.missingImagesCostUSD ? .orange : .green)
+                    } else { Button("Check") { model.refreshOpenRouterCredits(silent: false) }.buttonStyle(.borderless) }
+                    Spacer()
+                    Text("about \(OpenRouter.formatUSD(model.perImageCostUSD)) each").font(.callout).foregroundStyle(.secondary)
+                }
+                .help("What is left on your OpenRouter account, and the usual price of one picture.")
+            } else {
+                Text("Optional: add an OpenRouter key and the app will draw the pictures for you.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Button { model.generateAllMissingImages() } label: {
+                    Label(model.missing.isEmpty ? "All pictures ready" : "Make all missing pictures (\(model.missing.count), about \(OpenRouter.formatUSD(model.missingImagesCostUSD)))", systemImage: "wand.and.sparkles")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .disabled(model.missing.isEmpty || model.busy)
+                .help("Draws a picture for every part that does not have one yet. You are only charged for pictures it makes. You can watch the progress and press Cancel at any time.")
+            }
+            HStack(spacing: 8) {
+                Menu {
+                    Button("Make every picture again (about \(OpenRouter.formatUSD(model.allImagesCostUSD)))") {
+                        if model.hasOpenRouterKey { confirmRegenAll = true } else { model.showOpenRouterKeySheet = true }
+                    }
+                    Divider()
+                    Button("Copy all picture ideas") { model.copyAllPrompts() }
+                    Button("Open picture ideas as a document") { if let w = model.workDir { NSWorkspace.shared.open(Pipeline.promptsURL(w)) } }
+                } label: { Label("More", systemImage: "ellipsis.circle") }
+                .fixedSize().help("Other things you can do with the pictures: make them all again, or copy the picture ideas to use in another app.")
+                Button { chooseFolder() } label: { Label("Add pictures from a folder…", systemImage: "folder") }
+                    .help("Choose a folder of pictures named 00.png, 01.png, 02.png and so on. 00 is the title card. Each picture goes to the matching part of the song.")
+                Spacer()
+                Text("This song so far: \(OpenRouter.formatUSD(plan.totalGenerationCostUSD))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    .help("What this song has cost in picture-making so far.")
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.background.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
     }
 
     // MARK: sidebar
@@ -258,11 +233,11 @@ struct PlanView: View {
                 }
 
                 if !section.lineIDs.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Lyrics in this section").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("Words in this part").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                             Spacer()
-                            Text("Click ▶ to hear a line · Nudge timing if a line arrives early or late").font(.caption2).foregroundStyle(.tertiary)
+                            Text("▶ plays a line. If a line shows too early or late, use the small − and + buttons.").font(.callout).foregroundStyle(.tertiary)
                         }
                         ForEach(section.lineIDs, id: \.self) { lineIdx in
                             let line = plan.lines[lineIdx]
@@ -272,14 +247,14 @@ struct PlanView: View {
                                 } label: {
                                     Image(systemName: "play.fill").font(.caption2)
                                 }
-                                .buttonStyle(.bordered).controlSize(.mini).help("Play this lyric line")
+                                .buttonStyle(.bordered).help("Listen to this line of the song.")
 
                                 Text(String(format: "%d:%04.1f", Int(line.start) / 60, line.start.truncatingRemainder(dividingBy: 60)))
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                                     .frame(width: 44, alignment: .trailing)
 
-                                Text("♪ " + line.text).font(.callout).lineLimit(1)
+                                Text("♪ " + line.text).font(.body).lineLimit(1)
                                 Spacer(minLength: 4)
 
                                 HStack(spacing: 2) {
@@ -288,7 +263,8 @@ struct PlanView: View {
                                     Button("+0.1s") { model.nudgeLine(lineIdx, delta: 0.1) }
                                     Button("+0.5s") { model.nudgeLine(lineIdx, delta: 0.5) }
                                 }
-                                .buttonStyle(.bordered).controlSize(.mini).font(.caption2.monospacedDigit())
+                                .buttonStyle(.bordered).controlSize(.small).font(.caption.monospacedDigit())
+                                .help("Moves just this line earlier (−) or later (+) in the video. 0.1 s is a tiny nudge; 0.5 s is half a second.")
                             }
                         }
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
@@ -303,29 +279,31 @@ struct PlanView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
-                        Text("Suggested prompt").font(.headline); Spacer()
+                        Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
                         if model.busy { ProgressView().controlSize(.small) }
-                        Button { model.rewritePrompt(section: selection) } label: { Label("Another take", systemImage: "arrow.clockwise") }.disabled(model.busy)
-                        Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy prompt + style", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
+                        Button { model.rewritePrompt(section: selection) } label: { Label("Another idea", systemImage: "arrow.clockwise") }.disabled(model.busy)
+                            .help("Has the AI write a different picture idea for this part.")
+                        Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
+                            .help("Copies this picture idea (with the art style) so you can paste it into another image maker.")
                         Button {
                             model.generateImage(section: selection)
                         } label: {
                             Label(
                                 section.hasImage
-                                    ? "Reroll Picture (~\(OpenRouter.formatUSD(model.perImageCostUSD)))"
-                                    : "Generate Picture (~\(OpenRouter.formatUSD(model.perImageCostUSD)))",
+                                    ? "Try another picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))"
+                                    : "Make this picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))",
                                 systemImage: section.hasImage ? "dice.fill" : "sparkles"
                             )
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.busy)
-                        .help("Generate a 16:9 Medium picture for this section using \(OpenRouter.imageModel)")
-                    }.controlSize(.small)
+                        .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
+                    }
                     TextEditor(text: Binding(get: { section.prompt }, set: { model.setPrompt($0, section: selection) }))
                         .font(.callout).scrollContentBackground(.hidden).padding(8).frame(minHeight: 86)
                         .background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
                         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
-                    Text("Full prompt sent to \(OpenRouter.imageModel) = this prompt + the shared style + “16:9, no text”.").font(.caption).foregroundStyle(.tertiary)
+                    Text("The picture is drawn from this idea plus the art style, in widescreen with no text.").font(.callout).foregroundStyle(.tertiary)
                 }
 
                 DropWell(section: selection)
@@ -336,25 +314,31 @@ struct PlanView: View {
     // MARK: footer
     var footer: some View {
         HStack(spacing: 14) {
-            Button { model.openFullPreview() } label: { Label("Preview video", systemImage: "play.rectangle") }.disabled(model.loadedCount == 0)
-            ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 120)
-            Text("\(model.loadedCount) of \(model.totalImages) pictures").font(.callout).foregroundStyle(.secondary)
+            Button { model.openFullPreview() } label: { Label("Preview", systemImage: "play.rectangle") }.controlSize(.large).disabled(model.loadedCount == 0)
+                .help(model.loadedCount == 0 ? "Add at least one picture first, then you can watch a preview." : "Watch the video before it is made. Nothing is saved or changed.")
+            VStack(alignment: .leading, spacing: 3) {
+                ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 150)
+                Text("\(model.loadedCount) of \(model.totalImages) pictures ready").font(.callout).foregroundStyle(.secondary)
+            }
+            .help("How many parts of the song have a picture. Parts without one get a plain colour background.")
             Spacer()
             Toggle(isOn: $model.autoRenderShorts) {
-                Label("Also make \(plan.shorts.isEmpty ? "4–7" : "\(plan.shorts.count)") Shorts (~30s)", systemImage: "rectangle.portrait.fill")
+                Text("Also make \(plan.shorts.isEmpty ? "4–7" : "\(plan.shorts.count)") short clips")
                     .font(.callout)
             }
             .toggleStyle(.checkbox)
-            .help("Automatically render the main video and \(plan.shorts.isEmpty ? "4–7" : "\(plan.shorts.count)") ~30-second Shorts cut at natural stanza boundaries")
+            .help("Also makes \(plan.shorts.isEmpty ? "4 to 7" : "\(plan.shorts.count)") vertical clips of about 30 seconds each for YouTube Shorts, cut at natural pauses in the song.")
 
             Picker("Quality", selection: $model.quality) {
                 Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160)
             }.pickerStyle(.segmented).frame(width: 240).labelsHidden()
+                .help("Picture sharpness. 1080p HD is right for YouTube. 4K is sharper but takes much longer and makes a bigger file.")
             Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: {
-                Label(model.autoRenderShorts ? "Render Video + Shorts" : "Render Video", systemImage: "film")
+                Label(model.autoRenderShorts ? "Make my video and clips" : "Make my video", systemImage: "film")
                     .font(.headline).padding(.horizontal, 8).padding(.vertical, 3)
             }
             .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
+            .help("Creates the finished video file. It takes a few minutes; you can watch the progress and cancel at any time.")
         }
         .padding(.horizontal, 20).padding(.vertical, 12).background(.regularMaterial)
     }
@@ -462,32 +446,32 @@ struct DropWell: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Your picture").font(.headline)
+                Text("Picture for this part").font(.headline)
                 Spacer()
                 if sec.selectedCandidate != nil {
-                    Toggle("Show 9:16 Short crop & focal point", isOn: $showShortCrop)
-                        .toggleStyle(.checkbox).font(.caption).foregroundStyle(.secondary)
-                    Button("Auto Focus") { model.resetFocus(section: section) }
-                        .controlSize(.mini).buttonStyle(.bordered)
-                        .help("Re-detect the face / subject focal point automatically")
+                    Toggle("Show the camera aim", isOn: $showShortCrop)
+                        .toggleStyle(.checkbox).font(.callout).foregroundStyle(.secondary)
+                        .help("Shows the orange dot the camera slowly moves toward, and the dashed box that is kept in the tall YouTube Shorts version.")
+                    Button("Aim automatically") { model.resetFocus(section: section) }
+                        .buttonStyle(.bordered)
+                        .help("Lets the app find the most interesting spot in the picture (such as a face) and aim the camera there.")
                     Button {
                         model.generateImage(section: section)
                     } label: {
-                        Label("Reroll (~\(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "dice.fill")
+                        Label("Try another picture", systemImage: "dice.fill")
                     }
-                    .controlSize(.mini)
                     .buttonStyle(.borderedProminent)
                     .disabled(model.busy)
-                    .help("Generate a new 16:9 Medium replacement image with \(OpenRouter.imageModel)")
+                    .help("Draws a new picture for this part and replaces this one (a few cents).")
                 } else {
                     Button {
                         model.generateImage(section: section)
                     } label: {
-                        Label("Generate with OpenRouter (~\(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles")
+                        Label("Make this picture for me", systemImage: "sparkles")
                     }
-                    .controlSize(.small)
                     .buttonStyle(.borderedProminent)
                     .disabled(model.busy)
+                    .help("Draws a picture from the idea below (a few cents). Or drag your own picture into the box.")
                 }
             }
             GeometryReader { geo in
@@ -519,13 +503,13 @@ struct DropWell: View {
                                 Circle().fill(Color.orange).frame(width: 7, height: 7)
                             }
                             .position(x: dispX, y: dispY)
-                            .help("Focal point for Ken Burns pan & 9:16 Shorts crop — drag to adjust")
+                            .help("Drag this dot to choose where the camera slowly drifts toward.")
                         }
                     } else {
                         VStack(spacing: 10) {
                             Image(systemName: "photo.badge.plus").font(.system(size: 34)).foregroundStyle(.secondary)
-                            Text("Drop a picture here, click to choose a file, or click Generate above").font(.callout.weight(.medium))
-                            Text("\(OpenRouter.imageModel) · 16:9 Medium · ~\(OpenRouter.formatUSD(model.perImageCostUSD))").font(.caption).foregroundStyle(.secondary)
+                            Text("Drag a picture here, or click to choose one").font(.headline)
+                            Text("Widescreen pictures work best (1920 × 1080 or larger)").font(.callout).foregroundStyle(.secondary)
                         }
                         .frame(width: w, height: h)
                     }
@@ -555,17 +539,12 @@ struct DropWell: View {
             } isTargeted: { targeted = $0 }
             if let c = sec.selectedCandidate {
                 HStack {
-                    Text("\(c.credit) · \(c.width)×\(c.height) · Drag the orange target to aim the camera pan & 9:16 Short crop").font(.caption).foregroundStyle(.secondary)
+                    Text("Tip: drag the orange dot to choose where the camera drifts toward.").font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button {
-                        model.generateImage(section: section)
-                    } label: {
-                        Label("Reroll (~\(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "dice")
-                    }
-                    .controlSize(.small)
-                    .disabled(model.busy)
-                    Button("Replace…") { choose() }.controlSize(.small)
-                    Button("Remove", role: .destructive) { model.removeImage(section: section) }.controlSize(.small)
+                    Button("Choose a different file…") { choose() }
+                        .help("Replaces this picture with another file from your Mac.")
+                    Button("Remove picture", role: .destructive) { model.removeImage(section: section) }
+                        .help("Takes this picture away. That part of the video will show a plain colour until you add another.")
                 }.frame(maxWidth: 640)
             }
         }
@@ -611,5 +590,23 @@ struct Thumb: View {
         }
         .clipped()
         .task(id: file) { if let f = file { image = NSImage(contentsOf: f) } else { image = nil } }
+    }
+}
+
+
+/// "Words a little early or late?" — one pair of buttons that shifts every caption of the song.
+struct CaptionTimingBar: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("Words look too early or late?", systemImage: "captions.bubble").font(.callout.weight(.medium))
+            Button { model.nudgeCaptions(by: -0.05) } label: { Label("Show sooner", systemImage: "backward.fill") }
+                .help("Makes every word appear a little earlier (a twentieth of a second per click). Use this if the words seem to arrive after the singer.")
+            Text("now \(model.captionShiftText)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 130)
+            Button { model.nudgeCaptions(by: 0.05) } label: { Label("Show later", systemImage: "forward.fill") }
+                .help("Makes every word appear a little later. Use this if the words seem to arrive before the singer.")
+            Button("Reset") { model.resetCaptionTiming() }
+                .help("Goes back to the standard timing.")
+        }
     }
 }
