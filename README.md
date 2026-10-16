@@ -34,7 +34,6 @@ Notes: this applies to the standalone (native) app. A copy built with `./build_a
 
 ## Run
 Use it like any program: `./build_app.sh --install` puts **Music Video Maker** in Applications (Launchpad / Spotlight, no Terminal). Or double-click **`Music Video.command`** (builds the app the first time). oMLX must be installed; the app launches it if it isn't running.
-Add free Pexels / Pixabay keys (or a Gemini key) under *Settings → API Keys*.
 
 ## Your project folder (everything you need to come back and edit)
 Each song gets `~/Movies/Music Videos/<Title>/<Title> – project/`:
