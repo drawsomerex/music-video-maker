@@ -36,7 +36,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, Resync.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -92,6 +92,31 @@ struct MVideo: AsyncParsableCommand {
             #else
             print("This build talks to oMLX. The native (no oMLX, no Python) build is made by install_native.sh.")
             #endif
+        }
+    }
+
+    /// Benchmark helper: how well do a model's word timings line up with the lyrics, and how far do they differ from a reference run?
+    struct AlignCheck: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(commandName: "align-check", abstract: "Score a transcription (words.json) against a project's lyrics; optionally compare timings with a reference run.", shouldDisplay: false)
+        @Argument var words: String
+        @Argument(help: "A project folder (uses its lyrics)") var project: String
+        @Option(help: "Reference words.json to compare timings against") var ref: String?
+        func run() async throws {
+            struct W: Codable { var text: String; var start: Double; var end: Double }
+            let ws = try JSONDecoder().decode([W].self, from: Data(contentsOf: URL(fileURLWithPath: words))).map { TimedWord(text: $0.text, start: $0.start, end: $0.end) }
+            let plan = try Pipeline.loadPlan(URL(fileURLWithPath: (project as NSString).expandingTildeInPath))
+            let res = LyricAligner.align(lines: plan.lines.map(\.text), words: ws, songDuration: plan.songDuration)
+            var line = String(format: "words=%d coverage=%.1f%%", ws.count, res.coverage * 100)
+            if let r = ref {
+                let rw = try JSONDecoder().decode([W].self, from: Data(contentsOf: URL(fileURLWithPath: r))).map { TimedWord(text: $0.text, start: $0.start, end: $0.end) }
+                let rr = LyricAligner.align(lines: plan.lines.map(\.text), words: rw, songDuration: plan.songDuration)
+                // compare the start time the app would use for every lyric word that both runs matched
+                var d: [Double] = []
+                for (a, b) in zip(res.lines, rr.lines) { for (x, y) in zip(a.words, b.words) { d.append(abs(x.start - y.start)) } }
+                d.sort()
+                if !d.isEmpty { line += String(format: " | lyric-word start vs reference: median %.0f ms, p90 %.0f ms, p99 %.0f ms, within 80 ms: %.0f%%", d[d.count / 2] * 1000, d[Int(Double(d.count) * 0.9)] * 1000, d[Int(Double(d.count) * 0.99)] * 1000, 100 * Double(d.filter { $0 <= 0.08 }.count) / Double(d.count)) }
+            }
+            print(line)
         }
     }
 

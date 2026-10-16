@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- Model benchmarks (`docs/model-benchmarks.md`, `scripts/bench/`) and hidden `mvideo align-check`; confirmed default model tiers.
+
 ## [1.0.0] - 2026-10-16
 First release.
 
