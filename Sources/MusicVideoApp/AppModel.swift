@@ -125,6 +125,18 @@ final class AppModel: ObservableObject {
     var previewTask: Task<Void, Never>?
     var willQuit: NSObjectProtocol?
 
+    // OpenRouter image generation & credits
+    @Published var selectedSection = -1
+    @Published var openRouterCredits: Double? = nil
+    @Published var checkingCredits = false
+    @Published var openRouterCreditError: String? = nil
+    @Published var showOpenRouterKeySheet = false
+
+    var hasOpenRouterKey: Bool { !config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var perImageCostUSD: Double { plan?.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage }
+    var missingImagesCostUSD: Double { Double(missing.count) * perImageCostUSD }
+    var allImagesCostUSD: Double { Double(totalImages) * perImageCostUSD }
+
     init() {
         // Stop the hidden oMLX engine (if we started one) when the app quits.
         willQuit = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in OMLXServer.shared.shutdown() }
@@ -134,6 +146,7 @@ final class AppModel: ObservableObject {
             plan = p; workDir = URL(fileURLWithPath: w); title = p.title; stage = .plan
             if let m = env["MV_DEMO_DONE"] { outputURL = URL(fileURLWithPath: m); stage = .done }
         }
+        if hasOpenRouterKey { refreshOpenRouterCredits(silent: true) }
     }
 
     var canStart: Bool { !isRecording && !busy && audioURL != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -236,11 +249,11 @@ final class AppModel: ObservableObject {
         let lvl = recorder.level
         recordingLevel = lvl
         recordingHistory.append(lvl)
-        if recordingHistory.count > 90 { recordingHistory.removeFirst(recordingHistory.count - 90) }
+        if recordingHistory.count > 32 { recordingHistory.removeFirst(recordingHistory.count - 32) }
 
         // Real-time transcription every ~4.5 seconds of recorded audio
         if !liveTranscribing && recordingSeconds - lastLiveTranscribeTime >= 4.5 {
-            let maxRecent = recordingHistory.suffix(40).max() ?? 0
+            let maxRecent = recordingHistory.suffix(24).max() ?? 0
             guard maxRecent > 0.008 else { return }
             lastLiveTranscribeTime = recordingSeconds
             liveTranscribing = true
@@ -334,7 +347,7 @@ final class AppModel: ObservableObject {
                 let work = Pipeline.workDir(output: folder, title: t)
                 workDir = work
                 plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, config: config, progress: handler)
-                stage = .plan; remember(work); loadWaveform()
+                stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
             } catch is CancellationError {
                 stage = .setup
             } catch {
@@ -347,6 +360,109 @@ final class AppModel: ObservableObject {
 
     // MARK: Step 2
     func persist() { if let p = plan, let w = workDir { try? Pipeline.savePlan(p, w) } }
+
+    // MARK: OpenRouter Image Generation & Credits
+    func refreshOpenRouterCredits(silent: Bool = true) {
+        let key = config.effectiveOpenRouterKey
+        guard !key.isEmpty else {
+            openRouterCredits = nil
+            openRouterCreditError = nil
+            return
+        }
+        checkingCredits = true
+        openRouterCreditError = nil
+        Task {
+            do {
+                let info = try await OpenRouter.fetchCredits(apiKey: key)
+                self.openRouterCredits = info.remaining
+            } catch {
+                if !silent {
+                    self.openRouterCreditError = error.localizedDescription
+                }
+            }
+            self.checkingCredits = false
+        }
+    }
+
+    func saveOpenRouterKey(_ key: String) {
+        config.openRouterKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        try? config.save()
+        refreshOpenRouterCredits(silent: false)
+    }
+
+    func generateImage(section: Int) {
+        guard plan != nil, let w = workDir else { return }
+        guard hasOpenRouterKey else {
+            showOpenRouterKeySheet = true
+            return
+        }
+        let label = section < 0 ? "Title Card" : String(format: "Picture %02d", section + 1)
+        let isReroll = (section < 0 ? plan?.intro.hasImage : plan?.sections[section].hasImage) == true
+        let actionWord = isReroll ? "Rerolling" : "Generating"
+        runBackground(initialPhase: "\(actionWord) \(label) with \(OpenRouter.imageModel)…") { [weak self] in
+            guard let self, var p = self.plan else { return }
+            self.busyHandler("\(actionWord) \(label) (16:9 Medium)…", 0.25)
+            let gen = try await Pipeline.generateSectionImage(section: section, plan: &p, work: w, config: self.config)
+            self.plan = p
+            if let rem = gen.creditsRemaining {
+                self.openRouterCredits = rem
+            } else {
+                self.refreshOpenRouterCredits(silent: true)
+            }
+            self.live.invalidate()
+            self.busyHandler("Done", 1.0)
+        }
+    }
+
+    func generateAllMissingImages() {
+        guard let p0 = plan, let w = workDir else { return }
+        guard hasOpenRouterKey else {
+            showOpenRouterKeySheet = true
+            return
+        }
+        let targets = Pipeline.missing(p0)
+        guard !targets.isEmpty else { return }
+        generateSectionsList(targets, work: w, titlePrefix: "Generating \(targets.count) missing picture(s)")
+    }
+
+    func regenerateAllImages() {
+        guard let p0 = plan, let w = workDir else { return }
+        guard hasOpenRouterKey else {
+            showOpenRouterKeySheet = true
+            return
+        }
+        let targets = Array(-1..<p0.sections.count)
+        generateSectionsList(targets, work: w, titlePrefix: "Generating all \(targets.count) picture(s)")
+    }
+
+    private func generateSectionsList(_ targets: [Int], work w: URL, titlePrefix: String) {
+        runBackground(initialPhase: "\(titlePrefix) with \(OpenRouter.imageModel)…") { [weak self] in
+            guard let self else { return }
+            let total = targets.count
+            var sessionSpent = 0.0
+            var completed = 0
+            for (idx, sec) in targets.enumerated() {
+                try Task.checkCancellation()
+                guard var p = self.plan else { break }
+                let label = sec < 0 ? "Title Card" : String(format: "Picture %02d", sec + 1)
+                self.busyHandler("\(idx + 1)/\(total): Generating \(label) (16:9 Medium)…", Double(idx) / Double(total))
+                let gen = try await Pipeline.generateSectionImage(section: sec, plan: &p, work: w, config: self.config)
+                sessionSpent += gen.costUSD
+                completed += 1
+                self.plan = p
+                self.selectedSection = sec
+                if let rem = gen.creditsRemaining {
+                    self.openRouterCredits = rem
+                }
+                self.live.invalidate()
+                self.busyHandler("\(idx + 1)/\(total): Saved \(label) (\(OpenRouter.formatUSD(gen.costUSD)))", Double(idx + 1) / Double(total))
+            }
+            self.refreshOpenRouterCredits(silent: true)
+            if let totalSong = self.plan?.totalGenerationCostUSD {
+                self.notice = "Generated \(completed) picture(s) for \(OpenRouter.formatUSD(sessionSpent)) · Song total: \(OpenRouter.formatUSD(totalSong))."
+            }
+        }
+    }
 
     func setPrompt(_ text: String, section: Int) {
         guard var p = plan else { return }
@@ -549,7 +665,7 @@ final class AppModel: ObservableObject {
                 try? Pipeline.savePlan(p, folder)
             }
             plan = p; workDir = folder; title = p.title; subject = p.subject; lyrics = p.lines.map(\.text).joined(separator: "\n")
-            stage = .plan; remember(folder); loadWaveform()
+            stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true)
         } catch { errorMessage = "Couldn't open that project: \(error.localizedDescription)" }
     }
 

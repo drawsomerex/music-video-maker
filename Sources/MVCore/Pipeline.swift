@@ -358,6 +358,37 @@ public enum Pipeline {
         return m
     }
 
+    /// Generates a 16:9 Medium image for `section` (−1 = title card) via OpenRouter (`openai/gpt-image-2.5-sunburst`),
+    /// attaches it to the project, and records the cost in `plan.totalGenerationCostUSD` (saved to `project.mvproj`).
+    @discardableResult
+    public static func generateSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
+        let prompt = fullPrompt(plan, section: index)
+        let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est)
+        let tmpName = String(format: "%02d_sunburst.%@", index + 1, gen.fileExtension)
+        let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_\(tmpName)")
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+        try gen.data.write(to: tmpURL)
+        _ = try attach(imageAt: tmpURL, section: index, plan: &plan, work: work)
+
+        let label = "gpt-image-2.5-sunburst (\(OpenRouter.formatUSD(gen.costUSD)))"
+        if index < 0 {
+            if !plan.intro.candidates.isEmpty {
+                plan.intro.candidates[0].provider = "OpenRouter"
+                plan.intro.candidates[0].credit = label
+            }
+        } else if plan.sections.indices.contains(index), !plan.sections[index].candidates.isEmpty {
+            plan.sections[index].candidates[0].provider = "OpenRouter"
+            plan.sections[index].candidates[0].credit = label
+        }
+
+        plan.totalGenerationCostUSD += gen.costUSD
+        plan.imagesGeneratedCount += 1
+        plan.lastImageCostUSD = gen.costUSD
+        try savePlan(plan, work)
+        return gen
+    }
+
     // MARK: YouTube Shorts
 
     /// Where finished videos go: the chosen output folder, or beside the project folder.

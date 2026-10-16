@@ -136,9 +136,10 @@ struct MVideo: AsyncParsableCommand {
 
     // MARK: Step 2
     struct Render: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Step 2 — load your pictures and render the MP4 (and optionally 4–7 ~30s Shorts).")
+        static let configuration = CommandConfiguration(abstract: "Step 2 — load or auto-generate your pictures and render the MP4 (and optionally 4–7 ~30s Shorts).")
         @Argument(help: "The “<Title> – work” folder created by `plan`") var work: String
         @Option(help: "Folder of pictures named 00.png (title card), 01.png, 02.png, …") var images: String?
+        @Flag(help: "Auto-generate all missing section pictures via OpenRouter (\(OpenRouter.imageModel) 16:9 Medium)") var generateImages = false
         @Flag(help: "Render even if some sections have no picture (those get a colour gradient)") var allowMissing = false
         @Flag(help: "Also automatically generate and render 4–7 ~30-second Shorts broken at natural stanza boundaries") var withShorts = false
         @Option(help: "Caption height for the full video (fraction of frame height from the bottom, 0.04…0.86)") var captionY: Double?
@@ -149,16 +150,26 @@ struct MVideo: AsyncParsableCommand {
         func run() async throws {
             let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
             var plan = try Pipeline.loadPlan(w)
+            let cfg = Config.load()
             if let y = captionY { plan.captionY = y; try Pipeline.savePlan(plan, w) }
             if let folder = images {
                 let r = Pipeline.attachFolder(URL(fileURLWithPath: (folder as NSString).expandingTildeInPath), plan: &plan, work: w)
                 print("Loaded \(r.loaded.count) picture(s).")
                 r.warnings.forEach { print("⚠️  \($0)") }
             }
+            if generateImages {
+                let toGen = Pipeline.missing(plan)
+                for (idx, sec) in toGen.enumerated() {
+                    let label = sec < 0 ? "Title card" : String(format: "Picture %02d", sec + 1)
+                    print("[\(idx + 1)/\(toGen.count)] Generating \(label) via \(OpenRouter.imageModel) (16:9 Medium)…")
+                    let gen = try await Pipeline.generateSectionImage(section: sec, plan: &plan, work: w, config: cfg)
+                    print("  ✓ Saved (\(OpenRouter.formatUSD(gen.costUSD))) · Song total: \(OpenRouter.formatUSD(plan.totalGenerationCostUSD))")
+                }
+            }
             let missing = Pipeline.missing(plan)
             if !missing.isEmpty {
                 print("Missing pictures for: " + missing.map { String(format: "%02d", $0 + 1) }.joined(separator: ", "))
-                if !allowMissing { throw ValidationError("Load those pictures (or pass --allow-missing to use gradients). Prompts are in \(Pipeline.promptsURL(w).path)") }
+                if !allowMissing { throw ValidationError("Load those pictures, pass --generate-images to generate them via OpenRouter, or pass --allow-missing to use gradients. Prompts are in \(Pipeline.promptsURL(w).path)") }
             }
             let mp4 = Pipeline.videoURL(plan: plan, work: w)
             let t0 = Date()
@@ -294,18 +305,25 @@ struct MVideo: AsyncParsableCommand {
     }
 
     struct Settings: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(commandName: "settings", abstract: "Change oMLX settings (normally not needed — the key is read from oMLX itself).")
+        static let configuration = CommandConfiguration(commandName: "settings", abstract: "Change oMLX or OpenRouter settings.")
         @Option var omlxKey: String?
         @Option var omlxUrl: String?
         @Option var sttModel: String?
         @Option var llmModel: String?
+        @Option(help: "OpenRouter API key for openai/gpt-image-2.5-sunburst image generation") var openrouterKey: String?
+        @Flag(help: "Check remaining OpenRouter credits") var credits = false
         @Option(help: "Folder where project folders are created") var projectsFolder: String?
         @Option(help: "Folder where finished videos and Shorts are saved") var outputFolder: String?
         func run() async throws {
             var c = Config.load()
             if let f = projectsFolder { c.projectsFolder = f }; if let f = outputFolder { c.outputFolder = f }
             if let a = omlxKey { c.omlxKey = a }; if let u = omlxUrl { c.omlxURL = u }; if let m = sttModel { c.sttModel = m }; if let m = llmModel { c.llmModel = m }
+            if let ok = openrouterKey { c.openRouterKey = ok }
             try c.save(); print("Saved to \(Config.url.path)")
+            if credits {
+                let info = try await OpenRouter.fetchCredits(apiKey: c.effectiveOpenRouterKey)
+                print("OpenRouter credits remaining: \(OpenRouter.formatCredits(info.remaining)) (total purchased: \(OpenRouter.formatCredits(info.totalCredits)), used: \(OpenRouter.formatCredits(info.totalUsage)))")
+            }
         }
     }
 }

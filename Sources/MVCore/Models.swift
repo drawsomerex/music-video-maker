@@ -97,6 +97,7 @@ public struct PhotoSection: Codable, Identifiable {
     public var selectedCandidate: ImageCandidate? {
         candidates.indices.contains(selected) ? candidates[selected] : nil
     }
+    public var hasImage: Bool { selectedCandidate?.fullFile != nil }
 }
 
 public struct Plan: Codable {
@@ -116,8 +117,14 @@ public struct Plan: Codable {
     public var shorts: [ShortClip] = []   // YouTube Shorts cut from this song
     public var timing: String = "windows"  // "exact" = true word timestamps; "windows" = inferred (±0.3 s)
     public var captionY: Double? = nil      // caption position for the full video (fraction of height from the bottom)
+    public var totalGenerationCostUSD: Double = 0.0  // cumulative OpenRouter USD spent generating/rerolling images for this song
+    public var imagesGeneratedCount: Int = 0         // total AI image generations/rerolls run for this song
+    public var lastImageCostUSD: Double? = nil       // most recent actual per-image cost returned by OpenRouter
 
-    enum CodingKeys: String, CodingKey { case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY }
+    enum CodingKeys: String, CodingKey {
+        case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD
+    }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         title = try c.decode(String.self, forKey: .title)
@@ -136,6 +143,9 @@ public struct Plan: Codable {
         shorts = try c.decodeIfPresent([ShortClip].self, forKey: .shorts) ?? []
         timing = try c.decodeIfPresent(String.self, forKey: .timing) ?? "windows"
         captionY = try c.decodeIfPresent(Double.self, forKey: .captionY)
+        totalGenerationCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalGenerationCostUSD) ?? 0.0
+        imagesGeneratedCount = try c.decodeIfPresent(Int.self, forKey: .imagesGeneratedCount) ?? 0
+        lastImageCostUSD = try c.decodeIfPresent(Double.self, forKey: .lastImageCostUSD)
     }
     public init(title: String, subject: String, audioPath: String, audioFile: String, songDuration: Double, lines: [LyricLine], intro: PhotoSection, sections: [PhotoSection],
                 description: String, style: String, introDuration: Double, audioOffset: Double, alignmentCoverage: Double) {
@@ -217,9 +227,11 @@ public struct Config: Codable {
     public var llmModel: String = ""
     public var projectsFolder: String = ""    // where project folders are created (blank = ~/Movies/Music Videos)
     public var outputFolder: String = ""      // where finished videos & Shorts go (blank = next to each project)
+    public var openRouterKey: String = ""     // OpenRouter API key for image generation (openai/gpt-image-2.5-sunburst)
+    public var effectiveOpenRouterKey: String { openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines) }
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder }
+    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         omlxURL = try c.decodeIfPresent(String.self, forKey: .omlxURL) ?? ""
@@ -228,6 +240,7 @@ public struct Config: Codable {
         llmModel = try c.decodeIfPresent(String.self, forKey: .llmModel) ?? ""
         projectsFolder = try c.decodeIfPresent(String.self, forKey: .projectsFolder) ?? ""
         outputFolder = try c.decodeIfPresent(String.self, forKey: .outputFolder) ?? ""
+        openRouterKey = try c.decodeIfPresent(String.self, forKey: .openRouterKey) ?? ""
     }
 
     /// Folder that holds project folders.
@@ -248,11 +261,15 @@ public struct Config: Codable {
         let env = ProcessInfo.processInfo.environment
         if let v = env["OMLX_API_KEY"], !v.isEmpty { c.omlxKey = v }
         if let v = env["OMLX_URL"], !v.isEmpty { c.omlxURL = v }
+        if let v = env["OPENROUTER_API_KEY"], !v.isEmpty, c.openRouterKey.isEmpty { c.openRouterKey = v }
         c.omlxKey = c.omlxKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        c.openRouterKey = c.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
         return c
     }
     public func save() throws {
-        var s = self; s.omlxKey = omlxKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var s = self
+        s.omlxKey = omlxKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        s.openRouterKey = openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
         try JSONEncoder().encode(s).write(to: Config.url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Config.url.path)
     }

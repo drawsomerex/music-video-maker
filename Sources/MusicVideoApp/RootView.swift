@@ -87,7 +87,7 @@ struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 28) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 11) {
                     header
                     Picker("Audio Source", selection: $model.audioInputMode) {
                         Label("Drop MP3 / WAV", systemImage: "music.note").tag(0)
@@ -104,14 +104,16 @@ struct SetupView: View {
 
                     if let trim = model.trimSummary {
                         Label(trim, systemImage: "scissors")
-                            .font(.caption.weight(.medium))
+                            .font(.caption2.weight(.medium))
                             .foregroundStyle(.green)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
                     field("Song title", "e.g. Highway Lights", text: $model.title)
                     field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject)
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 5) {
                         Text("Picture style").font(.subheadline.weight(.medium))
                         Picker("Picture style", selection: $model.selectedStylePreset) {
                             ForEach(StylePreset.all) { preset in
@@ -119,11 +121,13 @@ struct SetupView: View {
                             }
                         }
                         .labelsHidden()
-                        .controlSize(.large)
+                        .controlSize(.regular)
                     }
 
                     Label("The AI reads your lyrics and writes the song description & prompts — plus 4–7 ~30s Shorts cut at stanza breaks.", systemImage: "sparkles")
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
                 .frame(width: 370)
@@ -187,7 +191,8 @@ struct SetupView: View {
                         }
                 }
             }
-            .padding(28)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 20)
 
             Divider()
             HStack(spacing: 16) {
@@ -228,22 +233,26 @@ struct SetupView: View {
 
     var dropZone: some View {
         Button { importing = true } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 if let url = model.audioURL {
-                    Image(systemName: "waveform.circle.fill").font(.system(size: 34)).foregroundStyle(.tint)
-                    Text(url.lastPathComponent).font(.callout.weight(.medium)).lineLimit(2).multilineTextAlignment(.center)
+                    Image(systemName: "waveform.circle.fill").font(.system(size: 32)).foregroundStyle(.tint)
+                    Text(url.lastPathComponent).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
                     if model.audioDuration > 0 { Text(timeString(model.audioDuration)).font(.caption).foregroundStyle(.secondary) }
                 } else {
-                    Image(systemName: "music.note").font(.system(size: 34)).foregroundStyle(.secondary)
+                    Image(systemName: "music.note").font(.system(size: 32)).foregroundStyle(.secondary)
                     Text("Drop an MP3 or WAV here").font(.callout.weight(.medium))
                     Text("or click to choose").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 115).padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: model.audioURL == nil ? [6, 5] : [])).foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.5)))
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .frame(height: 128)
+        .clipped()
         .dropDestination(for: URL.self) { urls, _ in
             guard let u = urls.first, ["mp3", "wav", "m4a", "aiff", "aif", "flac"].contains(u.pathExtension.lowercased()) else { return false }
             model.setAudio(u); return true
@@ -251,27 +260,41 @@ struct SetupView: View {
     }
 
     var recordZone: some View {
-        VStack(spacing: 10) {
-            Picker("Input", selection: $model.recordSource) {
-                ForEach(LiveSongRecorder.Source.allCases) { src in
-                    Text(src.rawValue).tag(src)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(model.isRecording)
-
-            if model.isRecording {
-                HStack(spacing: 3) {
-                    ForEach(Array(model.recordingHistory.enumerated()), id: \.offset) { _, lvl in
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color.red.gradient)
-                            .frame(width: 4, height: max(4, CGFloat(lvl) * 34))
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text("Source:").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Picker("Input", selection: $model.recordSource) {
+                    ForEach(LiveSongRecorder.Source.allCases) { src in
+                        Text(src.rawValue).tag(src)
                     }
                 }
-                .frame(height: 36)
-                Text("Recording \(timeString(model.recordingSeconds)) · Transcribing in real time…")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.red)
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .disabled(model.isRecording)
+            }
+
+            if model.isRecording {
+                HStack(spacing: 8) {
+                    Canvas { ctx, size in
+                        let bars = 28
+                        let step = size.width / CGFloat(bars)
+                        let barW = max(2.0, step - 2.0)
+                        let hist = model.recordingHistory
+                        for i in 0..<bars {
+                            let sampleIdx = hist.count - bars + i
+                            let lvl = sampleIdx >= 0 && sampleIdx < hist.count ? CGFloat(hist[sampleIdx]) : 0.04
+                            let h = max(3.0, min(size.height, lvl * size.height * 1.4))
+                            let rect = CGRect(x: CGFloat(i) * step, y: (size.height - h) / 2, width: barW, height: h)
+                            ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(.red))
+                        }
+                    }
+                    .frame(height: 22)
+                    Text("\(timeString(model.recordingSeconds))")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.red)
+                        .fixedSize()
+                }
                 Button {
                     model.stopRecording()
                 } label: {
@@ -281,14 +304,22 @@ struct SetupView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
-                .controlSize(.large)
+                .controlSize(.regular)
             } else {
                 if let url = model.audioURL {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
                         Text("\(url.lastPathComponent) (\(timeString(model.audioDuration)))")
-                            .font(.caption.weight(.medium)).lineLimit(1)
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
+                } else {
+                    Text("Play your song on your Mac and click Record. Silence at start & end is auto-trimmed.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
                 }
                 Button {
                     model.startRecording()
@@ -299,23 +330,22 @@ struct SetupView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
-                .controlSize(.large)
-                Text("Play your song on your Mac (Spotify, Apple Music, browser, etc.) and click Record. Silence at the start and end is cut off automatically.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                .controlSize(.regular)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 115)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .frame(height: 128)
+        .clipped()
         .background(RoundedRectangle(cornerRadius: 16).fill(model.isRecording ? Color.red.opacity(0.08) : Color.primary.opacity(0.04)))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(model.isRecording ? Color.red.opacity(0.6) : Color.secondary.opacity(0.4), lineWidth: 1.5))
     }
 
     func field(_ label: String, _ prompt: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.subheadline.weight(.medium))
-            TextField(prompt, text: text, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...3).controlSize(.large)
+            TextField(prompt, text: text).textFieldStyle(.roundedBorder).controlSize(.large)
         }
     }
 }
@@ -444,6 +474,37 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Image Generation — OpenRouter (openai/gpt-image-2.5-sunburst)") {
+                SecureField("OpenRouter API Key (sk-or-v1-…)", text: $model.config.openRouterKey)
+                LabeledContent("Credits Remaining") {
+                    HStack(spacing: 8) {
+                        if model.checkingCredits {
+                            ProgressView().controlSize(.mini)
+                        } else if let rem = model.openRouterCredits {
+                            let approxImgs = Int(rem / max(0.01, model.perImageCostUSD))
+                            let summaryText = OpenRouter.formatCredits(rem) + " (≈ \(approxImgs) images)"
+                            Text(summaryText)
+                                .font(.callout.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(rem < 0.25 ? Color.orange : Color.green)
+                        } else if model.hasOpenRouterKey {
+                            Text("Click Refresh to check").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text("No API key set").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button("Refresh") {
+                            save()
+                            model.refreshOpenRouterCredits(silent: false)
+                        }
+                        .controlSize(.small)
+                        .disabled(!model.hasOpenRouterKey || model.checkingCredits)
+                    }
+                }
+                if let err = model.openRouterCreditError {
+                    Text(err).font(.caption).foregroundStyle(.red)
+                }
+                Text("Generates 16:9 Medium images using \(OpenRouter.imageModel) (~\(OpenRouter.formatUSD(model.perImageCostUSD)) per image). Each song saves its total image cost in project.mvproj.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Where things are saved") {
                 folderRow("Main folder", model.config.projectsFolder, defaultText: "~/Movies/Music Videos") { model.config.projectsFolder = $0 }
                 folderRow("Finished videos & Shorts", model.config.outputFolder, defaultText: "inside each project (same main folder)") { model.config.outputFolder = $0 }
@@ -473,8 +534,9 @@ struct SettingsView: View {
             }
             }
         }
-        .formStyle(.grouped).frame(width: 560, height: 560)
-        .task { await check() }
+        .formStyle(.grouped).frame(width: 580, height: 640)
+        .task { await check(); model.refreshOpenRouterCredits(silent: true) }
+        .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
         .onChange(of: model.config.sttModel) { save() }.onChange(of: model.config.llmModel) { save() }
     }

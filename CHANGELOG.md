@@ -5,6 +5,13 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **OpenRouter image generation (`openai/gpt-image-2.5-sunburst` 16:9 Medium):** Enter your OpenRouter API key (in Settings or directly from the Plan screen) to generate individual section pictures, reroll any picture, generate all missing pictures, or reroll all pictures for the entire song (`--generate-images` in the CLI).
+- **Live OpenRouter credit balance, cost estimates & persistent per-song total cost:** Displays your remaining OpenRouter credits alongside the estimated cost per image (`~$0.048`) and bulk generation cost, and persistently tracks and saves the cumulative USD spent on each song (`totalGenerationCostUSD` and `imagesGeneratedCount`) inside `project.mvproj`.
+
+### Fixed
+- **Setup screen "Record Song Playing" layout stability:** Fixed the recording zone and live waveform meter so switching to **Record Song Playing** or actively recording a song never expands the left column vertically or horizontally.
+
 ## [1.0.4] - 2026-10-16
 
 ### Added
