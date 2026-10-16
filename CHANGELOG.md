@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-16
+
 ### Fixed
 - **Captions slightly off pace with the singing.** Every caption now follows a per-song timing offset that defaults to 0.06 s early (audiences read late captions as lagging), and the Shorts word pill now starts moving *before* each word so it lands on the onset instead of 0.1 s after it. New **Show sooner / Show later** buttons under the preview shift every caption of a song in 0.05 s steps; the setting is saved with the project (`captionShift`).
 - Lyric timing for words the speech model missed now stays inside their own line instead of stretching across pauses; sung words hold for a natural length (from the other AI's alignment work, with its extra −30 ms offset removed so the caption offset is the single timing control).
