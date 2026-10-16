@@ -9,7 +9,7 @@ die() { printf "\n✗ %s\n" "$*" >&2; exit 1; }
 [ "$(uname -m)" = "arm64" ] || die "This app needs an Apple Silicon Mac (M1 or newer)."
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || die "macOS 14 or newer is required."
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-echo "Looking up the latest release of $REPO…"
+echo "Looking up the latest release of ${REPO}…"
 JSON="$(curl -fsSL -H 'Accept: application/vnd.github+json' "${MV_API:-https://api.github.com/repos/$REPO/releases/latest}")"
 URL="$(printf '%s' "$JSON" | grep -o '"browser_download_url": *"[^"]*native[^"]*\.zip"' | head -1 | sed -E 's/.*"(https?[^"]*)"/\1/')"
 SHA_URL="$(printf '%s' "$JSON" | grep -o '"browser_download_url": *"[^"]*native[^"]*\.zip\.sha256"' | head -1 | sed -E 's/.*"(https?[^"]*)"/\1/')"
