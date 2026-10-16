@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-16
+
 ### Changed
 - Balanced tier now uses Gemma 4 E2B (faster, closer to the song's era than Qwen3-4B).
 - Clear progress panel: percentage, bar, current task, step checklist, elapsed and time left (planning, rendering, setup, Shorts).

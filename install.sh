@@ -4,7 +4,7 @@
 # Private repo: needs GitHub's CLI signed in once (brew install gh; gh auth login). Files fetched this way aren't quarantined,
 # so macOS opens the app without the "unidentified developer" warning.
 set -euo pipefail
-REPO="${MV_REPO:-OWNER/NAME}"
+REPO="${MV_REPO:-drawsomerex/music-video-maker}"
 die() { printf "\n✗ %s\n" "$*" >&2; exit 1; }
 [ "$REPO" != "OWNER/NAME" ] || die "This installer hasn't been pointed at a repo yet (release.sh does that on first publish)."
 [ "$(uname -m)" = "arm64" ] || die "This app needs an Apple Silicon Mac (M1 or newer)."
