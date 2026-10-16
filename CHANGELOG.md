@@ -10,6 +10,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 - Clear progress panel: percentage, bar, current task, step checklist, elapsed and time left (planning, rendering, setup, Shorts).
 - One "Saving to…" button on the main screen sets the folder for all projects, pictures and videos.
 
+### Changed (privacy)
+- Releases go to a private repo; installer and in-app updater download through the signed-in GitHub CLI.
+- Removed song-specific test scoring script and example text.
+
 ### Added
 - Settings → Dock: add/remove the app from the Dock.
 

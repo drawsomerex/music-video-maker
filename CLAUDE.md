@@ -40,7 +40,7 @@ Verify with the real thing, not just compilation: run the CLI on a song, render,
 
 ## Releasing (only when the owner says to)
 1. Everything committed, `CHANGELOG.md` `[Unreleased]` filled in, `./release.sh --dry-run` succeeds.
-2. First time only: `gh auth login`, then `./release.sh --create-repo music-video-maker` (creates the **public** repo, records it in `scripts/release.conf` and `install.sh`).
+2. First time only: `gh auth login`, then `./release.sh --create-repo music-video-maker` (creates the **private** repo, records it in `scripts/release.conf` and `install.sh`).
 3. `./release.sh` (patch bump), or `--bump minor|major`, or `--version X.Y.Z`. It builds the native app, zips it (`dist/MusicVideoMaker-X.Y.Z-native.zip` + `.sha256`), stamps the changelog, commits, tags `vX.Y.Z`, pushes, and creates the GitHub Release.
 4. Never re-tag or delete a published release; ship a new patch version instead.
 The app finds releases via the GitHub API and installs `*native*.zip` after checking the `.sha256` asset. Keep those asset names.

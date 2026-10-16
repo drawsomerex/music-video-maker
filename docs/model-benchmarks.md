@@ -1,6 +1,6 @@
 # Model benchmarks (M1, 16 GB, MLX, 2026-10)
 
-Test song: "First Strike on the Caney River" (243 s, sung, 41 lyric lines). Prompts are the app's real `describe` + `write` jobs.
+Test song: a 243 s sung ballad (41 lyric lines). Prompts are the app's real `describe` + `write` jobs.
 
 ## Speech → word timing
 | Model | Weights | Peak RAM | 243 s song | Notes |
@@ -29,4 +29,4 @@ Heuristic scores overrated tiny models; human reading of outputs is what counts.
 | Apple FoundationModels | 0 GB | – | 18 s | ≈ 2.6B-class quality |
 
 Decision: tiers stay small = Qwen3-1.7B, balanced = Gemma 4 E2B (default, replaced Qwen3-4B-2507: 2× faster, better era), best = Qwen3.5-9B.
-Reproduce with `scripts/bench/`.
+Scripts in `scripts/bench/` run the speech and language benchmarks (the song-specific scoring script was left out of the repo).

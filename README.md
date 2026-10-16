@@ -17,18 +17,18 @@ feathered wipes/iris/blinds/push transitions, and karaoke-style lyrics synced to
 Parakeet Ultra shrunk to 4-bit keeps word timings within one frame (80 ms) of full precision and transcribes a 4-minute song in under 3 s.
 
 ## Publishing updates & installing on other Macs
-Releases live on a **public GitHub repo** (Releases hold the app zip + checksum). No Apple developer account is needed.
+Releases live on a **private GitHub repo** (only accounts you invite can see or download anything) (Releases hold the app zip + checksum). No Apple developer account is needed.
 
-**You (once):** `brew install gh && gh auth login`, then `./release.sh --create-repo music-video-maker` — creates the public repo, builds, tags `v1.0.1`, uploads the release.
+**You (once):** `brew install gh && gh auth login`, then `./release.sh --create-repo music-video-maker` — creates the private repo, builds, tags `v1.0.1`, uploads the release.
 **You (every update):** change the code, then `./release.sh` (`--bump minor`, `--version 2.0.0`, `--notes "…"` if you like). `./release.sh --dry-run` builds the zip without publishing.
 
-**Any Mac, first time (no Xcode, ~13 MB download):**
+**Any Mac, first time (no Xcode, ~13 MB download):** install GitHub's CLI and sign in once (`brew install gh && gh auth login`), then:
 ```
-curl -fsSL https://raw.githubusercontent.com/OWNER/NAME/main/install.sh | bash
+gh api repos/OWNER/NAME/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash
 ```
-(`release.sh` fills in OWNER/NAME.) Because `curl` doesn't tag files as downloaded from the internet, macOS opens the app with no "unidentified developer" prompt. The first launch offers the one-time model download.
+(`release.sh` prints the exact line.) Downloads happen as your signed-in GitHub account, are checksum-verified, and aren't quarantined, so macOS opens the app with no "unidentified developer" prompt. The first launch offers the one-time model download.
 
-**After that the app updates itself:** it checks GitHub once a day on launch (and via *Music Video Maker ▸ Check for Updates…*), shows the release notes, and on *Install & Restart* downloads the zip, **verifies its SHA-256**, swaps itself in and relaunches. Models are separate, so an update is only ~13 MB.
+**After that the app updates itself** (through the same `gh` sign-in): it checks GitHub once a day on launch (and via *Music Video Maker ▸ Check for Updates…*), shows the release notes, and on *Install & Restart* downloads the zip, **verifies its SHA-256**, swaps itself in and relaunches. Models are separate, so an update is only ~13 MB.
 
 Notes: this applies to the standalone (native) app. A copy built with `./build_app.sh` (the oMLX flavor) updates with `git pull && ./build_app.sh`. The app is ad-hoc signed (no paid certificate), so macOS may ask once more for access to your Movies folder after an update.
 

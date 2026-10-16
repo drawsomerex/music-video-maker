@@ -6,7 +6,7 @@
 #   ./release.sh --bump minor            # 1.0.1 → 1.1.0     (or: major)
 #   ./release.sh --version 2.0.0         # set it explicitly
 #   ./release.sh --notes "What changed"  # release notes (default: the git log since the last release)
-#   ./release.sh --create-repo NAME      # first time only: creates a PUBLIC GitHub repo called NAME and remembers it
+#   ./release.sh --create-repo NAME      # first time only: creates a PRIVATE GitHub repo called NAME and remembers it
 #   ./release.sh --dry-run               # build + zip into dist/ but don't commit, tag or publish
 #
 # One-time prerequisite for publishing:  brew install gh && gh auth login
@@ -30,9 +30,9 @@ REPO=$(grep -E '^REPO=' scripts/release.conf | cut -d= -f2 | tr -d ' ')
 if [ -z "$REPO" ]; then
   [ "$DRY" = 1 ] && REPO="" || {
     [ -n "$NEWREPO" ] || die "No GitHub repo yet. Run once with:  ./release.sh --create-repo music-video-maker"
-    say "Creating public repo $NEWREPO"
+    say "Creating private repo $NEWREPO"
     [ -d .git ] || git init -b main >/dev/null
-    gh repo create "$NEWREPO" --public --source . --remote origin >/dev/null
+    gh repo create "$NEWREPO" --private --source . --remote origin >/dev/null
     REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
     sed -i '' "s|^REPO=.*|REPO=$REPO|" scripts/release.conf
     sed -i '' "s|^REPO=.*|REPO=\"\${MV_REPO:-$REPO}\"|" install.sh
@@ -85,4 +85,5 @@ git push -q origin HEAD --tags
 gh release create "v$NEW" "$ZIP" "$ZIP.sha256" --repo "$REPO" --title "Music Video Maker $NEW" --notes "$NOTES"
 say "Released: https://github.com/$REPO/releases/tag/v$NEW"
 echo "  Other Macs update themselves on next launch (or Music Video Maker ▸ Check for Updates…)."
-echo "  Brand-new Mac:  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash"
+echo "  Brand-new Mac (needs Homebrew's gh, signed in once with 'gh auth login'):"
+echo "    gh api repos/$REPO/contents/install.sh -H 'Accept: application/vnd.github.raw' | bash"

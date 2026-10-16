@@ -44,7 +44,7 @@ struct SetupView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     header
                     dropZone
-                    field("Song title", "e.g. First Strike on the Caney River", text: $model.title)
+                    field("Song title", "e.g. Highway Lights", text: $model.title)
                     field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject)
                     Label("The AI reads your lyrics and writes the song description itself — it drives the picture prompts.", systemImage: "sparkles")
                         .font(.caption).foregroundStyle(.secondary)
