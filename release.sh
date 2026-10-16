@@ -63,7 +63,22 @@ if [ "$DRY" = 1 ]; then echo "$CUR" > VERSION; say "Dry run done (VERSION restor
 
 # --- publish ------------------------------------------------------------------
 say "Publishing v$NEW"
+[ -n "$NOTES" ] || NOTES=$(python3 - <<'PY'
+import re
+t=open("CHANGELOG.md").read()
+m=re.search(r"## \[Unreleased\]\n(.*?)(?=\n## \[|\Z)",t,re.S)
+print((m.group(1) if m else "").strip())
+PY
+)
 [ -n "$NOTES" ] || { LAST=$(git describe --tags --abbrev=0 2>/dev/null || true); NOTES=$( [ -n "$LAST" ] && git log --pretty='- %s' "$LAST"..HEAD || git log --pretty='- %s' | head -20 ); [ -n "$NOTES" ] || NOTES="Release $NEW"; }
+# Stamp the changelog: move [Unreleased] content under the new version heading.
+python3 - "$NEW" <<'PY'
+import re,sys,datetime
+v=sys.argv[1]; t=open("CHANGELOG.md").read()
+if f"## [{v}]" not in t:
+    t=t.replace("## [Unreleased]\n","## [Unreleased]\n\n## [%s] - %s\n"%(v,datetime.date.today().isoformat()),1)
+    open("CHANGELOG.md","w").write(t)
+PY
 git add -A; git commit -qm "Release v$NEW" || true
 git tag -f "v$NEW"
 git push -q origin HEAD --tags
