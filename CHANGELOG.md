@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-16
+
 ### Fixed
 - **Gemma (language model) failing with “key … not found”** on a second Mac. Downloads never checked the server's reply, so a busy or blocking Hugging Face could hand back an error page that was saved as the model file. Downloads now check the server status, verify big files against Hugging Face's checksums (re-downloading a damaged one once), record what was downloaded, and an install whose files are missing, the wrong size or obviously not model weights is treated as *not installed* so the app offers the download again instead of failing during planning.
 
