@@ -1,3 +1,4 @@
+// Fallback transcription through windowed HTTP requests when exact word timing isn't available.
 import Foundation
 import AVFoundation
 

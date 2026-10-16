@@ -1,3 +1,4 @@
+// The workflow: plan (transcribe, sync, split, write prompts), attach pictures, render videos and Shorts, project folders.
 import Foundation
 import ImageIO
 

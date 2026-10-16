@@ -1,3 +1,4 @@
+// Live preview that renders the real composition, with draggable captions and safe zones.
 import SwiftUI
 import AVFoundation
 import MVCore

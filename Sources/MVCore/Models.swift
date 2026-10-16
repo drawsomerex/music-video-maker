@@ -1,3 +1,4 @@
+// Data model: Config (settings), Plan/Section (the save file), ShortClip and VideoSettings.
 import Foundation
 
 public struct TimedWord: Codable, Hashable {

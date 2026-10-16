@@ -1,3 +1,4 @@
+// Seeded random style choices for Shorts (title animation, text style, motion).
 import Foundation
 import CoreGraphics
 

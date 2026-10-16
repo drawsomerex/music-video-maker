@@ -1,3 +1,4 @@
+// Seam between the shared core and the optional on-device (Swift-MLX) engine; the native build fills these closures in.
 import Foundation
 
 /// Set by the native build (MVNative) at launch: speech and prompt-writing then run inside the app with Swift MLX,

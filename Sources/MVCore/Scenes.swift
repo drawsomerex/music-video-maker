@@ -1,3 +1,4 @@
+// Ken Burns photo scenes and the transitions between them.
 import Foundation
 import CoreGraphics
 

@@ -1,3 +1,4 @@
+// On-device Swift-MLX engine: Parakeet word timing and the language model, with model tiers and idle unloading.
 import Foundation
 import MVCore
 import MLX

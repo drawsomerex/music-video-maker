@@ -1,3 +1,4 @@
+// Title card and karaoke lyric rendering.
 import Foundation
 import CoreGraphics
 import CoreText

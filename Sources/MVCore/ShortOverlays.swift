@@ -1,3 +1,4 @@
+// Shorts overlays: word pill/pop captions, animated hook title and closing text.
 import Foundation
 import CoreGraphics
 import CoreText

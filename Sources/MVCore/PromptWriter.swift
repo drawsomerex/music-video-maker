@@ -1,3 +1,4 @@
+// Asks the language model for the song description, shared style and per-picture prompts, with retries and fallbacks.
 import Foundation
 
 /// Uses the local LLM (oMLX) to propose one consistent visual style and a self-contained image-generation prompt per section.

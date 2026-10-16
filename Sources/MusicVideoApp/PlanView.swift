@@ -1,3 +1,4 @@
+// Step 2 screen: sections, prompts and picture loading.
 import SwiftUI
 import UniformTypeIdentifiers
 import MVCore

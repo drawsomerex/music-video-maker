@@ -1,3 +1,4 @@
+// Self-updater: checks the private GitHub release, verifies the SHA-256, swaps the app and relaunches.
 import SwiftUI
 import CryptoKit
 

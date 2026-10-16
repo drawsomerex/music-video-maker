@@ -1,3 +1,4 @@
+// Shared URLSession settings for the oMLX client and the transcriber.
 import Foundation
 
 enum HTTP {

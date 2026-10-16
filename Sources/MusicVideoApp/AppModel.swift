@@ -1,3 +1,4 @@
+// App state and actions shared by every screen (planning, pictures, rendering, Shorts, folders, Dock).
 import SwiftUI
 import AVFoundation
 import MVCore

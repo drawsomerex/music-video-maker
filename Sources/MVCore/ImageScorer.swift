@@ -1,3 +1,4 @@
+// On-device picture analysis (Apple Vision): aesthetics, Ken Burns focus point and similarity.
 import Foundation
 import Vision
 import ImageIO

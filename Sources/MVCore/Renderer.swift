@@ -1,3 +1,4 @@
+// Frame composition and the video writer: parallel Core Graphics frames into hardware H.264 + AAC.
 import Foundation
 import AVFoundation
 import CoreVideo

@@ -1,3 +1,4 @@
+// Client for oMLX's OpenAI-compatible local API (models, chat, transcription).
 import Foundation
 import AVFoundation
 

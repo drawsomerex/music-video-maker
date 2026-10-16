@@ -1,3 +1,4 @@
+// Locates oMLX's bundled Python/MLX runtime and runs scripts/word_timing.py for exact word timestamps.
 import Foundation
 
 /// Runs the user's own Parakeet model with oMLX's bundled Python/MLX runtime to get true word timestamps

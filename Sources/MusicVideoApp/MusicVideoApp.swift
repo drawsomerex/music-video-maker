@@ -1,3 +1,4 @@
+// App entry point, menus and windows.
 import SwiftUI
 import MVCore
 #if NATIVE_MLX

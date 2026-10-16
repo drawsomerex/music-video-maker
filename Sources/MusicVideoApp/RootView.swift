@@ -1,3 +1,4 @@
+// Main screens: setup, progress panel, finished video, Settings and first-run model setup.
 import SwiftUI
 import AVKit
 import UniformTypeIdentifiers

@@ -1,3 +1,4 @@
+// Finds beats in the song (used to time cuts and pulses in the punchy Shorts style).
 import Foundation
 
 /// Cheap onset detection (energy flux) so the picture can pulse on the music's hits. Times are relative to `start`.

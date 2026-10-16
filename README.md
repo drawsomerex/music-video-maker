@@ -1,9 +1,28 @@
 # Music Video Maker
 
-Drop in a song (MP3/WAV), a title, a subject and your lyrics → get a YouTube-ready 1080p MP4: title slide, Ken Burns photo slideshow with
-feathered wipes/iris/blinds/push transitions, and karaoke-style lyrics synced to the vocals. **Everything AI runs locally through oMLX.**
+A native macOS app (Apple Silicon) that turns a song into a YouTube-ready video. Give it an MP3/WAV, a title and your lyrics and it makes a 1080p MP4 with a title card, a Ken Burns picture sequence with feathered wipes, and karaoke-style lyrics synced to the singing — plus vertical **YouTube Shorts** cut from any lines you pick. All AI (speech timing, writing picture prompts) runs **on your Mac**, offline; nothing is uploaded.
 
-## Two ways to install
+> **Built with Claude.** This project was written with the help of [Claude](https://claude.com/claude-code) (Anthropic's AI coding assistant), directed and tested by its owner. `CLAUDE.md` / `AGENTS.md` hold the rules an AI assistant should follow when changing it.
+
+## Requirements
+- A Mac with Apple Silicon (M1 or newer), macOS 14+; 16 GB RAM is plenty (8 GB works with the *small* model).
+- About 5 GB of free disk for the on-device models (downloaded once, on first launch).
+- To build from source: Xcode (the install script checks everything and tells you what is missing).
+
+## Quick start (build it yourself)
+```bash
+git clone https://github.com/OWNER/NAME.git && cd NAME     # private repo: you need to be signed in with `gh auth login`
+./install_native.sh                                          # builds, installs to /Applications, downloads the models
+```
+Open **Music Video Maker** from Launchpad/Spotlight. Optional: *Settings → Dock → Add to Dock*, and *Settings → Where things are saved* (or the “Saving to…” button) to pick the folder for everything.
+
+## How to make a video
+1. **Plan** — pick the MP3, type the title, paste the lyrics, press *Plan the Video*. The app syncs your lyrics to the audio, splits the song into sections, writes a song description and one picture prompt per section (progress is shown with percentage and time left).
+2. **Make your pictures** — generate them with any image tool (16:9, 1920×1080 or larger, same style), then drag each onto its section (or load a folder named `00.png`, `01.png`, …).
+3. **Render** — press *Render*. The finished MP4 appears in your folder; *Show in Finder* / *Share* from the last screen.
+4. **Shorts** (optional) — open the *YouTube Shorts* tab, pick lyric lines, fine-tune against the waveform, render a 9:16 clip (3:00 max).
+
+## Install options
 | | `./build_app.sh` (what you use now) | `./install_native.sh` (standalone) |
 |---|---|---|
 | Speech + prompts run in | oMLX (needs oMLX installed) | the app itself, Swift MLX — **no oMLX, no Python** |
@@ -85,7 +104,7 @@ CLI: `mvideo short "<project>" --list` · `--lines 13-18 --snap --seed 4242 --va
 |---|---|
 | Transcription | `parakeet-ultra-mlx` via oMLX `/v1/audio/transcriptions` (text only, so 4 s windows every 0.75 s) |
 | Lyric sync | A cursor walks your lyrics; each word's time comes from which windows contain it. On-screen text is always your pasted lyrics |
-| Prompts | Qwen3.5-9B (oMLX) — one style + per-section prompts |
+| Prompts | A local language model (Gemma 4 E2B by default) — one style + per-section prompts |
 | Render | Core Graphics frames in parallel → hardware H.264 via AVAssetWriter, AAC 256k, faststart MP4 (~5× real time on M1 Pro) |
 
 ## CLI / headless
@@ -100,3 +119,9 @@ oMLX's API key is read from `~/.omlx/settings.json` automatically (override with
 ## Credits & licences
 - **Parakeet Ultra** — [moondream/parakeet-ultra](https://huggingface.co/moondream/parakeet-ultra), MLX conversion [selcukkubur/parakeet-ultra-mlx](https://huggingface.co/selcukkubur/parakeet-ultra-mlx), **CC-BY-4.0** (attribution required if you redistribute the model or the app with it).
 - **mlx-audio-swift** (`Vendor/`, trimmed + 3 small patches) — MIT, © Prince Canuma. **mlx-swift / mlx-swift-lm** — MIT, Apple/ML Explore.
+
+## Project layout
+`Sources/MVCore` shared engine (planning, lyric alignment, rendering) · `Sources/MusicVideoApp` SwiftUI app · `Sources/mvideo` command-line tool · `Sources/MVNative` on-device Swift-MLX models · `Vendor/` trimmed mlx-audio-swift · `scripts/` packaging and benchmarks · `docs/model-benchmarks.md` why these models were chosen · `CHANGELOG.md` release notes.
+
+## Licence
+Private project, all rights reserved by the owner. Third-party components keep their own licences (above).

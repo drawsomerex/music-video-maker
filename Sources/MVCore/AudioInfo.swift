@@ -1,3 +1,4 @@
+// Reads the song's duration.
 import AVFoundation
 
 public func audioDuration(path: String) async throws -> Double {

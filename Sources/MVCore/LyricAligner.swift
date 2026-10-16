@@ -1,3 +1,4 @@
+// Aligns your pasted lyrics to the recognised words (Needleman–Wunsch) so on-screen text is always yours, timed by the audio.
 import Foundation
 
 /// Forced alignment of the user's exact lyrics onto the transcript's word timings.

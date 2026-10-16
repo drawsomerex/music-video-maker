@@ -1,3 +1,4 @@
+// Starts/stops oMLX's engine hidden (no window) with isolated settings, and shuts it down when idle.
 import Foundation
 
 /// Runs oMLX's engine headless (no window, no menu-bar app) when nothing is already serving, and shuts it down when idle

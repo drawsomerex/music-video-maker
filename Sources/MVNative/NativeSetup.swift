@@ -1,3 +1,4 @@
+// One-time model setup: Hugging Face downloader and 4-bit shrinking of Parakeet.
 import Foundation
 import MVCore
 import MLX

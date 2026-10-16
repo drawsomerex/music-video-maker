@@ -1,3 +1,4 @@
+// Core Graphics helpers: lazy picture loading/unloading (ImageBox), Lanczos upscaling and drawing utilities.
 import Foundation
 import CoreGraphics
 import CoreText

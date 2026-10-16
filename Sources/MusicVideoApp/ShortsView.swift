@@ -1,3 +1,4 @@
+// Shorts editor: lyric picker, waveform fine-tuning, style options and live preview.
 import SwiftUI
 import MVCore
 

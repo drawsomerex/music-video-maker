@@ -1,3 +1,4 @@
+// Splits the song into sections (about one picture per N seconds), respecting stanzas and choruses.
 import Foundation
 
 /// Splits the song into image "sections" (one photo each) along stanza / line boundaries,

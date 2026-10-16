@@ -1,3 +1,4 @@
+// Command-line tool: plan, render, short, resync, setup-native and helpers (same engine as the app).
 import Foundation
 import ArgumentParser
 import MVCore
