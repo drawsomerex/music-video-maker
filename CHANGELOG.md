@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Changed
+- **Shorts are saved next to the main video**, not in a `Shorts` subfolder (your chosen output folder, or the folder beside the project). Files are named `<Song title> – <clip name>.mp4` so several songs can share one folder. Shorts you already made stay where they are.
+
 ### Added
 - **The music before the first words now gets its own picture and prompt.** When the first words start 3 s or more after the title card, the song gets a *Music before the words* section (shown after the title card until the first lyric), with a prompt that sets up the song's world. Music-only breaks and the outro are described in context too (the words before and after them), instead of one generic "establishing scene". Older projects get an **Add picture for the opening music** button on the Pictures screen (CLI: `mvideo add-intro <project>`); existing pictures stay put.
 - **Every section's prompt is unique.** After writing, near-duplicate prompts (word overlap ≥ 35 %) are rewritten with the other prompts listed as "must differ from"; as a last resort a different time of day or viewpoint is added. "Another idea" also avoids all existing prompts, and a model echoing the style line at the start of a prompt is cleaned up.

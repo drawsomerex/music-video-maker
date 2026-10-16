@@ -422,10 +422,14 @@ public enum Pipeline {
         outputFolder(for: work, config: config).appendingPathComponent("\(plan.title.replacingOccurrences(of: "/", with: "-")).mp4")
     }
 
-    /// Shorts go to `<output folder>/Shorts` when an output folder is chosen, otherwise inside the project.
-    public static func shortsFolder(_ work: URL, config: Config = .load()) -> URL {
-        let d = (config.outputFolder.isEmpty ? work : outputFolder(for: work, config: config)).appendingPathComponent("Shorts")
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true); return d
+    /// Shorts are saved in the same folder as the main video, named "<Song title> – <clip name>.mp4" so several songs can share one folder.
+    public static func shortsFolder(_ work: URL, config: Config = .load()) -> URL { outputFolder(for: work, config: config) }
+
+    public static func shortURL(plan: Plan, work: URL, name: String, config: Config = .load()) -> URL {
+        func clean(_ t: String) -> String { t.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-") }
+        let title = clean(plan.title), n = clean(name)
+        let file = n.lowercased().hasPrefix(title.lowercased()) ? n : "\(title) – \(n)"
+        return shortsFolder(work, config: config).appendingPathComponent("\(file).mp4")
     }
 
     /// Automatically creates 4–7 ~30-second Shorts that break cleanly at stanza / section boundaries and vocal pauses between lyric lines.
@@ -608,8 +612,7 @@ public enum Pipeline {
 
     /// Renders the Short and (best effort) saves upload metadata next to it as `<name>.txt`.
     public static func renderShort(plan: Plan, work: URL, clip c: ShortClip, suffix: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> URL {
-        let safe = (c.name + suffix).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        let out = shortsFolder(work).appendingPathComponent("\(safe).mp4")
+        let out = shortURL(plan: plan, work: work, name: c.name + suffix, config: config)
         try await VideoRenderer.render(plan: plan, work: work, output: out, settings: .short(), short: c, progress: progress)
         let lyr = plan.lines.filter { $0.end > c.start && $0.start < c.end }.map(\.text)
         let omlx = OMLX(config: config)

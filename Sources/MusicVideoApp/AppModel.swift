@@ -777,8 +777,8 @@ final class AppModel: ObservableObject {
                         }
                     }
                 }
-                shortOutput = Pipeline.shortsFolder(w)
-                notice = "Rendered all \(count) Shorts to \(Pipeline.shortsFolder(w).lastPathComponent)/."
+                shortOutput = Pipeline.shortURL(plan: p, work: w, name: p.shorts.last?.name ?? "", config: config)
+                notice = "Made all \(count) Shorts. They are in the same folder as your video."
             } catch is CancellationError {
                 shortOutput = nil
             } catch {
@@ -913,7 +913,6 @@ final class AppModel: ObservableObject {
                         }
                     }
                 }
-                if variants > 1 { shortOutput = Pipeline.shortsFolder(w) }
             } catch is CancellationError {
                 shortOutput = nil
             } catch {

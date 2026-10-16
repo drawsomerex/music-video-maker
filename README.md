@@ -64,7 +64,7 @@ Each song gets `~/Movies/Music Videos/<Title>/<Title> – project/`:
 | `lyrics_synced.txt` | Your lyrics with the time each line is sung, `[1:23.4] line` |
 | `prompts.md` | The song description, style and an image prompt for every picture |
 | `full/`, `thumbs/` | Your pictures |
-| `Shorts/` | Rendered YouTube Shorts |
+| (next to the project folder) | The finished video and your Shorts, named `<Title>.mp4` and `<Title> – Short 1.mp4`… |
 The finished video is saved next to the project folder.
 
 ## Runs like a normal program
