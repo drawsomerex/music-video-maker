@@ -5,7 +5,7 @@
 set -euo pipefail
 REPO="${MV_REPO:-drawsomerex/music-video-maker}"
 die() { printf "\n✗ %s\n" "$*" >&2; exit 1; }
-[ "$REPO" != "drawsomerex/music-video-maker" ] || die "This installer hasn't been pointed at a repo yet (release.sh does that on first publish)."
+[ -n "$REPO" ] || die "This installer hasn't been pointed at a repo yet (release.sh does that on first publish)."
 [ "$(uname -m)" = "arm64" ] || die "This app needs an Apple Silicon Mac (M1 or newer)."
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || die "macOS 14 or newer is required."
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
