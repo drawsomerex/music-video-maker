@@ -40,4 +40,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
  <key>NSAudioCaptureUsageDescription</key><string>Music Video Maker captures system audio when you record a song playing on your Mac to transcribe its lyrics in real time.</string>
 </dict></plist>
 PLIST
-codesign --force --deep --sign - "$APP" 2>/dev/null || true
+# Ad-hoc signature (no paid certificate) with a FIXED designated requirement. macOS remembers permissions such as Screen & System Audio
+# Recording by this requirement; the default ad-hoc one is the build's own hash, which changes with every update and silently drops the
+# permission. Pinning it to the bundle identifier keeps the permission across updates.
+codesign --force --deep --sign - -r='designated => identifier "com.drawsomerex.musicvideomaker"' --identifier com.drawsomerex.musicvideomaker "$APP" 2>/dev/null || true

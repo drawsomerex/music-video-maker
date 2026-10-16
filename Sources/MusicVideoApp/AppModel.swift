@@ -237,11 +237,14 @@ final class AppModel: ObservableObject {
                 recordTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
                     Task { @MainActor in self?.tickRecording() }
                 }
+            } catch is RecordingPermissionError {
+                showRecordingFix = true
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
     }
+    @Published var showRecordingFix = false
 
     private func tickRecording() {
         guard isRecording else { return }

@@ -65,7 +65,7 @@ public final class LiveSongRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
         do {
             content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         } catch {
-            throw MVError("Screen & System Audio Recording permission is needed to capture system audio. Grant it in System Settings → Privacy & Security → Screen & System Audio Recording, or switch to Microphone / Audio Input.")
+            throw RecordingPermissionError()
         }
         guard let display = content.displays.first else {
             throw MVError("No display found for system audio capture.")
@@ -422,4 +422,12 @@ public final class LiveSongRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
         progress?("Done", 1.0)
         return TrimResult(url: outputURL, duration: trimmed.duration, trimmedStart: trimmed.trimmedStart, trimmedEnd: trimmed.trimmedEnd)
     }
+}
+
+
+/// macOS refused system-audio capture. After an app update it can keep showing the switch as "on" for the old copy of the app, so the UI
+/// offers a one-click repair (reset the entry, grant again, restart) instead of just telling the user to look in System Settings.
+public struct RecordingPermissionError: LocalizedError {
+    public init() {}
+    public var errorDescription: String? { "macOS isn't letting Music Video Maker record the sound your Mac is playing. Open Settings ▸ Fix recording permission to repair it." }
 }

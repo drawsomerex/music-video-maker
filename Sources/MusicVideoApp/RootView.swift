@@ -510,6 +510,7 @@ struct SettingsView: View {
                     }
                 }
                 if let n = model.dockNote { Text(n).font(.callout).foregroundStyle(.secondary) }
+                LabeledContent("Recording a song") { Button("Fix recording permission…") { model.showRecordingFix = true }.help("Use this if “Record it as it plays” says macOS is blocking it, even though the switch in System Settings is on.") }
                 LabeledContent("Step-by-step guide") { Button("Show Quick Guide") { model.showGuide = true }.help("Opens the plain-language instructions.") }
             }
             if model.isNativeBuild {

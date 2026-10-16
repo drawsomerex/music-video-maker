@@ -33,6 +33,7 @@ struct MusicVideoApp: App {
                 .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
                 .alert("Updates", isPresented: Binding(get: { updater.message != nil }, set: { if !$0 { updater.message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(updater.message ?? "") }
                 .sheet(isPresented: $model.showGuide) { QuickGuideView() }
+                .sheet(isPresented: $model.showRecordingFix) { RecordingFixSheet().environmentObject(model) }
                 .frame(minWidth: 980, minHeight: 680)
                 .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
                     Button("OK", role: .cancel) {}

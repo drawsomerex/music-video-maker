@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **"Record it as it plays" stopped working after an update** even though *Screen & System Audio Recording* was switched on. macOS remembers that permission by the app's signature, and every build had a different ad-hoc signature, so each update invalidated it while System Settings still showed the old entry as ON. Builds are now signed with a fixed designated requirement (the bundle identifier), so the permission survives future updates. When macOS still refuses, a **Let's fix recording** window repairs it in three clicks (clears the stale entry, asks again, restarts the app); it is also under Settings ▸ *Fix recording permission…*. Updating to this version needs the permission granted once more.
+
 ### Added
 - **In-app updates, made obvious.** A blue **“Update available — version X”** strip appears across the top of the window with *What's new*, **Update now** and *Later*. *Update now* downloads the new version, checks its SHA-256, installs it and restarts the app by itself, showing a progress bar and the current step. The Help and app menus have **Check for Updates…** (it becomes *Update to Version X…* when one is waiting), and Settings has an **Updates** section with the current version, status, last-checked time and a *Check for updates* button.
 
