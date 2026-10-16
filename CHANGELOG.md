@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-16
+
 ### Added
 - **Divide your lyrics into parts.** On the first screen, *Lyrics ▸ Divide into parts* shows your lines with a scissors button between them: click to start a new part, click again to join. **Each part becomes exactly one picture**, and Shorts are built from whole parts (grouped to about 30 s; a part much longer than a Short is split at its pauses) so a Short never starts or ends in the middle of a part. *Use my verse breaks* turns your blank-line verses into parts as a starting point; *Clear my parts* returns to automatic. In the text a part break is a line containing `---`. With no `---` lines the app divides the song itself as before. Parts are remembered in the project.
 - **Go back to any step.** The **Song · Pictures · Video** steps at the top are buttons: from the finished video you can return to Pictures or to Song (title, lyrics and song are kept), and from Pictures back to Song or forward to Video once one exists. Nothing is lost by going back.
