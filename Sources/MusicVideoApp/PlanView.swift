@@ -19,15 +19,17 @@ struct PlanView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
         VStack(spacing: 0) {
             modeBar
             Divider()
             if mode == 0 {
-                styleBar
+                // On a small screen the top area may use at most ~40 % of the window height and scrolls instead of pushing the picture area off screen.
+                ScrollView(.vertical) { styleBar }.frame(maxHeight: max(150, geo.size.height * 0.40)).fixedSize(horizontal: false, vertical: true)
                 Divider()
                 HSplitView {
-                    sidebar.frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
-                    detail.frame(minWidth: 560)
+                    sidebar.frame(minWidth: 220, idealWidth: 300, maxWidth: 400)
+                    detail.frame(minWidth: 420)
                 }
                 Divider()
                 footer
@@ -35,13 +37,14 @@ struct PlanView: View {
                 ShortsView()
             }
         }
+        }
         .sheet(isPresented: $model.showFullPreview, onDismiss: { model.live.pause() }) {
             VStack(spacing: 12) {
                 HStack { Text("Preview — \(plan.title)").font(.headline); Spacer(); Button("Done") { model.showFullPreview = false }.keyboardShortcut(.defaultAction) }
                 LivePreviewPane(live: model.live, defaultCaption: 0.075) { v in model.setCaptionY(v, shortID: nil) }
                 CaptionTimingBar().environmentObject(model)
                 Text("This is exactly what the finished video will look like. Drag the words up or down to move them.").font(.callout).foregroundStyle(.secondary)
-            }.padding(20).frame(width: 800, height: 620)
+            }.padding(20).frame(minWidth: 620, idealWidth: 800, minHeight: 460, idealHeight: 620)
         }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
@@ -68,24 +71,37 @@ struct PlanView: View {
     }
 
     var modeBar: some View {
-        HStack(spacing: 14) {
-            StepBar(current: 2)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) { modeBarLeading(compact: false); Spacer(minLength: 8); modeBarActions(compact: false) }
+            HStack(spacing: 10) { modeBarLeading(compact: true); Spacer(minLength: 6); modeBarActions(compact: true) }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 8).background(.regularMaterial)
+    }
+
+    func modeBarLeading(compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 14) {
+            StepBar(current: 2, compact: compact)
             Divider().frame(height: 22)
-            Picker("", selection: $mode) { Text("Full video").tag(0); Text("YouTube Shorts").tag(1) }.pickerStyle(.segmented).frame(width: 260).labelsHidden()
+            Picker("", selection: $mode) { Text(compact ? "Video" : "Full video").tag(0); Text(compact ? "Shorts" : "YouTube Shorts").tag(1) }
+                .pickerStyle(.segmented).frame(width: compact ? 170 : 260).labelsHidden()
                 .help("“Full video” is the whole song in widescreen. “YouTube Shorts” makes short vertical clips for phones.")
-            Text(plan.title).font(.headline).lineLimit(1)
+            if !compact { Text(plan.title).font(.headline).lineLimit(1).truncationMode(.tail).frame(maxWidth: 260) }
             if plan.timing != "exact" {
-                Label("Word timing is rough", systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange)
+                if !compact { Label("Word timing is rough", systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).lineLimit(1) }
                 Button { model.resync() } label: { Label(model.resyncing ? "Working…" : "Fix the timing", systemImage: "waveform.badge.magnifyingglass") }
                     .disabled(model.resyncing).buttonStyle(.borderedProminent)
-                    .help("Listens to the song again to line every word up exactly. Takes about a minute. Your pictures are not touched.")
+                    .help("The word timing is only rough. This listens to the song again to line every word up exactly. Takes about a minute. Your pictures are not touched.")
             }
-            Spacer()
-            Button { model.revealProject() } label: { Label("Show folder", systemImage: "folder") }
+        }
+    }
+
+    func modeBarActions(compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button { model.revealProject() } label: { if compact { Image(systemName: "folder") } else { Label("Show folder", systemImage: "folder") } }
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
-            Button { model.reset() } label: { Label("Close", systemImage: "xmark.circle") }
+            Button { model.reset() } label: { if compact { Image(systemName: "xmark.circle") } else { Label("Close", systemImage: "xmark.circle") } }
                 .help("Closes this song and returns to the start. Everything is already saved; use “Open earlier project” to come back.")
-        }.padding(.horizontal, 20).padding(.vertical, 8).background(.regularMaterial)
+        }
     }
 
     // MARK: style + bulk actions
@@ -325,34 +341,51 @@ struct PlanView: View {
 
     // MARK: footer
     var footer: some View {
-        HStack(spacing: 14) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) { previewControls; Spacer(minLength: 8); makeControls(compact: false) }
+            HStack(spacing: 10) { previewControls; Spacer(minLength: 6); makeControls(compact: true) }
+            VStack(spacing: 8) { HStack { previewControls; Spacer() }; HStack { Spacer(); makeControls(compact: true) } }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
+    }
+
+    var previewControls: some View {
+        HStack(spacing: 12) {
             Button { model.openFullPreview() } label: { Label("Preview", systemImage: "play.rectangle") }.controlSize(.large).disabled(model.loadedCount == 0)
                 .help(model.loadedCount == 0 ? "Add at least one picture first, then you can watch a preview." : "Watch the video before it is made. Nothing is saved or changed.")
             VStack(alignment: .leading, spacing: 3) {
-                ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 150)
-                Text("\(model.loadedCount) of \(model.totalImages) pictures ready").font(.callout).foregroundStyle(.secondary)
+                ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 130)
+                Text("\(model.loadedCount) of \(model.totalImages) pictures ready").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             }
             .help("How many parts of the song have a picture. Parts without one get a plain colour background.")
-            Spacer()
+        }
+    }
+
+    func makeControls(compact: Bool) -> some View {
+        HStack(spacing: compact ? 10 : 14) {
             Toggle(isOn: $model.autoRenderShorts) {
-                Text("Also make \(plan.shorts.isEmpty ? "4–7" : "\(plan.shorts.count)") short clips")
-                    .font(.callout)
+                Text(compact ? "Also Shorts" : "Also make \(plan.shorts.isEmpty ? "short" : "\(plan.shorts.count)") clips").font(.callout).lineLimit(1).fixedSize()
             }
             .toggleStyle(.checkbox)
-            .help("Also makes \(plan.shorts.isEmpty ? "4 to 7" : "\(plan.shorts.count)") vertical clips of about 30 seconds each for YouTube Shorts, cut at natural pauses in the song.")
-
-            Picker("Quality", selection: $model.quality) {
-                Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160)
-            }.pickerStyle(.segmented).frame(width: 240).labelsHidden()
-                .help("Picture sharpness. 1080p HD is right for YouTube. 4K is sharper but takes much longer and makes a bigger file.")
+            .help("Also makes \(plan.shorts.isEmpty ? "several" : "\(plan.shorts.count)") vertical clips of about 30 seconds each for YouTube Shorts, cut between the parts of your song.")
+            Group {
+                if compact {
+                    Picker("Quality", selection: $model.quality) { Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160) }
+                        .pickerStyle(.menu).frame(width: 110)
+                } else {
+                    Picker("Quality", selection: $model.quality) { Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160) }
+                        .pickerStyle(.segmented).frame(width: 240)
+                }
+            }
+            .labelsHidden()
+            .help("Picture sharpness. 1080p HD is right for YouTube. 4K is sharper but takes much longer and makes a bigger file.")
             Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: {
-                Label(model.autoRenderShorts ? "Make my video and clips" : "Make my video", systemImage: "film")
+                Label(model.autoRenderShorts && !compact ? "Make my video and clips" : "Make my video", systemImage: "film")
                     .font(.headline).padding(.horizontal, 8).padding(.vertical, 3)
             }
             .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
             .help("Creates the finished video file. It takes a few minutes; you can watch the progress and cancel at any time.")
         }
-        .padding(.horizontal, 20).padding(.vertical, 12).background(.regularMaterial)
     }
 
     func chooseFolder() {
@@ -457,6 +490,12 @@ struct DropWell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            ViewThatFits(in: .horizontal) { dropHeader; dropHeader.labelStyle(.iconOnly) }
+            dropWell
+        }
+    }
+
+    var dropHeader: some View {
             HStack {
                 Text("Picture for this part").font(.headline)
                 Spacer()
@@ -486,6 +525,10 @@ struct DropWell: View {
                     .help("Draws a picture from the idea below (a few cents). Or drag your own picture into the box.")
                 }
             }
+    }
+
+    var dropWell: some View {
+        VStack(alignment: .leading, spacing: 8) {
             GeometryReader { geo in
                 let w = geo.size.width, h = geo.size.height
                 ZStack {

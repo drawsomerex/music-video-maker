@@ -6,22 +6,25 @@ import Foundation
 struct LW { var line: Int; var text: String }
 
 public enum LyricAligner {
-    public struct Parsed { public var lines: [String]; public var stanzaBreaks: Set<Int> }  // break *before* line index
+    /// `stanzaBreaks`: blank-line / [tag] breaks. `partBreaks`: parts the user divided with a `---` line (a part starts at that line index). Both are "before line i".
+    public struct Parsed { public var lines: [String]; public var stanzaBreaks: Set<Int>; public var partBreaks: Set<Int> = [] }
 
     /// Parses pasted lyrics. Blank lines = stanza breaks. `[Chorus]` / `(Verse 2)` markers are dropped but count as breaks.
     public static func parse(_ raw: String) -> Parsed {
-        var lines: [String] = []; var breaks = Set<Int>(); var pendingBreak = false
+        var lines: [String] = []; var breaks = Set<Int>(); var parts = Set<Int>(); var pendingBreak = false; var pendingPart = false
         for l in raw.components(separatedBy: .newlines) {
             let t = l.trimmingCharacters(in: .whitespaces)
             if t.isEmpty { pendingBreak = true; continue }
+            if LyricText.isDivider(t) { pendingBreak = true; pendingPart = true; continue }
             if (t.hasPrefix("[") && t.hasSuffix("]")) || (t.hasPrefix("(") && t.hasSuffix(")") && t.split(separator: " ").count <= 3) {
                 pendingBreak = true; continue
             }
             if pendingBreak && !lines.isEmpty { breaks.insert(lines.count) }
-            pendingBreak = false
+            if pendingPart && !lines.isEmpty { parts.insert(lines.count) }
+            pendingBreak = false; pendingPart = false
             lines.append(t)
         }
-        return Parsed(lines: lines, stanzaBreaks: breaks)
+        return Parsed(lines: lines, stanzaBreaks: breaks, partBreaks: parts)
     }
 
     static func norm(_ s: String) -> String {

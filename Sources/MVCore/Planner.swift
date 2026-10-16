@@ -11,14 +11,16 @@ public enum Planner {
         public init(imageInterval seconds: Double) { target = seconds; minLen = seconds * 0.5; maxLen = seconds * 1.8 }
     }
 
-    public static func plan(lines: [LyricLine], stanzaBreaks: Set<Int>, songDuration: Double, opts: Options = .init()) -> [PhotoSection] {
+    /// `partBreaks`: parts the user divided by hand. When given, each part becomes exactly one picture (no automatic splitting or merging).
+    public static func plan(lines: [LyricLine], stanzaBreaks: Set<Int>, partBreaks: Set<Int> = [], songDuration: Double, opts: Options = .init()) -> [PhotoSection] {
         guard !lines.isEmpty else {
             return evenSections(0, songDuration, opts: opts, startID: 0)
         }
         // 1. stanza units (arrays of line indices)
+        let userParts = !partBreaks.isEmpty
         var units: [[Int]] = []; var cur: [Int] = []
         for i in lines.indices {
-            if stanzaBreaks.contains(i) && !cur.isEmpty { units.append(cur); cur = [] }
+            if (userParts ? partBreaks : stanzaBreaks).contains(i) && !cur.isEmpty { units.append(cur); cur = [] }
             cur.append(i)
         }
         if !cur.isEmpty { units.append(cur) }
@@ -27,7 +29,7 @@ public enum Planner {
         func span(_ u: [Int]) -> Double { lines[u.last!].end - lines[u.first!].start }
         var pieces: [[Int]] = []
         for u in units {
-            if span(u) <= opts.maxLen { pieces.append(u); continue }
+            if userParts || span(u) <= opts.maxLen { pieces.append(u); continue }
             let k = Int((span(u) / opts.target).rounded())
             let per = span(u) / Double(max(k, 2))
             var chunk: [Int] = []; var chunkStart = lines[u[0]].start
@@ -40,7 +42,7 @@ public enum Planner {
         // 3. merge short pieces into neighbours
         var merged: [[Int]] = []
         for p in pieces {
-            if let last = merged.last, span(last) < opts.minLen || span(p) < opts.minLen,
+            if !userParts, let last = merged.last, span(last) < opts.minLen || span(p) < opts.minLen,
                span(last) + (lines[p.first!].start - lines[last.last!].end) + span(p) <= opts.maxLen {
                 merged[merged.count - 1] = last + p
             } else { merged.append(p) }

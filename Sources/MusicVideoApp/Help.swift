@@ -1,26 +1,38 @@
 // Plain-language help: the step bar, the Quick Guide, and the "what to do next" card that guide a first-time user.
 import SwiftUI
 
-/// The three steps of making a video. Shown at the top of every main screen so you always know where you are.
+/// The three steps of making a video. Shown at the top of every main screen; click a step to go there (back or forward) at any time.
 struct StepBar: View {
+    @EnvironmentObject var model: AppModel
     let current: Int          // 1 = song, 2 = pictures, 3 = video
-    private let steps = [("1", "Song", "music.note"), ("2", "Pictures", "photo.on.rectangle"), ("3", "Video", "film")]
+    var compact = false
+    private let steps = [("1", "Song", "Go back to your song, title and lyrics. Your pictures and video stay saved."),
+                         ("2", "Pictures", "Go to your pictures (the parts of the song and their pictures)."),
+                         ("3", "Video", "See your finished video again.")]
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: compact ? 3 : 6) {
             ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
                 let n = i + 1
-                HStack(spacing: 7) {
-                    ZStack {
-                        Circle().fill(n < current ? Color.green : (n == current ? Color.accentColor : Color.secondary.opacity(0.25))).frame(width: 24, height: 24)
-                        if n < current { Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(.white) }
-                        else { Text(s.0).font(.caption.weight(.bold)).foregroundStyle(n == current ? .white : .secondary) }
+                let done = (n == 1 && model.hasProject) || (n == 2 && model.videoFile != nil)
+                Button { model.goToStep(n) } label: {
+                    HStack(spacing: 7) {
+                        ZStack {
+                            Circle().fill(n == current ? Color.accentColor : (done ? Color.green : Color.secondary.opacity(0.25))).frame(width: 24, height: 24)
+                            if done && n != current { Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(.white) }
+                            else { Text(s.0).font(.caption.weight(.bold)).foregroundStyle(n == current ? .white : .secondary) }
+                        }
+                        if !compact || n == current { Text(s.1).font(.callout.weight(n == current ? .semibold : .regular)).foregroundStyle(n == current ? .primary : .secondary).lineLimit(1).fixedSize() }
                     }
-                    Text(s.1).font(.callout.weight(n == current ? .semibold : .regular)).foregroundStyle(n == current ? .primary : .secondary).lineLimit(1).fixedSize()
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(n == current || !model.canGoToStep(n))
+                .opacity(model.canGoToStep(n) || n == current ? 1 : 0.55)
+                .help(n == current ? "You are here." : (model.canGoToStep(n) ? s.2 : (n == 3 ? "Make your video first, then you can come back to it here." : "Plan your video first.")))
                 if i < steps.count - 1 { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
             }
         }
-        .help("Making a video takes three steps: 1) choose your song and lyrics, 2) add a picture for each part of the song, 3) press the button to make the video.")
     }
 }
 
@@ -57,23 +69,29 @@ struct QuickGuideView: View {
         ("film", "Press “Make my video”", "Your finished video is saved in your Music Videos folder. The last screen has buttons to show it in Finder and to share it. Short vertical clips for YouTube Shorts can be made too."),
     ]
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack { Image(systemName: "questionmark.circle.fill").font(.system(size: 30)).foregroundStyle(.tint); Text("How to make a music video").font(.title.bold()) }
-            ForEach(Array(items.enumerated()), id: \.offset) { i, it in
-                HStack(alignment: .top, spacing: 14) {
-                    ZStack { Circle().fill(Color.accentColor.opacity(0.15)).frame(width: 38, height: 38); Text("\(i + 1)").font(.headline).foregroundStyle(.tint) }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(it.1, systemImage: it.0).font(.headline)
-                        Text(it.2).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack { Image(systemName: "questionmark.circle.fill").font(.system(size: 30)).foregroundStyle(.tint); Text("How to make a music video").font(.title.bold()) }
+                    ForEach(Array(items.enumerated()), id: \.offset) { i, it in
+                        HStack(alignment: .top, spacing: 14) {
+                            ZStack { Circle().fill(Color.accentColor.opacity(0.15)).frame(width: 38, height: 38); Text("\(i + 1)").font(.headline).foregroundStyle(.tint) }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label(it.1, systemImage: it.0).font(.headline)
+                                Text(it.2).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                     }
+                    Divider()
+                    Text("Tip: rest your mouse on any button for a moment and a short explanation appears. Your work is saved automatically, so you can close the app and come back to it with “Open earlier project”. The Song · Pictures · Video steps at the top can be clicked to go back at any time.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.trailing, 8)
             }
-            Divider()
-            Text("Tip: rest your mouse on any button for a moment and a short explanation appears. Your work is saved automatically, so you can close the app and come back to it with “Open earlier project”.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack { Spacer(); Button("Got it") { seen = true; dismiss() }.buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction) }
         }
         .padding(28).frame(width: 600)
+        .frame(maxHeight: 640)
     }
     static var shouldShowFirst: Bool { !UserDefaults.standard.bool(forKey: "seenQuickGuide") }
 }

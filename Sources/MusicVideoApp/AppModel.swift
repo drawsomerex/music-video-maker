@@ -217,15 +217,88 @@ final class AppModel: ObservableObject {
     /// Folder that holds projects (chosen in Settings; default ~/Movies/Music Videos).
     var outputRoot: URL { config.projectsRoot }
 
+    /// A song's name for comparing files: no extension, no " (1)" / " copy" suffix, case and punctuation ignored.
+    static func songKey(_ name: String) -> String {
+        var t = (name as NSString).deletingPathExtension.lowercased()
+        if let r = t.range(of: " (") { t = String(t[..<r.lowerBound]) }
+        if t.hasSuffix(" copy") { t = String(t.dropLast(5)) }
+        return t.filter { $0.isLetter || $0.isNumber }
+    }
+    static func titleFromFile(_ url: URL) -> String {
+        var t = url.deletingPathExtension().lastPathComponent
+        if let r = t.range(of: " (") { t = String(t[..<r.lowerBound]) }
+        return t
+    }
+    private var autoTitle: String?          // the title the app filled in from a file name (so a different file can replace it)
+
+    /// Loads a song. A song with a different name than the one you are working on starts a NEW project; the earlier one stays saved.
     func setAudio(_ url: URL) {
+        let newKey = AppModel.songKey(url.lastPathComponent)
+        if let p = plan, projectBaseline != nil, newKey != AppModel.songKey(p.title), newKey != AppModel.songKey(projectBaseline?.audioName ?? "") {
+            let old = p.title
+            detachProject()
+            notice = "Started a new video for “\(AppModel.titleFromFile(url))”. “\(old)” is saved; use “Open earlier project” to go back to it."
+        } else if let prev = audioURL, plan == nil, AppModel.songKey(prev.lastPathComponent) != newKey, title == autoTitle || title.isEmpty {
+            title = ""                                   // the old title came from the old file name
+        }
         audioURL = url
         trimSummary = nil
-        if title.isEmpty {
-            var t = url.deletingPathExtension().lastPathComponent
-            if let r = t.range(of: " (") { t = String(t[..<r.lowerBound]) }
-            title = t
-        }
+        if title.isEmpty { title = AppModel.titleFromFile(url); autoTitle = title }
         Task { audioDuration = (try? await MVCore.audioDuration(path: url.path)) ?? 0 }
+    }
+
+    // MARK: Moving between Song · Pictures · Video
+
+    /// What the Song screen showed when it was opened from an existing project; used to tell whether you changed anything.
+    @Published var projectBaseline: (title: String, subject: String, lyrics: String, audioName: String)?
+    var hasProject: Bool { plan != nil && workDir != nil }
+    /// Where the finished video of the open project is, if it exists.
+    var videoFile: URL? {
+        guard let p = plan, let w = workDir else { return nil }
+        let u = Pipeline.videoURL(plan: p, work: w, config: config)
+        return FileManager.default.fileExists(atPath: u.path) ? u : (outputURL.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
+    }
+    var setupChanged: Bool {
+        guard let b = projectBaseline else { return true }
+        return title != b.title || subject != b.subject || lyrics != b.lyrics || (audioURL?.lastPathComponent ?? "") != b.audioName
+    }
+    func canGoToStep(_ n: Int) -> Bool {
+        if busy || stage == .working || stage == .rendering { return false }
+        switch n { case 1: return true; case 2: return hasProject; case 3: return videoFile != nil; default: return false }
+    }
+    func goToStep(_ n: Int) {
+        guard canGoToStep(n) else { return }
+        stopPlayback()
+        switch n {
+        case 1:
+            if let p = plan, let w = workDir {
+                title = p.title; subject = p.subject; lyrics = AppModel.lyricsText(of: p)
+                let audio = w.appendingPathComponent(p.audioFile.isEmpty ? "audio.mp3" : p.audioFile)
+                if FileManager.default.fileExists(atPath: audio.path) { audioURL = audio; audioDuration = p.songDuration }
+                projectBaseline = (title, subject, lyrics, audioURL?.lastPathComponent ?? "")
+            }
+            stage = .setup
+        case 2: stage = .plan
+        default: outputURL = videoFile; stage = .done
+        }
+    }
+    /// The lyrics as typed text: your own parts as `---` dividers, otherwise a blank line between the picture sections.
+    static func lyricsText(of p: Plan) -> String {
+        let texts = p.lines.map(\.text)
+        if !p.partStarts.isEmpty { return LyricText.text(lines: texts, partStarts: p.partStarts) }
+        let starts = p.sections.compactMap(\.lineIDs.first).filter { $0 > 0 }
+        let set = Set(starts); var out: [String] = []
+        for (i, t) in texts.enumerated() { if set.contains(i) { out.append("") }; out.append(t) }
+        return out.joined(separator: "\n")
+    }
+    func toggleDivider(before i: Int) { lyrics = LyricText.toggleDivider(lyrics, before: i) }
+    func clearDividers() { lyrics = LyricText.clearDividers(lyrics) }
+    func dividersFromVerses() { lyrics = LyricText.dividersFromVerses(lyrics) }
+
+    /// Forgets the open project (it stays saved on disk) so the Song screen starts empty.
+    func detachProject() {
+        stopPlayback(); plan = nil; workDir = nil; outputURL = nil; renderedShorts = []; waveform = []; projectBaseline = nil
+        title = ""; subject = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
     }
 
     private var handler: ProgressHandler {
@@ -409,6 +482,7 @@ final class AppModel: ObservableObject {
                 let work = Pipeline.workDir(output: folder, title: t)
                 workDir = work
                 plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, config: config, progress: handler)
+                projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
             } catch is CancellationError {
                 stage = .setup
@@ -734,7 +808,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func reset() { stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = [] }
+    func reset() { stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = []; projectBaseline = nil }
 
     // MARK: Projects
     func remember(_ folder: URL) {
@@ -751,7 +825,8 @@ final class AppModel: ObservableObject {
                 p.shorts = Pipeline.autoShorts(plan: p)
                 try? Pipeline.savePlan(p, folder)
             }
-            plan = p; workDir = folder; title = p.title; subject = p.subject; lyrics = p.lines.map(\.text).joined(separator: "\n")
+            plan = p; workDir = folder; title = p.title; subject = p.subject; lyrics = AppModel.lyricsText(of: p)
+            projectBaseline = nil; outputURL = nil; renderedShorts = []
             stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true)
         } catch { errorMessage = "Couldn't open that project: \(error.localizedDescription)" }
     }

@@ -9,9 +9,12 @@ struct RootView: View {
     var body: some View {
         VStack(spacing: 0) {
             UpdateStrip()
+            if model.busy { BackgroundTaskBanner().transition(.move(edge: .top).combined(with: .opacity)) }
             screens
         }
+        .background(WindowFitter())
         .animation(.smooth(duration: 0.3), value: updaterVisible)
+        .animation(.smooth(duration: 0.25), value: model.busy)
     }
     @EnvironmentObject var updater: Updater
     var updaterVisible: Bool { updater.isInstalling || (updater.available != nil && !updater.bannerDismissed) }
@@ -28,19 +31,11 @@ struct RootView: View {
             }
             }
         }
-        .overlay(alignment: .top) {
-            if model.busy {
-                BackgroundTaskBanner()
-                    .padding(.top, 10)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
         .animation(.smooth(duration: 0.35), value: model.stage)
-        .animation(.smooth(duration: 0.25), value: model.busy)
     }
 }
 
-/// Floating on-screen progress bar shown whenever any background operation is running.
+/// Progress strip across the top while any background task runs. It sits ABOVE the screen (never on top of its buttons).
 struct BackgroundTaskBanner: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
@@ -63,18 +58,38 @@ struct BackgroundTaskBanner: View {
                     ProgressView(value: max(0.03, f))
                         .progressViewStyle(.linear)
                 }
-                .frame(width: 360)
+                .frame(maxWidth: 520)
+                Spacer(minLength: 0)
                 Button("Cancel") { model.cancelBackgroundTask() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .help("Stops this task. Nothing you made so far is lost.")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1))
-            .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(.regularMaterial)
+            .overlay(alignment: .bottom) { Divider() }
         }
     }
+}
+
+/// Keeps the window inside the screen: on a small MacBook screen the default size would run under the Dock or off the bottom.
+struct WindowFitter: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async {
+            guard let w = v.window, let screen = w.screen ?? NSScreen.main else { return }
+            let vf = screen.visibleFrame
+            var f = w.frame
+            f.size.width = min(f.size.width, vf.width); f.size.height = min(f.size.height, vf.height)
+            f.origin.x = min(max(f.origin.x, vf.minX), vf.maxX - f.width)
+            f.origin.y = min(max(f.origin.y, vf.minY), vf.maxY - f.height)
+            if f != w.frame { w.setFrame(f, display: true) }
+        }
+        return v
+    }
+    func updateNSView(_ v: NSView, context: Context) {}
 }
 
 struct Backdrop: View {
@@ -92,13 +107,23 @@ struct SetupView: View {
     @EnvironmentObject var model: AppModel
     @State private var importing = false
     @State private var targeted = false
+    @State private var lyricMode = 0
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 28) {
+            HStack(alignment: .top, spacing: 24) {
+                ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
                     header
+                    if model.hasProject {
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder.fill").foregroundStyle(.tint)
+                            Text("You are working on “\(model.plan?.title ?? "")”. Its pictures and video are safe. Choose a song with a different name to start a new video.")
+                                .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.10)))
+                    }
                     Picker("Where is your song?", selection: $model.audioInputMode) {
                         Label("I have an MP3 / WAV file", systemImage: "music.note").tag(0)
                         Label("Record it as it plays", systemImage: "waveform.badge.mic").tag(1)
@@ -130,11 +155,16 @@ struct SetupView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .frame(width: 370)
+                .padding(.trailing, 2)
+                }
+                .frame(width: 350)
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Text("Lyrics").font(.title3.bold())
+                        Picker("", selection: $lyricMode) { Text("Type or paste").tag(0); Text("Divide into parts").tag(1) }
+                            .pickerStyle(.segmented).labelsHidden().frame(width: 270)
+                            .help("“Type or paste” is for entering the words. “Divide into parts” lets you choose which lines belong together; each part becomes one picture, and Shorts start and end between parts.")
                         if model.liveTranscribing {
                             HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Writing the words as they play…").font(.callout).foregroundStyle(.orange) }
                         }
@@ -153,7 +183,8 @@ struct SetupView: View {
                             .help("Extra helpers: have the app type out the lyrics by listening to the song, or trim empty silence from the beginning and end of the recording.")
                         }
                     }
-                    Text("Paste your lyrics below. Leave a blank line between verses. Tags like [Chorus] are used for pacing but never shown on screen.")
+                    if lyricMode == 0 {
+                    Text("Paste your lyrics below. Leave a blank line between verses. A line with --- starts a new picture (or use “Divide into parts”). Tags like [Chorus] are never shown on screen.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     TextEditor(text: $model.lyrics)
                         .font(.system(size: 15, design: .rounded))
@@ -170,46 +201,76 @@ struct SetupView: View {
                             }
                         }
                         .help("Your lyrics. What you type or paste here is exactly what appears on the screen.")
+                    } else {
+                        LyricDividerView()
+                    }
                 }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 20)
 
             Divider()
-            HStack(spacing: 14) {
-                HStack(spacing: 8) {
-                    Text("One picture about every").font(.callout)
-                    Stepper(value: $model.imageInterval, in: 8...40, step: 1) { Text("\(Int(model.imageInterval)) seconds").monospacedDigit().frame(width: 84, alignment: .trailing) }
-                        .help("How often the picture changes. A smaller number means more pictures to make and a busier video; a bigger number means fewer, longer pictures.")
-                    if model.estimatedImages > 0 { Text("≈ \(model.estimatedImages) pictures").font(.callout).foregroundStyle(.secondary) }
+            ViewThatFits(in: .horizontal) {                     // roomy → squeezed → two rows, so nothing ever overlaps on a small screen
+                HStack(spacing: 14) { intervalControl(compact: false); Spacer(minLength: 8); utilityButtons(compact: false); primaryButton }
+                HStack(spacing: 10) { intervalControl(compact: true); Spacer(minLength: 6); utilityButtons(compact: true); primaryButton }
+                VStack(spacing: 8) {
+                    HStack(spacing: 10) { intervalControl(compact: true); Spacer(minLength: 6); utilityButtons(compact: true) }
+                    HStack { Spacer(); primaryButton }
                 }
-                Spacer()
-                Button { model.chooseSaveFolder() } label: {
-                    Label("Saving to \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath)", systemImage: "externaldrive")
-                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 230)
-                }.buttonStyle(.bordered).help("Everything is saved in this folder: your songs, pictures and finished videos. Click to pick a different folder.")
-                Menu {
-                    Button("Open a project folder…") { model.chooseProject() }
-                    if !model.recents.isEmpty { Divider(); ForEach(model.recents, id: \.self) { u in Button(u.deletingLastPathComponent().lastPathComponent) { model.openProject(u) } } }
-                } label: { Label("Open earlier project", systemImage: "folder") }.menuStyle(.borderlessButton).fixedSize()
-                    .help("Go back to a video you started before. All your pictures and settings are kept.")
-                Button { model.showGuide = true } label: { Image(systemName: "questionmark.circle") }.buttonStyle(.bordered)
-                    .help("Show the step-by-step Quick Guide.")
-                Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.bordered)
-                    .help("Folders, the picture maker key, adding the app to your Dock, and more.")
-                Button { model.start() } label: {
-                    Label("Plan my video", systemImage: "arrow.right.circle.fill")
-                        .font(.headline).padding(.horizontal, 10).padding(.vertical, 4)
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart || model.isRecording)
-                .keyboardShortcut(.return, modifiers: .command)
-                .help(model.canStart ? "Go to the next step. The app listens to your song, matches the lyrics and suggests a picture for each part. Takes a minute or two."
-                                     : "This button turns on once you have chosen a song, typed a title and added lyrics.")
             }
-            .padding(.horizontal, 28).padding(.vertical, 14)
+            .padding(.horizontal, 24).padding(.vertical, 12)
             .background(.regularMaterial)
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .mp3, .wav]) { if case .success(let u) = $0 { model.setAudio(u) } }
+    }
+
+    func intervalControl(compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(compact ? "A picture every" : "One picture about every").font(.callout).lineLimit(1).fixedSize()
+            Stepper(value: $model.imageInterval, in: 8...40, step: 1) { Text("\(Int(model.imageInterval)) s").monospacedDigit().frame(width: 40, alignment: .trailing) }
+                .help("How often the picture changes, in seconds. A smaller number means more pictures to make and a busier video; a bigger number means fewer, longer pictures.")
+            if model.estimatedImages > 0 && !compact { Text("≈ \(model.estimatedImages) pictures").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize() }
+        }
+    }
+
+    func utilityButtons(compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 12) {
+            Button { model.chooseSaveFolder() } label: {
+                if compact { Image(systemName: "externaldrive") }
+                else { Label("Saving to \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath)", systemImage: "externaldrive").lineLimit(1).truncationMode(.middle).frame(maxWidth: 220) }
+            }.buttonStyle(.bordered)
+                .help("Everything is saved in \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath): your songs, pictures and finished videos. Click to pick a different folder.")
+            Menu {
+                Button("Open a project folder…") { model.chooseProject() }
+                if !model.recents.isEmpty { Divider(); ForEach(model.recents, id: \.self) { u in Button(u.deletingLastPathComponent().lastPathComponent) { model.openProject(u) } } }
+            } label: { if compact { Image(systemName: "folder") } else { Label("Open earlier project", systemImage: "folder") } }
+                .menuStyle(.borderlessButton).fixedSize()
+                .help("Go back to a video you started before. All your pictures and settings are kept.")
+            Button { model.showGuide = true } label: { Image(systemName: "questionmark.circle") }.buttonStyle(.bordered)
+                .help("Show the step-by-step Quick Guide.")
+            Button { openSettings() } label: { if compact { Image(systemName: "gearshape") } else { Label("Settings", systemImage: "gearshape") } }.buttonStyle(.bordered)
+                .help("Folders, the picture maker key, adding the app to your Dock, and more.")
+        }
+    }
+
+    @ViewBuilder var primaryButton: some View {
+        if model.hasProject && !model.setupChanged {
+            Button { model.goToStep(2) } label: {
+                Label("Back to my pictures", systemImage: "arrow.right.circle.fill").font(.headline).padding(.horizontal, 8).padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
+            .help("Nothing was changed, so there is nothing to plan again. Go back to this video's pictures.")
+        } else {
+            Button { model.start() } label: {
+                Label(model.hasProject ? "Plan as a new video" : "Plan my video", systemImage: "arrow.right.circle.fill")
+                    .font(.headline).padding(.horizontal, 8).padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart || model.isRecording)
+            .keyboardShortcut(.return, modifiers: .command)
+            .help(model.canStart ? (model.hasProject ? "You changed the song, title or lyrics, so this makes a new video next to the earlier one. The earlier one stays saved and unchanged."
+                                                     : "Go to the next step. The app listens to your song, matches the lyrics and suggests a picture for each part. Takes a minute or two.")
+                                 : "This button turns on once you have chosen a song, typed a title and added lyrics.")
+        }
     }
 
     var header: some View {
@@ -416,7 +477,7 @@ struct DoneView: View {
     @State private var player: AVPlayer?
     var body: some View {
         VStack(spacing: 16) {
-            StepBar(current: 4)
+            StepBar(current: 3)
             Text(model.renderedShorts.isEmpty ? "Your video is ready" : "Your video & \(model.renderedShorts.count) Shorts are ready").font(.title.bold())
             if let p = player { PlayerView(player: p).aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 14)).shadow(radius: 18, y: 8).frame(maxWidth: 840) }
             if !model.renderedShorts.isEmpty {
@@ -536,7 +597,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped).frame(width: 640, height: 720)
+        .formStyle(.grouped).frame(width: 640, height: 600)
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }

@@ -5,6 +5,14 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Divide your lyrics into parts.** On the first screen, *Lyrics ▸ Divide into parts* shows your lines with a scissors button between them: click to start a new part, click again to join. **Each part becomes exactly one picture**, and Shorts are built from whole parts (grouped to about 30 s; a part much longer than a Short is split at its pauses) so a Short never starts or ends in the middle of a part. *Use my verse breaks* turns your blank-line verses into parts as a starting point; *Clear my parts* returns to automatic. In the text a part break is a line containing `---`. With no `---` lines the app divides the song itself as before. Parts are remembered in the project.
+- **Go back to any step.** The **Song · Pictures · Video** steps at the top are buttons: from the finished video you can return to Pictures or to Song (title, lyrics and song are kept), and from Pictures back to Song or forward to Video once one exists. Nothing is lost by going back.
+- **A song with a different name starts a new project.** Choose or drop an MP3 whose name differs from the one you are working on and the app starts a fresh video (the earlier one stays saved; *Open earlier project* brings it back). A file with the same name keeps the project; while you are only drafting, the title follows the file name until you type your own. If you change a song's title, lyrics or file, the main button says **Plan as a new video**, otherwise **Back to my pictures**.
+
+### Fixed
+- **Small screens (MacBook Air).** The progress bar for background tasks is now a strip above the screen instead of a panel floating over the buttons; the first screen's left column scrolls and its bottom bar shrinks to icons (then two rows) instead of overlapping; the Pictures screen's top area is limited to ~40 % of the window height and scrolls, and its top and bottom bars adapt; Shorts controls wrap; the window keeps itself inside the screen and can be as small as 860 × 560; dialogs scroll instead of running off screen.
+
 ## [1.2.1] - 2026-10-16
 
 ### Fixed

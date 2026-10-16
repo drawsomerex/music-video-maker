@@ -15,11 +15,11 @@ struct ShortsView: View {
 
     var body: some View {
         HSplitView {
-            list.frame(minWidth: 220, idealWidth: 250, maxWidth: 320)
+            list.frame(minWidth: 170, idealWidth: 220, maxWidth: 300)
             Group {
                 if let c = model.currentShort { ShortEditor(clip: c).id(c.id) }
                 else { empty }
-            }.frame(minWidth: 620)
+            }.frame(minWidth: 520)
         }
         .onAppear { if model.selectedShort == nil { model.selectedShort = model.plan?.shorts.first?.id } }
     }
@@ -108,11 +108,11 @@ struct ShortEditor: View {
                     Text("Step 3 — Fine-tune where the clip starts and ends").font(.headline)
                     Text("The wavy picture is your song. Drag the green handle (start) and red handle (end), or use the small buttons. Press the ▶ buttons to hear how the cut sounds.").font(.callout).foregroundStyle(.secondary)
                     HStack(spacing: 10) {
-                        Picker("Zoom on", selection: $zoomFocus) { Text("Whole clip").tag(0); Text("Start").tag(1); Text("End").tag(2) }.pickerStyle(.segmented).frame(width: 240).labelsHidden()
+                        Picker("Zoom on", selection: $zoomFocus) { Text("Whole clip").tag(0); Text("Start").tag(1); Text("End").tag(2) }.pickerStyle(.segmented).frame(minWidth: 170, maxWidth: 240).labelsHidden()
                             .help("Zoom in on the start or the end of the clip to place the cut precisely. Every word is labelled when you are zoomed in.")
                         if zoomFocus != 0 {
                             Button { zoomSpan = min(40, zoomSpan * 1.6) } label: { Image(systemName: "minus.magnifyingglass") }.controlSize(.small)
-                            Slider(value: Binding(get: { log(zoomSpan) }, set: { zoomSpan = exp($0) }), in: log(1.5)...log(40)).frame(width: 130)
+                            Slider(value: Binding(get: { log(zoomSpan) }, set: { zoomSpan = exp($0) }), in: log(1.5)...log(40)).frame(minWidth: 70, maxWidth: 130)
                             Button { zoomSpan = max(1.5, zoomSpan / 1.6) } label: { Image(systemName: "plus.magnifyingglass") }.controlSize(.small)
                             Text(String(format: "%.1f s across", zoomSpan)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                         }
@@ -123,7 +123,7 @@ struct ShortEditor: View {
                 }.padding(20)
             }
             Divider()
-            previewPane.frame(width: 340)
+            previewPane.frame(minWidth: 230, idealWidth: 300, maxWidth: 340)
         }
         .onChange(of: c.start) { model.refreshPreview(at: previewT) }
         .onChange(of: c.end) { model.refreshPreview(at: previewT) }
@@ -224,15 +224,15 @@ struct ShortEditor: View {
                 }
                 HStack(spacing: 14) {
                     Picker("Motion", selection: Binding(get: { c.motion }, set: { v in model.update(clip.id) { $0.motion = v }; model.refreshPreview(at: previewT) })) {
-                        Text("Calm").tag("calm"); Text("Punchy").tag("punchy") }.pickerStyle(.segmented).frame(width: 190)
+                        Text("Calm").tag("calm"); Text("Punchy").tag("punchy") }.pickerStyle(.segmented).frame(minWidth: 130, maxWidth: 190)
                         .help("Calm: slow, smooth camera moves. Punchy: faster cuts and a little shake on the beat.")
                     Picker("Lyrics", selection: Binding(get: { c.textStyle }, set: { v in model.update(clip.id) { $0.textStyle = v }; model.refreshPreview(at: previewT) })) {
-                        Text("Pill").tag("pill"); Text("Pop").tag("pop"); Text("Big").tag("stack"); Text("Sweep").tag("sweep"); Text("Surprise me").tag("auto") }.frame(width: 190)
+                        Text("Pill").tag("pill"); Text("Pop").tag("pop"); Text("Big").tag("stack"); Text("Sweep").tag("sweep"); Text("Surprise me").tag("auto") }.frame(minWidth: 130, maxWidth: 190)
                         .help("How the words are drawn. Pill: a coloured bar follows the word being sung. Pop: words pop in. Big: large words. Sweep: a colour sweeps across each line.")
                 }
                 HStack(spacing: 14) {
                     Picker("Colour", selection: Binding(get: { c.accent }, set: { v in model.update(clip.id) { $0.accent = v }; model.refreshPreview(at: previewT) })) {
-                        ForEach(ShortStyle.paletteNames, id: \.self) { Text($0).tag($0) }; Text("Auto").tag("Auto") }.frame(width: 190)
+                        ForEach(ShortStyle.paletteNames, id: \.self) { Text($0).tag($0) }; Text("Auto").tag("Auto") }.frame(minWidth: 130, maxWidth: 190)
                         .help("The highlight colour for the words.")
                     Toggle("Beat pulse", isOn: Binding(get: { c.pulse }, set: { v in model.update(clip.id) { $0.pulse = v } }))
                         .help("A gentle throb on the beat of the music.")
@@ -276,31 +276,36 @@ struct ShortEditor: View {
     }
 
     var transport: some View {
-        HStack(spacing: 10) {
-            Button { model.playhead == nil ? model.playRange(c.start, c.end) : model.stopPlayback() } label: {
-                Label(model.playhead == nil ? "Play the clip" : "Stop", systemImage: model.playhead == nil ? "play.fill" : "stop.fill")
-            }.controlSize(.large).help("Plays the music for this clip.")
-            Spacer()
-            if let p = model.shortProgress {
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("\(model.shortPhase.isEmpty ? "Rendering" : model.shortPhase) (\(Int(p * 100))%)")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                    ProgressView(value: p).frame(width: 210)
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Button { model.playhead == nil ? model.playRange(c.start, c.end) : model.stopPlayback() } label: {
+                    Label(model.playhead == nil ? "Play the clip" : "Stop", systemImage: model.playhead == nil ? "play.fill" : "stop.fill")
+                }.controlSize(.large).help("Plays the music for this clip.")
+                Spacer(minLength: 8)
+                if let p = model.shortProgress {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text("\(model.shortPhase.isEmpty ? "Rendering" : model.shortPhase) (\(Int(p * 100))%)")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                        ProgressView(value: p).frame(minWidth: 120, maxWidth: 210)
+                    }
+                    Button("Cancel") { model.cancelShortRender() }
+                        .buttonStyle(.bordered).help("Stops making this clip.")
+                } else if let out = model.shortOutput {
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }.help("Opens the folder with this clip.")
+                    ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }.help("Send the clip by Messages, Mail or AirDrop.")
                 }
-                Button("Cancel") { model.cancelShortRender() }
-                    .buttonStyle(.bordered).help("Stops making this clip.")
-            } else if let out = model.shortOutput {
-                Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }.help("Opens the folder with this clip.")
-                ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }.help("Send the clip by Messages, Mail or AirDrop.")
             }
-            if c.dynamic {
-                Button { model.renderShort(clip.id, variants: 3) } label: { Label("Make 3 versions", systemImage: "square.stack.3d.up") }
-                    .controlSize(.large).disabled(model.shortProgress != nil)
-                    .help("Makes the same clip three times with different looks, so you can see which one people watch longest on YouTube.")
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                if c.dynamic {
+                    Button { model.renderShort(clip.id, variants: 3) } label: { Label("Make 3 versions", systemImage: "square.stack.3d.up") }
+                        .controlSize(.large).disabled(model.shortProgress != nil)
+                        .help("Makes the same clip three times with different looks, so you can see which one people watch longest on YouTube.")
+                }
+                Button { model.renderShort(clip.id) } label: { Label("Make this clip", systemImage: "film").font(.headline).padding(.horizontal, 6) }
+                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.shortProgress != nil)
+                    .help("Creates the finished vertical video for this clip.")
             }
-            Button { model.renderShort(clip.id) } label: { Label("Make this clip", systemImage: "film").font(.headline).padding(.horizontal, 6) }
-                .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.shortProgress != nil)
-                .help("Creates the finished vertical video for this clip.")
         }
     }
 

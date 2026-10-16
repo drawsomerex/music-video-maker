@@ -22,6 +22,7 @@ enum Snapshots {
             }
         }
         save("setup", CGSize(width: 1120, height: 760), SetupView())
+        save("setup-small", CGSize(width: 860, height: 560), SetupView())
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())
         save("update-sheet", CGSize(width: 520, height: 420), UpdateSheet())
         save("recording-fix", CGSize(width: 560, height: 360), RecordingFixSheet())
@@ -30,6 +31,7 @@ enum Snapshots {
         save("settings", CGSize(width: 600, height: 560), SettingsView())
         if model.plan != nil {
             save("plan", CGSize(width: 1120, height: 760), PlanView())
+            save("plan-small", CGSize(width: 860, height: 560), PlanView())
         }
         NSApplication.shared.terminate(nil)
     }

@@ -118,7 +118,7 @@ public enum Pipeline {
         _ = await BeatDetector.beats(audioPath: savedAudioPath, start: 0, end: duration, work: work)
 
         // Sections
-        var sections = Planner.plan(lines: lines, stanzaBreaks: parsed.stanzaBreaks, songDuration: duration, opts: .init(imageInterval: imageInterval))
+        var sections = Planner.plan(lines: lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: duration, opts: .init(imageInterval: imageInterval))
         let first = lines.first?.start ?? duration
         // Title card plays over the song's instrumental intro when there's room; otherwise a short silent pre-roll.
         let introDur = first >= 3.3 ? min(6.0, first - 0.6) : 4.5
@@ -152,6 +152,7 @@ public enum Pipeline {
                         audioFile: FileManager.default.fileExists(atPath: ownAudio.path) ? audioName : "", songDuration: duration, lines: lines, intro: intro, sections: sections, description: description, style: written.style, introDuration: introDur, audioOffset: offset,
                         alignmentCoverage: aligned.coverage)
         plan.timing = timing
+        plan.partStarts = parsed.partBreaks.sorted()
         plan.shorts = autoShorts(plan: plan)
         try savePlan(plan, work)
         progress?("Done", 1)
@@ -433,7 +434,48 @@ public enum Pipeline {
     }
 
     /// Automatically creates 4–7 ~30-second Shorts that break cleanly at stanza / section boundaries and vocal pauses between lyric lines.
+    /// Shorts built from the parts the user divided by hand: whole parts are grouped to about `target` seconds, and a Short never cuts through a part
+    /// unless that single part is far longer than a Short (then it is split at the pauses nearest the target length).
+    static func shortsFromParts(plan: Plan, target: Double = 30.0) -> [ShortClip] {
+        let L = plan.lines
+        let starts = ([0] + plan.partStarts.filter { $0 > 0 && $0 < L.count }).sorted()
+        var parts: [(Int, Int)] = []
+        for (k, a) in starts.enumerated() { parts.append((a, (k + 1 < starts.count ? starts[k + 1] : L.count) - 1)) }
+        func span(_ a: Int, _ b: Int) -> Double { L[b].end - L[a].start }
+        var groups: [(Int, Int)] = []
+        var cur: (Int, Int)? = nil
+        for p in parts {
+            guard let c = cur else { cur = p; continue }
+            let now = span(c.0, c.1), joined = span(c.0, p.1)
+            if now < target * 0.7 || (abs(joined - target) < abs(now - target) && joined <= target * 1.5) { cur = (c.0, p.1) } else { groups.append(c); cur = p }
+        }
+        if let c = cur { groups.append(c) }
+        // a part that is much longer than a Short: split at the pauses nearest the ideal piece length
+        var pieces: [(Int, Int)] = []
+        for g in groups {
+            let dur = span(g.0, g.1)
+            if dur <= target * 1.6 || g.1 == g.0 { pieces.append(g); continue }
+            let k = Int((dur / target).rounded()), ideal = dur / Double(max(2, k))
+            var a = g.0
+            for m in 1..<max(2, k) {
+                let want = L[g.0].start + ideal * Double(m)
+                var best = a, bestScore = Double.infinity
+                for j in a..<g.1 { let s = abs(L[j].end - want) - min(2.0, max(0, L[j + 1].start - L[j].end)) * 1.5; if s < bestScore { bestScore = s; best = j } }
+                pieces.append((a, best)); a = best + 1
+            }
+            pieces.append((a, g.1))
+        }
+        return pieces.enumerated().map { (idx, r) in
+            let snippet = String(L[r.0].text.prefix(26)).trimmingCharacters(in: .whitespacesAndNewlines)
+            var c = clip(plan: plan, lines: r.0, to: r.1, name: "Short \(idx + 1) — \(snippet)", lead: 1.8, tail: 2.0)
+            c.end = min(c.end, c.start + ShortClip.maxDuration)
+            c.styleSeed = UInt64(101 + idx * 37); c.loop = true
+            return c
+        }
+    }
+
     public static func autoShorts(plan: Plan, targetSeconds: Double = 30.0, minCount: Int = 4, maxCount: Int = 7) -> [ShortClip] {
+        if !plan.partStarts.isEmpty, plan.lines.count >= 2 { return shortsFromParts(plan: plan, target: targetSeconds) }
         let L = plan.lines
         let total = max(1.0, plan.songDuration)
         let maxPossible = max(1, Int(total / 14.0))

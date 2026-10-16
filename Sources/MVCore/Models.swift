@@ -123,11 +123,13 @@ public struct Plan: Codable {
     /// Seconds added to every caption time when drawing (negative = captions appear sooner). Seen from the audience's side, captions that
     /// land exactly on the sound feel late, so new and old projects start slightly early; the user can fine-tune it per song.
     public var captionShift: Double = Plan.defaultCaptionShift
+    /// Lyric-line numbers where the user's own parts start (empty = the app divided the song itself). Drives pictures and Shorts.
+    public var partStarts: [Int] = []
     public static let defaultCaptionShift = -0.06
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -151,6 +153,7 @@ public struct Plan: Codable {
         imagesGeneratedCount = try c.decodeIfPresent(Int.self, forKey: .imagesGeneratedCount) ?? 0
         lastImageCostUSD = try c.decodeIfPresent(Double.self, forKey: .lastImageCostUSD)
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
+        partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []
     }
     public init(title: String, subject: String, audioPath: String, audioFile: String, songDuration: Double, lines: [LyricLine], intro: PhotoSection, sections: [PhotoSection],
                 description: String, style: String, introDuration: Double, audioOffset: Double, alignmentCoverage: Double) {
