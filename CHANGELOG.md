@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-16
+
 ### Added
 - **Live song recording, real-time transcription & automatic silence trimming:** Record any song playing on your Mac (via `ScreenCaptureKit` system audio) or from a microphone/audio input, watch Parakeet transcribe the lyrics in real time as it plays, and automatically trim leading and trailing silence when you stop. Includes one-click **Paste Over Lyrics**, **Auto-Transcribe**, and **Trim Silence** actions.
 - **Automated 4–7 ~30-second Shorts when making the main video:** Every planned song now automatically partitions into 4–7 ~30-second Shorts cut at natural stanza breaks and vocal pauses (`Pipeline.autoShorts`). Leave **Also make Shorts (~30s)** checked when clicking **Render Video + Shorts** (or pass `--with-shorts` on the CLI) to render the main widescreen video and all 4–7 Shorts with AI-written opening hooks in a single pass. Also added **Auto-Make 4–7 Shorts (30 s)** and **Render All Shorts** buttons in the Shorts tab.
