@@ -1,0 +1,221 @@
+// The built-in help guide. It is shown in Help ▸ Read the guide AND it is the only source the "Ask a question" assistant may answer from,
+// so every statement here must be true of the app. When a feature changes, change this text too.
+import Foundation
+
+struct HelpSection: Identifiable {
+    let id: String
+    let title: String
+    let keywords: String          // extra words people might use when asking (synonyms)
+    let body: String
+}
+
+enum HelpGuide {
+    static let sections: [HelpSection] = [
+        HelpSection(id: "overview", title: "What the app does", keywords: "start begin overview about how works make video steps process three", body: """
+        Music Video Maker turns a song and its lyrics into a finished music video (an MP4 file) and, if you want, short vertical clips for YouTube Shorts.
+        There are three steps, shown at the top of the window as Song, Pictures and Video:
+        1. Song: choose your song file, type its title and paste your lyrics, then press "Plan my video". The app listens to the song, matches each lyric to the moment it is sung, divides the song into parts, and writes a picture idea for every part.
+        2. Pictures: every part needs a picture. You can drag in your own pictures, or let the app draw them (this needs an OpenRouter key and costs a few cents per picture). You can preview the video.
+        3. Video: press "Make my video". The finished video is saved on your Mac.
+        Everything the app does with your song (listening, matching lyrics, writing picture ideas) happens on your Mac. Only the optional picture maker uses the internet.
+        You can click the Song, Pictures or Video step at the top at any time to go back or forward. Nothing is lost.
+        """),
+        HelpSection(id: "song", title: "Song screen: choosing the song and typing the details", keywords: "mp3 wav file drag drop choose load title subtitle lyrics paste record microphone audio song first screen", body: """
+        On the first screen (Song):
+        - Your song: drag an MP3 or WAV file onto the box, or click the box to choose one. M4A, AIFF and FLAC files also work.
+        - "Record it as it plays": instead of a file, the app can record a song that is playing on your Mac (choose "System audio") or from a microphone or audio input. Press "Start recording", play the song, press "Stop recording". Silence at the start and end is cut off automatically, and the lyrics can be written as it plays. The first time, macOS asks for permission.
+        - Song title: shown on the opening title card and used to name the folder where everything is saved.
+        - Subtitle on the title card (optional): a short line under the title.
+        - Setting and theme for every picture (optional): see the section "Setting and theme".
+        - Look of the pictures: press the button to choose a picture style. See "Picture styles".
+        - Lyrics: paste or type them on the right. The words on screen in the video are exactly the words you put here. The app only listens to the song to find the timing. A blank line between verses and tags like [Chorus] mark verse breaks (tags are never shown on screen).
+        - "Paste from clipboard" replaces the lyrics with whatever you last copied.
+        - "More tools" (when a song is loaded): "Listen to the song and write the lyrics for me" and "Cut the silence at the start and end".
+        - "A picture every N s": how often the picture changes, between 8 and 40 seconds. A smaller number means more pictures to make. This is used when the app divides the lyrics itself.
+        - "Saving to": the folder where all your songs, pictures and videos are saved (default Movies/Music Videos). Press it to choose another folder.
+        - "Open earlier project": go back to a video you made before.
+        - "Plan my video" is turned off until you have chosen a song, typed a title and added lyrics. Pressing Command and Return also presses it.
+        """),
+        HelpSection(id: "parts", title: "Dividing the lyrics into parts (pictures)", keywords: "divide cut split verses parts sections scissors lyrics pictures how many pictures verse chorus dividers", body: """
+        Each part of the lyrics gets exactly one picture. By default the app cuts the lyrics where you left blank lines between verses (and at tags such as [Chorus]), so each verse is one picture.
+        If your lyrics have no blank lines, or the breaks would make pictures shorter than about 6 seconds, the app divides the song itself using the "A picture every N s" setting.
+        To choose the parts yourself, press "Divide into parts" above the lyrics box:
+        - Each part is a coloured bar such as "Picture 2 · 3 lines".
+        - Between every two lines there is a "cut here" line. Click it to start a new picture at that point.
+        - Click a coloured bar (except the first) to join that picture with the picture above it.
+        - "Keep my verse cuts" turns your verse breaks into cuts you can change one by one.
+        - "N equal pictures" and "Divide": cuts the lyrics into the number of pictures you choose, each about the same length.
+        - "Start over": removes your own cuts, so the lyrics are cut at your verse breaks again.
+        In the text, a cut is a line containing three dashes (---).
+        YouTube Shorts made automatically also start and end between parts, never in the middle of one (a part much longer than a Short is split at its pauses).
+        Music with no singing before the first words, or long instrumental breaks, gets its own part and picture automatically.
+        """),
+        HelpSection(id: "setting", title: "Setting and theme for every picture", keywords: "setting theme scene place era location mood suggest ideas colonial consistent same look", body: """
+        The "Setting and theme" field (first screen, and Setting & description on the Pictures screen) is one phrase such as "Brightly lit colonial Philadelphia". Every picture idea is written to take place there, and the setting is written out in full at the front of every picture idea, so it is also in the prompts you copy or send to the picture maker.
+        The pictures still differ from each other: every part gets its own time of day, weather and camera view.
+        If the lyrics mention something that does not belong in that setting, the AI is told to show the closest thing that does belong there. Small local AI models follow this only partly, so check your picture ideas.
+        "Suggest 10 ideas for me" reads your lyrics and offers 10 different settings; press one to use it. "Suggest 10 more" gives more. Nothing changes until you press an idea.
+        On the Pictures screen, changing the setting does not change the existing picture ideas until you press "Make new picture ideas" in the Setting & description window.
+        Leave the field empty to let the app decide the setting from your lyrics.
+        """),
+        HelpSection(id: "styles", title: "Picture styles", keywords: "style art look oil painting watercolor anime preset custom edit new delete reset my own", body: """
+        A picture style is a few words describing the look of all the pictures (for example oil painting, watercolor or anime). It is added to every picture idea so the pictures match.
+        On the first screen press the "Look of the pictures" button; on the Pictures screen press "Art style". The window shows more than 40 ready-made styles. Press one to use it.
+        "AI Auto" lets the app write a style that fits your song.
+        To change a style: press it, edit the name or the words under "Edit this style", and press "Save changes".
+        To make your own style: press "New style", type a name, describe the look in words (the medium, colours, light and mood), and press "Save changes". Your style appears in the list with a star and can be chosen like any other.
+        You can change any style: press it, edit the name or the words under "Edit this style", and press "Save changes". Changes are kept permanently for next time. "Back to original" restores a ready-made style. A small pencil marks styles you changed.
+        "New style" makes a style of your own (marked with a star). "Delete" removes a style; deleted ready-made styles can be brought back with "Restore deleted styles".
+        On the Pictures screen the box "Words used for this song" shows the style words this song uses right now. New pictures use them; pictures you already made are not changed.
+        """),
+        HelpSection(id: "planning", title: "What happens when you press Plan my video", keywords: "plan planning analyze listening sync time how long wait progress transcribe", body: """
+        The app listens to your song (Parakeet Ultra, on your Mac), finds the exact moment each word is sung, matches your lyrics to those words, divides the song into parts, reads the lyrics to write a short description of the song, and writes one picture idea for every part. It takes a minute or two for a normal song. The screen shows a percentage, the current step and the time left. You can press Cancel.
+        If the lyrics match the audio badly (under 50 percent of the words), a warning appears. Check that the lyrics are what is really sung.
+        When planning finishes, the Pictures screen opens and everything is saved automatically in the song's folder.
+        The first screen's main button changes if you come back to it from an existing video: "Back to my pictures" if nothing was changed, or "Plan as a new video" if you changed the song, title, setting or lyrics (the earlier video stays saved).
+        """),
+        HelpSection(id: "pictures", title: "Pictures screen: the parts and their pictures", keywords: "pictures screen sidebar list parts title card instrumental music before words picture idea prompt another idea copy drag drop replace remove", body: """
+        The list on the left shows the title card and every part of the song with its picture (a plus sign means no picture yet). Click a part to work on it.
+        For the selected part you see:
+        - "Words in this part": the lyric lines. The play button plays that line. The small −0.5s, −0.1s, +0.1s and +0.5s buttons move just that line earlier or later in the video.
+        - "Picture idea": a description of the picture. You can edit it. "Another idea" asks the AI for a different one (it avoids the ideas already used). "Copy" copies the idea together with the style and setting so you can use it in another image maker.
+        - "Picture for this part": drag a picture into the box or click it to choose a file. Use widescreen pictures (16:9), 1920 by 1080 pixels or larger. Other shapes are cropped to fit and the app warns you.
+        - "Make this picture for me" draws the picture with the picture maker (needs an OpenRouter key, costs a few cents). "Try another picture" draws a new one. "Choose a different file" and "Remove picture" are under the box.
+        - "Camera": see the section "Camera movement".
+        Parts that are only music have names like "Music before the words", "Music break" and "Music after the words" and get their own picture idea.
+        The first item, "Title card", is the opening picture behind the song title.
+        The bar above the pictures shows what to do next and these buttons: "Make all missing pictures", "Add pictures from a folder", "Setting & description", "Art style", "Picture maker key & credit" and "Copy all picture ideas".
+        "Add pictures from a folder": choose a folder of pictures named 00.png (title card), 01.png, 02.png and so on; each goes to the matching part.
+        "Show folder" opens the song's folder in Finder. "Close" closes the song (it stays saved).
+        """),
+        HelpSection(id: "descriptionsheet", title: "Setting and description window", keywords: "description song about write again new picture ideas regenerate all prompts", body: """
+        On the Pictures screen, "Setting & description" opens a window with the setting field, "Suggest 10 ideas for me", and the description of what the song is about (written by the app from your lyrics; you can edit it).
+        "Write it again" has the AI read the lyrics again and write a new description and new picture ideas. Your edits to the description are replaced.
+        "Make new picture ideas" keeps the description and setting as they are now and writes fresh picture ideas for every part. Pictures you already made are kept, but their ideas change.
+        """),
+        HelpSection(id: "pictureMaker", title: "Picture maker (OpenRouter), keys and costs", keywords: "openrouter key api credit money cost price pay generate draw ai images make pictures free paid spend balance", body: """
+        The picture maker draws pictures from your picture ideas through the OpenRouter service. It needs an internet connection, your own OpenRouter key and credit on that account. It is not free: each picture costs a few cents (about 5 cents is typical; the app shows the real price it was charged).
+        Add your key with "Picture maker key & credit" (Pictures screen) or in Settings under "Picture maker (optional)". The key is saved in a private file on your Mac and is only sent to OpenRouter.
+        You do not need the picture maker. You can make pictures anywhere else and drag them in.
+        A green strip at the top of every screen always shows: what you have spent on this song (and how many pictures), what drawing all the blank pictures would cost (an estimate), what you have spent on all songs together, and your OpenRouter credit left (it turns orange when it would not cover the blank pictures).
+        "Make all missing pictures" draws a picture for every part without one and asks no further questions; it shows progress and can be cancelled. "Make every picture again" (inside "Picture maker key & credit") replaces all pictures after you confirm.
+        """),
+        HelpSection(id: "camera", title: "Camera movement (Ken Burns effect)", keywords: "camera ken burns zoom pan move direction start end dots closer wider level focus motion drift", body: """
+        Every picture slowly moves while it is on screen. Under each picture, "Camera" has two choices:
+        - "Automatic": the camera drifts toward the most interesting part of the picture. You can drag the orange dot to aim it, or press "Aim for me" to let the app find the spot. "Show the aim" shows the dot and the dashed box that is kept in the tall YouTube Shorts version.
+        - "I choose the move": two numbered dots appear on the picture. Drag the green dot 1 to where the camera starts and the red dot 2 to where it ends. The dashed frames show what the viewer sees first and last. The picture glides between them.
+        With your own move you also choose "Moves closer", "Stays level" or "Moves wider", and "Swap start and end" reverses the direction. If the two dots are far apart the app zooms in enough to keep both inside the picture (at most about 2.4 times).
+        Your camera choices are used in the full video, in Shorts and in the preview.
+        """),
+        HelpSection(id: "preview", title: "Preview and word timing", keywords: "preview watch captions words early late timing sync show sooner later nudge off fix the timing rough lyrics out of sync", body: """
+        "Preview" (bottom left of the Pictures screen) plays the video as it will look, at a smaller size, before you make it. Nothing is saved. You can drag the words up or down to move them for the whole video.
+        To make ALL the words of the song appear earlier or later (for example when every word seems to arrive after the singer): press "Preview", then under the preview press "Show sooner" (earlier) or "Show later" (later). Each press moves every word of the song by 0.05 seconds. The setting is saved with the song. "Reset" returns to the standard timing, which shows the words 0.06 seconds early.
+        To correct only ONE lyric line: on the Pictures screen, click the part that contains the line and use the small −0.5s, −0.1s, +0.1s and +0.5s buttons next to that line. Those move just that line by half a second or a tenth of a second.
+        If the top bar says "Word timing is rough", press "Fix the timing". The app listens to the song again to line every word up exactly (about a minute). Pictures are not touched.
+        """),
+        HelpSection(id: "making", title: "Making the video", keywords: "make video render export quality 1080 4k 720 save where file mp4 finished time how long cancel share finder clips", body: """
+        "Make my video" (bottom right of the Pictures screen) creates the finished video. Parts without a picture get a plain colour background; the app asks before it does that.
+        The button next to it shows the chosen sharpness (for example "1080p"). Press that button, and in the window that opens choose 720p, 1080p HD, 1440p or 4K, and tick or untick "Also make short clips for YouTube Shorts". 1080p HD is right for YouTube; 4K takes much longer and makes a much bigger file.
+        A progress screen shows the percentage and time left, and you can cancel. A four-minute song at 1080p usually takes one to a few minutes, depending on the Mac.
+        The video is saved as "<song title>.mp4" in the folder next to the song's project folder (or in the separate folder you chose for finished videos in Settings).
+        The last screen shows the video. "Show video in Finder" opens its folder. "Share" sends it by Messages, Mail or AirDrop. "Change something" goes back to the pictures. "Start a new video" starts over with a new song (this video stays saved).
+        You can return to the finished video later by clicking Video at the top.
+        """),
+        HelpSection(id: "shorts", title: "YouTube Shorts (vertical clips)", keywords: "shorts youtube vertical short clips tiktok reels 9:16 phone clip 30 seconds minute whole song hook title variants", body: """
+        On the Pictures screen, switch from "Full video" to "YouTube Shorts" at the top. A Short is a vertical video (1080 by 1920) that can be at most 3 minutes long.
+        - "Cut my song into clips for me" makes clips of about 30 seconds that start and end between the parts of your song. "Choose the lines myself" starts one clip you shape by clicking lyric lines (click to begin the clip at a line, hold Shift and click to end it). "Whole song" turns the whole song into one vertical video, split into the fewest equal parts if it is longer than 3 minutes.
+        - Step 2, the look: "Lively style" adds an opening title (your song title by default; "Suggest one" asks the AI for a catchy title), a highlight that follows each word, smooth cuts and an optional closing text. Motion can be Calm or Punchy. The words can be Pill, Pop, Big, Sweep or Surprise me. You can pick the colour, a beat pulse and a looping end. "Try a different look" picks a new random look.
+        - Step 3: drag the green (start) and red (end) handles on the picture of the song's waveform, or use the small buttons; "Move to the nearest pause" snaps to a quiet gap; "Hear the start" and "Hear the end" play the edges; "Zoom on" magnifies the start or the end.
+        - "Make this clip" creates the clip. "Make 3 versions" makes the clip three times with different looks. "Make all clips" makes every clip in the list.
+        Shorts are saved in the same folder as the main video, named "<song title> – <clip name>.mp4", with a text file of the same name containing a suggested title, description and hashtags for uploading.
+        """),
+        HelpSection(id: "steps", title: "Going back, new songs and earlier projects", keywords: "back go back previous step change song new project another song different mp3 open earlier project close start over", body: """
+        The three steps at the top (Song, Pictures, Video) are buttons. Click Song to look at or change the title, setting and lyrics of the open video; click Pictures to return to the pictures; click Video to see the finished video again (it is available once you have made one).
+        If you choose an MP3 with a different name than the video you are working on, the app starts a new video and the earlier one stays saved. A file with the same name keeps the current video.
+        "Open earlier project" (first screen) goes back to any video you made before; choose its project folder or pick it from the recent list.
+        "Close" (Pictures screen) closes the open video and returns to the first screen. Everything is saved automatically at every step.
+        """),
+        HelpSection(id: "files", title: "Where your files are", keywords: "folder files save location where saved project mp3 transcript lyrics prompts finder movies output", body: """
+        By default everything is in the folder Movies/Music Videos. Each song gets its own folder with a project folder inside it named "<song title> – project". The project folder holds: project.mvproj (the save file with the parts, picture ideas, timing and camera choices), a copy of your song (audio.mp3), transcript files (what the AI heard), lyrics_synced.txt (your lyrics with the time each line is sung), prompts.md (all the picture ideas), and the folders full and thumbs with your pictures.
+        The finished video and the Shorts are saved next to the project folder.
+        Change the folder with "Saving to" on the first screen or in Settings under "Where things are saved" ("Main folder"). Under "Finished videos only" you can choose a different folder just for finished videos and Shorts.
+        "Show folder" on the Pictures screen opens the song's folder in Finder.
+        """),
+        HelpSection(id: "settings", title: "Settings", keywords: "settings preferences options dock key folder updates models download again size small balanced best", body: """
+        Open Settings with the gear button on the first screen or the Settings item in the app menu (Command and comma). It has these parts:
+        - Where things are saved: the main folder and an optional separate folder for finished videos.
+        - Picture maker (optional): your OpenRouter key and a "Check" button for your credit.
+        - Updates: your version, whether an update is waiting, and "Check for updates".
+        - Shortcuts & help: "Add to Dock" or "Remove from Dock", "Fix recording permission…" and "Show Quick Guide".
+        - On-device AI: the two models the app uses (Parakeet Ultra and the language model), whether each is downloaded, and a "Download again" button for each. The size picker (Small, Balanced, Best) chooses which language model is downloaded.
+        """),
+        HelpSection(id: "models", title: "On-device AI models and the first download", keywords: "models download parakeet gemma language model gb size first launch setup offline internet storage space", body: """
+        The first time the app opens it downloads two models to your Mac: Parakeet Ultra (about 0.5 GB), which finds when each word is sung, and a language model (Gemma 4 E2B, about 3.6 GB in the Balanced size) which writes the description, picture ideas and suggestions. After that the app works without internet, except for the optional picture maker and update checks.
+        The setup screen shows each model and a live percentage while it downloads. You can see them at any time in Settings under On-device AI.
+        If planning stops with an error about the language model, open Settings, find the language model and press "Download again".
+        Sizes: Small (about 1 GB, fastest, plainer picture ideas), Balanced (about 3.6 GB, recommended), Best (about 6 GB, needs more memory).
+        """),
+        HelpSection(id: "updates", title: "Updates", keywords: "update version new release install latest upgrade restart check", body: """
+        When a new version exists, a blue "Update available" strip appears across the top of the window. "What's new" shows the changes, "Update now" downloads and installs it and restarts the app, and "Later" hides the strip until you open the app again. Your songs, pictures and settings are kept.
+        You can also use Check for Updates in the app menu or the Help menu, or Settings ▸ Updates. The app checks by itself about once a day.
+        The app must be in the Applications folder to update itself.
+        """),
+        HelpSection(id: "recording", title: "Recording problems (macOS permission)", keywords: "record recording permission screen system audio microphone blocked cant record privacy security settings fix", body: """
+        "Record it as it plays" with "System audio" needs the macOS permission "Screen & System Audio Recording". If recording says macOS is blocking it even though the switch in System Settings is on, open Settings ▸ "Fix recording permission…" (or follow the window that opens by itself): press "Fix it for me", switch Music Video Maker on in the list that opens, then press "Restart the app".
+        "Use microphone instead" in that window records through a microphone or audio input and needs no screen permission (the microphone permission is needed).
+        """),
+        HelpSection(id: "troubleshooting", title: "Common problems and fixes", keywords: "problem error trouble wrong not working stuck fails blank colour gradient plain background missing picture cant click disabled warning lyrics match slow", body: """
+        - The "Plan my video" button is grey: you need a song, a title and lyrics.
+        - Words appear too early or late: use "Show sooner" or "Show later" under the preview; if the top bar says the timing is rough press "Fix the timing".
+        - Some parts of the video show a plain colour: those parts have no picture. Add pictures, or press "Make all missing pictures".
+        - "Lyrics only N% matched": the lyrics you pasted differ from what is sung. Check the words and plan again as a new video.
+        - An error about the language model: Settings ▸ On-device AI ▸ "Download again" next to the language model.
+        - Recording is blocked: Settings ▸ "Fix recording permission…".
+        - The picture maker says no key or no credit: add the key under "Picture maker key & credit" and check your OpenRouter credit.
+        - The window is too big for a small screen: the window resizes to fit; it can be as small as 860 by 560.
+        - The app cannot update itself: move it to the Applications folder, or install the newest version again with the install command.
+        """),
+        HelpSection(id: "limits", title: "What the app cannot do", keywords: "cannot cant not possible impossible limit limitation unsupported support windows intel upload youtube edit timeline transitions font translate", body: """
+        These things are not possible in this app:
+        - It does not edit video: no timeline, no cutting or joining video clips, no importing video.
+        - It makes one video from one song. It cannot combine several songs into one video.
+        - It cannot upload to YouTube; it only creates the files (and suggested titles and descriptions for Shorts).
+        - The full video's lyric style (font and layout) is fixed; you can move the words up or down in the preview. Word styles and colours can be chosen only for Shorts.
+        - You cannot choose the transitions between pictures by hand; they are chosen automatically.
+        - It cannot translate lyrics, and the words on screen are always exactly the words you typed.
+        - It cannot edit or enhance the audio. The only audio change is cutting silence at the start and end of a recording.
+        - The picture maker cannot work without internet, an OpenRouter key and paid credit. Without it, you add your own pictures.
+        - It needs a Mac with Apple Silicon (M1 or newer) and macOS 14 or newer. It does not run on Windows or on Intel Macs.
+        - A YouTube Short cannot be longer than 3 minutes.
+        - Video sharpness choices are 720p, 1080p, 1440p and 4K; the frame rate is fixed.
+        - The assistant in Help only knows what this guide says and what is on your screen.
+        """),
+    ]
+
+    // MARK: finding the right sections for a question
+
+    private static let stop: Set<String> = ["the", "and", "for", "how", "can", "what", "does", "this", "that", "with", "you", "your", "are", "was", "why", "when", "where", "which", "from", "have", "has", "not", "but", "its", "into", "out", "about", "would", "could", "should", "there", "they", "them", "then", "than", "just", "also", "any", "all", "get", "got", "make", "need", "want", "like", "using", "use", "app", "please", "tell", "show", "does", "doing", "done", "way", "able"]
+
+    static func words(_ t: String) -> Set<String> {
+        Set(t.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count >= 3 && !stop.contains($0) }.map(stem))
+    }
+    static func stem(_ w: String) -> String {
+        for suffix in ["ing", "ed", "es", "s"] where w.hasSuffix(suffix) && w.count - suffix.count >= 4 { return String(w.dropLast(suffix.count)) }
+        return w
+    }
+
+    /// The sections whose words overlap the question most (best first). Empty when nothing in the guide relates to it.
+    static func relevant(to question: String, top: Int = 4) -> [HelpSection] {
+        let q = words(question)
+        guard !q.isEmpty else { return [] }
+        let scored: [(HelpSection, Double)] = sections.map { s in
+            let kw = words(s.keywords), title = words(s.title), body = words(s.body)
+            var score = 0.0
+            for w in q { if kw.contains(w) { score += 3 }; if title.contains(w) { score += 2.5 }; if body.contains(w) { score += 1 } }
+            return (s, score)
+        }
+        return scored.filter { $0.1 >= 2 }.sorted { $0.1 > $1.1 }.prefix(top).map(\.0)
+    }
+
+    static func section(_ id: String) -> HelpSection? { sections.first { $0.id == id } }
+}

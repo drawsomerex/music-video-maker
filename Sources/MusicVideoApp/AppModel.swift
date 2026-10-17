@@ -19,7 +19,7 @@ final class AppModel: ObservableObject {
     @Published var lyrics = ""
     @Published var imageInterval = 15.0
     @Published var quality = 1080
-    @Published var selectedStylePreset = StylePreset.all[0].name
+    @Published var selectedStylePreset = StylePreset.autoID      // the id of the chosen picture style
 
     @Published var phase = ""
     @Published var progress = 0.0
@@ -478,7 +478,7 @@ final class AppModel: ObservableObject {
         config = Config.load()
         stage = .working; phase = "Starting…"; progress = 0
         let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = imageInterval, theme = settingTheme
-        let presetPrompt = StylePreset.all.first(where: { $0.name == selectedStylePreset })?.prompt ?? ""
+        let presetPrompt = StylePreset.all.first(where: { $0.id == selectedStylePreset })?.prompt ?? ""
         mainTask?.cancel()
         mainTask = Task {
             do {
@@ -615,12 +615,19 @@ final class AppModel: ObservableObject {
     }
 
     func setStyle(_ text: String) { plan?.style = text; persist() }
+    /// Ten setting ideas from the lyrics (for the first screen or the open project).
+    func fetchSettingIdeas(avoid: [String]) async throws -> [String] {
+        let ls = plan.map { $0.lines.map(\.text) } ?? LyricAligner.parse(lyrics).lines
+        let omlx = OMLX(config: config); try await omlx.ensureReady()
+        return try await PromptWriter(omlx: omlx).suggestSettings(title: plan?.title ?? title, lyrics: ls, description: plan?.description ?? "", avoid: avoid)
+    }
     func setSetting(_ text: String) { plan?.setting = text; persist() }
     func setDescription(_ text: String) { plan?.description = text; persist() }
 
-    func applyStylePreset(_ name: String) {
-        selectedStylePreset = name
-        if let preset = StylePreset.all.first(where: { $0.name == name }), !preset.prompt.isEmpty {
+    var selectedStyleName: String { StylePreset.all.first(where: { $0.id == selectedStylePreset })?.name ?? StyleLibrary.auto.name }
+    func applyStylePreset(_ id: String) {
+        selectedStylePreset = id
+        if let preset = StylePreset.all.first(where: { $0.id == id }), !preset.prompt.isEmpty {
             plan?.style = preset.prompt
             persist()
         }
@@ -739,6 +746,19 @@ final class AppModel: ObservableObject {
         return String(format: "%.2f s %@", abs(v), v < 0 ? "early" : "late")
     }
     @Published var showGuide = QuickGuideView.shouldShowFirst
+    @Published var showHelp = false          // the Help window (ask a question / read the guide)
+    var helpScreen = "Song screen (first screen)"
+    /// Which screen is showing (told to the Help assistant).
+    var screenName: String {
+        if needsNativeSetup { return "First-time setup (downloading models)" }
+        switch stage {
+        case .setup: return hasProject ? "Song screen (opened from an existing video)" : "Song screen (first screen)"
+        case .working: return "Planning the video (progress screen)"
+        case .rendering: return "Making the video (progress screen)"
+        case .plan: return "Pictures screen"
+        case .done: return "Video screen (finished video)"
+        }
+    }
 
     func nudgeLine(_ lineIndex: Int, delta: Double) {
         guard var p = plan, let w = workDir else { return }

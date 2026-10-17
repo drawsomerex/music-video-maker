@@ -5,6 +5,11 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Help on every screen, with an assistant that answers from the guide.** A **Help** button sits on every screen (and Help ▸ *Help & Questions…*). *Ask a question* answers in plain words using the built-in **guide** (21 sections covering every feature, including a list of what the app cannot do) **and what is on your screen right now** (which screen, what is missing, why a button is grey, costs, models, errors…). It is told to use only that information: if the app can't do something it says *"That isn't possible in this app"*, and if the guide doesn't cover it it says *"I don't know"* instead of guessing; button names it quotes are checked against the guide and a warning is added for names it can't find. *Read the guide* shows the whole guide with search. Tested on 28 sample questions (how-to, impossible, unrelated, screen-dependent).
+- **More picture styles you can edit and add to.** 42 ready-made styles (28 new: Pencil Sketch, Impressionist, Film Noir, Pixel Art, Linocut, Sumi-e Ink Wash, Renaissance Fresco, …). *Picture styles* (first screen: *Look of the pictures*; Pictures screen: *Art style*) lets you press a style to use it, **edit any style's name or words permanently**, **add new styles with your own names**, delete styles, put one back to its original, and restore deleted ones. Saved in `styles.json` next to the settings.
+- **"Suggest 10 ideas for me" for the setting/scene.** On the first screen (next to the setting field) and in *Setting & description*: the local AI reads the lyrics and offers 10 clearly different places/eras/moods; press one to use it, *Suggest 10 more* for more. `mvideo ideas lyrics.txt` does it from the command line.
+
 ## [1.3.1] - 2026-10-16
 
 ### Added

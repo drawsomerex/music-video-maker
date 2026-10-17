@@ -109,6 +109,8 @@ struct SetupView: View {
     @State private var importing = false
     @State private var targeted = false
     @State private var lyricMode = 0
+    @State private var showStyles = false
+    @State private var showIdeas = false
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -147,14 +149,18 @@ struct SetupView: View {
                           help: "Optional. A short line shown under the title on the opening card. You can leave it empty.")
                     field("Setting and theme for every picture (optional)", "e.g. Brightly lit colonial Philadelphia", text: $model.settingTheme,
                           help: "Describe the place, time and mood once and every picture follows it. The words are put into every picture idea, and the pictures still change from part to part (time of day, weather, camera view). Leave empty to let the app decide from your lyrics.")
+                    Button { showIdeas = true } label: { Label("Suggest 10 ideas for me", systemImage: "lightbulb") }
+                        .disabled(model.lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help(model.lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Add your lyrics first. The ideas are made by reading them." : "The app reads your lyrics and suggests 10 different places and moods. Press one to use it.")
 
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Look of the pictures").font(.subheadline.weight(.medium))
-                        Picker("Look of the pictures", selection: $model.selectedStylePreset) {
-                            ForEach(StylePreset.all) { preset in Text(preset.name).tag(preset.name) }
+                        Button { showStyles = true } label: {
+                            HStack { Image(systemName: "paintpalette"); Text(model.selectedStyleName).lineLimit(1); Spacer(); Text("Change…").foregroundStyle(.secondary) }
+                                .padding(.vertical, 2)
                         }
-                        .labelsHidden()
-                        .help("The art style for all your pictures, such as oil painting or watercolor. “AI Auto” lets the app choose a style that fits your song. You can change it later.")
+                        .buttonStyle(.bordered).controlSize(.large)
+                        .help("The art style for all your pictures, such as oil painting or watercolor. Press to see all the styles, change them, or make your own. “AI Auto” lets the app choose a style that fits your song.")
                     }
                     Spacer(minLength: 0)
                 }
@@ -224,6 +230,8 @@ struct SetupView: View {
             .padding(.horizontal, 24).padding(.vertical, 12)
             .background(.regularMaterial)
         }
+        .sheet(isPresented: $showStyles) { StyleSheet(inProject: false).environmentObject(model) }
+        .sheet(isPresented: $showIdeas) { SettingIdeasSheet(applyToProject: false).environmentObject(model) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .mp3, .wav]) { if case .success(let u) = $0 { model.setAudio(u) } }
     }
 
@@ -249,8 +257,7 @@ struct SetupView: View {
             } label: { if compact { Image(systemName: "folder") } else { Label("Open earlier project", systemImage: "folder") } }
                 .menuStyle(.borderlessButton).fixedSize()
                 .help("Go back to a video you started before. All your pictures and settings are kept.")
-            Button { model.showGuide = true } label: { Image(systemName: "questionmark.circle") }.buttonStyle(.bordered)
-                .help("Show the step-by-step Quick Guide.")
+            HelpButton(screen: "Song screen (first screen)")
             Button { openSettings() } label: { if compact { Image(systemName: "gearshape") } else { Label("Settings", systemImage: "gearshape") } }.buttonStyle(.bordered)
                 .help("Folders, the picture maker key, adding the app to your Dock, and more.")
         }
@@ -424,10 +431,13 @@ struct ProgressStage: View {
                           currentStep: Self.planSteps.lastIndex { model.progress >= $0.1 } ?? 0)
             Text(model.stage == .rendering ? "Hardware-encoded on your Mac. You can leave this running." : "Speech recognition and prompt writing run on this Mac.")
                 .font(.caption).foregroundStyle(.tertiary)
+            HStack(spacing: 12) {
             Button("Cancel", role: .cancel) { model.cancelMainTask() }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .help("Stops what the app is doing. Nothing you made so far is lost.")
+            HelpButton(screen: model.stage == .rendering ? "Making the video (progress screen)" : "Planning the video (progress screen)")
+            }
         }.padding()
         .onAppear { started = Date() }
     }
@@ -480,6 +490,7 @@ struct DoneView: View {
     @State private var player: AVPlayer?
     var body: some View {
         VStack(spacing: 16) {
+            HStack { Spacer(); HelpButton(screen: "Video screen (finished video)") }.padding(.trailing, 4)
             StepBar(current: 3)
             Text(model.renderedShorts.isEmpty ? "Your video is ready" : "Your video & \(model.renderedShorts.count) Shorts are ready").font(.title.bold())
             if let p = player { PlayerView(player: p).aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 14)).shadow(radius: 18, y: 8).frame(maxWidth: 840) }
@@ -661,5 +672,6 @@ struct NativeSetupView: View {
                     .buttonStyle(.borderedProminent).controlSize(.large)
             }
         }.padding(40)
+        .overlay(alignment: .topTrailing) { HelpButton(screen: "First-time setup (downloading models)").padding(16) }
     }
 }

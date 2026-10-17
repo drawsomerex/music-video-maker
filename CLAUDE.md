@@ -67,3 +67,4 @@ The app finds releases via the GitHub API and installs `*native*.zip` after chec
 - Don't `pkill -x MusicVideoApp` while testing; it also kills the user's own running copy. Launch test builds with `open -n <app> --env K=V --stderr file` and kill by full path.
 - `ImageRenderer` snapshots (`MV_SNAPSHOT_DIR`) can't draw AppKit-backed controls (text fields, lists show as yellow "no" boxes) but are good for checking layout of everything else.
 - Caption timing has one knob: `Plan.captionShift` (seconds, negative = earlier). Don't add offsets elsewhere.
+- **Keep the help guide true.** `Sources/MusicVideoApp/HelpGuide.swift` is both the user's guide and the ONLY source the Help assistant may answer from. When you add, rename or remove a feature or button, update it in the same change, and re-run the assistant check (`MV_HELP_TEST=<file of questions> MV_DEMO_PLAN=<project> open -n …app --stderr out.txt`).

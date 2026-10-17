@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -62,7 +62,7 @@ struct MVideo: AsyncParsableCommand {
             else { text = try String(contentsOfFile: (lyrics as NSString).expandingTildeInPath, encoding: .utf8) }
             var cfg = Config.load(); if let m = sttModel { cfg.sttModel = m }; if let m = llmModel { cfg.llmModel = m }
             let work = Pipeline.workDir(output: outDir, title: title)
-            let resolvedStyle = StylePreset.all.first(where: { $0.id == style.lowercased() || $0.name.lowercased() == style.lowercased() })?.prompt ?? style
+            let resolvedStyle = StylePreset.all.first(where: { $0.id == style.lowercased() || $0.name.lowercased() == style.lowercased() || (style.count >= 3 && !$0.prompt.isEmpty && $0.name.lowercased().contains(style.lowercased())) })?.prompt ?? style
             let plan = try await Pipeline.plan(audioPath: audioURL.path, title: title, subject: subject, lyrics: text, work: work, imageInterval: every, preferredStyle: resolvedStyle, setting: setting, config: cfg, progress: progressPrinter)
 
             print(String(format: "\nLyrics matched to the audio: %.0f%%   Images needed: %d (title card + %d sections)   Auto-Shorts queued: %d\n", plan.alignmentCoverage * 100, plan.sections.count + 1, plan.sections.count, plan.shorts.count))
@@ -145,6 +145,17 @@ struct MVideo: AsyncParsableCommand {
             try await Pipeline.addInstrumentalIntro(plan: &plan, progress: progressPrinter)
             try Pipeline.savePlan(plan, w)
             print("✅ Added a picture slot (section 1) for the music before the first words.")
+        }
+    }
+
+    struct Ideas: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Print 10 different setting ideas (place, era, mood) written from your lyrics.")
+        @Argument(help: "Text file with the lyrics") var lyrics: String
+        @Option(name: .shortAndLong, help: "Song title") var title: String = "Untitled"
+        func run() async throws {
+            let text = try String(contentsOfFile: (lyrics as NSString).expandingTildeInPath, encoding: .utf8)
+            let omlx = OMLX(config: .load()); try await omlx.ensureReady()
+            for (i, s) in try await PromptWriter(omlx: omlx).suggestSettings(title: title, lyrics: LyricAligner.parse(text).lines).enumerated() { print("\(i + 1). \(s)") }
         }
     }
 

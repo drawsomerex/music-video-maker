@@ -22,6 +22,15 @@ struct MusicVideoApp: App {
                 .environmentObject(model)
                 .environmentObject(updater)
                 .task {
+                    if let f = Updater.env["MV_HELP_TEST"] {          // developer check of the help assistant: one question per line, answers go to stderr
+                        let status = model.helpStatus(screen: Updater.env["MV_HELP_SCREEN"] ?? model.screenName)
+                        FileHandle.standardError.write(Data("STATUS:\n\(status)\n\n".utf8))
+                        for q in ((try? String(contentsOfFile: f, encoding: .utf8)) ?? "").components(separatedBy: .newlines).filter({ !$0.isEmpty }) {
+                            let a = await HelpAssistant.answer(question: q, status: status, config: model.config)
+                            FileHandle.standardError.write(Data("Q: \(q)\nA: \(a.text)\n[ai=\(a.fromAI) sources=\(a.sources.joined(separator: " | ")) notes=\(a.notes)]\n\n".utf8))
+                        }
+                        NSApplication.shared.terminate(nil); return
+                    }
                     if Snapshots.directory != nil { FileHandle.standardError.write(Data("[snapshots] task start\n".utf8)); try? await Task.sleep(nanoseconds: 1_500_000_000); Snapshots.render(model: model); return }
                     Updater.log("task started; enabled=\(Updater.enabled) current=\(Updater.current)")
                     if Updater.env["MV_UPDATE_SELFTEST"] != nil {            // test hook: check, then install without asking
@@ -33,6 +42,7 @@ struct MusicVideoApp: App {
                 .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
                 .alert("Updates", isPresented: Binding(get: { updater.message != nil }, set: { if !$0 { updater.message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(updater.message ?? "") }
                 .sheet(isPresented: $model.showGuide) { QuickGuideView() }
+                .sheet(isPresented: $model.showHelp) { HelpCenterView().environmentObject(model) }
                 .sheet(isPresented: $model.showRecordingFix) { RecordingFixSheet().environmentObject(model) }
                 .frame(minWidth: 860, minHeight: 560)
                 .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
@@ -41,7 +51,8 @@ struct MusicVideoApp: App {
         }
         .commands {
             CommandGroup(replacing: .help) {
-                Button("Quick Guide") { model.showGuide = true }.keyboardShortcut("?", modifiers: .command)
+                Button("Help & Questions…") { model.helpScreen = model.screenName; model.showHelp = true }.keyboardShortcut("?", modifiers: .command)
+                Button("Quick Guide") { model.showGuide = true }
                 Divider()
                 Button(updater.available.map { "Update to Version \($0.version)…" } ?? "Check for Updates…") {
                     if updater.available != nil { updater.showAvailable = true } else { Task { await updater.check(silent: false) } }

@@ -45,7 +45,7 @@ struct PlanView: View {
         }
         .onChange(of: model.requestRegenAll) { _, v in if v { confirmRegenAll = true; model.requestRegenAll = false } }
         .sheet(isPresented: $showDescriptionSheet) { DescriptionSheet().environmentObject(model) }
-        .sheet(isPresented: $showStyleSheet) { StyleSheet().environmentObject(model) }
+        .sheet(isPresented: $showStyleSheet) { StyleSheet(inProject: true).environmentObject(model) }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
                 .environmentObject(model)
@@ -99,6 +99,7 @@ struct PlanView: View {
         HStack(spacing: 8) {
             Button { model.revealProject() } label: { if compact { Image(systemName: "folder") } else { Label("Show folder", systemImage: "folder") } }
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
+            HelpButton(screen: mode == 1 ? "Pictures screen, YouTube Shorts tab" : "Pictures screen")
             Button { model.reset() } label: { if compact { Image(systemName: "xmark.circle") } else { Label("Close", systemImage: "xmark.circle") } }
                 .help("Closes this song and returns to the start. Everything is already saved; use “Open earlier project” to come back.")
         }
