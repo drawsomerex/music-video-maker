@@ -919,7 +919,9 @@ final class AppModel: ObservableObject {
     func loadWaveform() {
         guard let u = audioFileURL else { return }
         let w = workDir
+        let len = plan?.songDuration ?? 3600
         Task { waveform = (try? await Transcriber.waveform(audioPath: u.path, work: w)) ?? [] }
+        Task { beats = await BeatDetector.beats(audioPath: u.path, start: 0, end: len, work: w) }
     }
 
     var currentShort: ShortClip? { plan?.shorts.first { $0.id == selectedShort } }
@@ -1045,6 +1047,26 @@ final class AppModel: ObservableObject {
     }
 
     @Published var looping = false
+    @Published var beats: [Double] = []
+    enum SnapMode: String, CaseIterable { case smart = "Smart", beats = "Beats", words = "Words", off = "Off" }
+    @Published var snapMode: SnapMode = .smart
+
+    /// Moves a time to a nearby musical or spoken landmark, depending on the Snap choice. `near` is the reach in seconds.
+    /// Smart: word edges while words are sung, beats in the music-only stretches. Beats / Words: only those. Off: exactly where you point.
+    func snap(_ t: Double, near: Double) -> Double {
+        guard near > 0 else { return t }
+        func nearest(_ xs: [Double], reach: Double) -> Double? { xs.min { abs($0 - t) < abs($1 - t) }.flatMap { abs($0 - t) <= reach ? $0 : nil } }
+        var edges: [Double] = []; var inWords = false
+        for l in plan?.lines ?? [] { for w in l.words { edges.append(w.start); edges.append(w.end); if t >= w.start - 0.25 && t <= w.end + 0.25 { inWords = true } } }
+        switch snapMode {
+        case .off: return t
+        case .words: return nearest(edges, reach: near) ?? t
+        case .beats: return nearest(beats, reach: near * 1.5) ?? t
+        case .smart: return (inWords ? nearest(edges, reach: near) : nil) ?? nearest(beats, reach: near * 1.5) ?? nearest(edges, reach: near) ?? t
+        }
+    }
+    func nextBeat(after t: Double) -> Double? { beats.first { $0 > t + 0.02 } }
+    func previousBeat(before t: Double) -> Double? { beats.last { $0 < t - 0.02 } }
     /// Plays the selection again and again (half a second of lead-in each time); press again to stop.
     func toggleLoop(_ a: Double, _ b: Double) {
         if looping { stopPlayback(); return }

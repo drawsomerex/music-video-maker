@@ -53,20 +53,28 @@ struct SongMap: View {
                             if abs(px - xs) <= 12 { mode = .start } else if abs(px - xe) <= 12 { mode = .end }
                             else if px > xs && px < xe { mode = .move(grab: Double(px / w) * dur - c.start) } else { mode = .move(grab: c.duration / 2) }
                         }
-                        let near = 8 * dur / Double(max(1, w)), free = NSEvent.modifierFlags.contains(.shift)
-                        @MainActor func snapped(_ v: Double) -> Double { free ? v : model.snapToWordEdge(v, within: near) }
+                        // this map is coarse (a few pixels are several seconds), so it moves freely while you drag and settles on a word or beat when you let go
                         switch mode {
-                        case .start?: let v = snapped(t); model.update(clip.id) { $0.start = min(v, $0.end - 2) }
-                        case .end?: let v = snapped(t); model.update(clip.id) { $0.end = max(v, $0.start + 2) }
+                        case .start?: model.update(clip.id) { $0.start = min(t, $0.end - 2) }
+                        case .end?: model.update(clip.id) { $0.end = max(t, $0.start + 2) }
                         case .move(let grab)?:
-                            let d = c.duration; var s0 = min(max(0, t - grab), max(0, dur - d))
-                            let s1 = snapped(s0), e1 = snapped(s0 + d)
-                            s0 = abs(s1 - s0) <= abs(e1 - (s0 + d)) ? min(max(0, s1), max(0, dur - d)) : min(max(0, e1 - d), max(0, dur - d))
+                            let d = c.duration, s0 = min(max(0, t - grab), max(0, dur - d))
                             model.update(clip.id) { $0.start = s0; $0.end = s0 + d }
                         case nil: break
                         }
                     }
-                    .onEnded { _ in mode = nil })
+                    .onEnded { _ in
+                        if !NSEvent.modifierFlags.contains(.shift), let m = mode {
+                            switch m {
+                            case .start: let v = model.snap(c.start, near: 0.6); model.update(clip.id) { $0.start = min(v, $0.end - 2) }
+                            case .end: let v = model.snap(c.end, near: 0.6); model.update(clip.id) { $0.end = max(v, $0.start + 2) }
+                            case .move:
+                                let d = c.duration, s1 = model.snap(c.start, near: 0.6), e1 = model.snap(c.end, near: 0.6)
+                                let s0 = max(0, abs(s1 - c.start) <= abs(e1 - c.end) ? s1 : e1 - d)
+                                model.update(clip.id) { $0.start = s0; $0.end = s0 + d }
+                            }
+                        }
+                        mode = nil })
             }.frame(height: 56)
         }
     }
@@ -112,7 +120,7 @@ struct WordTimeline: View {
                 Button { pps = max(30, pps / 1.3) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom out: see more of the song at once.")
                 Button { pps = min(180, pps * 1.3) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom in: bigger words and finer placing.")
             }
-            Text("Drag the green marker (start) and the red marker (end). Or click a word to start the Short there, and Shift-click a word to end it there. Scroll sideways to move along the song.")
+            Text("Use this to find the right part. Click anywhere to hear the song from that spot; a small card then lets you start or end the Short there. Or drag the green and red markers. Scroll sideways to move along the song.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if snapshot {
                 content.offset(x: 20 - CGFloat(c.start) * pps).frame(width: 700, height: height + 14, alignment: .topLeading).clipped()
@@ -131,11 +139,7 @@ struct WordTimeline: View {
                 .onChange(of: model.playhead) { _, p in if let p, Int(p / chunkSec) != Int((p - 0.5) / chunkSec) || p < 0.6 { jump(proxy, p - 2) } }
             }
             }
-            HStack(spacing: 8) {
-                Button { cursor = nil } label: { Text("Remove cursor") }.disabled(cursor == nil).font(.caption)
-                Spacer()
-                Text("Orange line = your cursor · white line = what you hear").font(.caption).foregroundStyle(.tertiary)
-            }
+            Text("Orange line = the spot you clicked (the song plays from there) · white line = what you hear").font(.caption).foregroundStyle(.tertiary)
         }
     }
 
@@ -150,15 +154,25 @@ struct WordTimeline: View {
             Rectangle().fill(.black.opacity(0.30)).frame(width: CGFloat(c.start) * pps, height: height).allowsHitTesting(false)
             Rectangle().fill(.black.opacity(0.30)).frame(width: max(0, CGFloat(dur - c.end) * pps), height: height).offset(x: CGFloat(c.end) * pps).allowsHitTesting(false)
             Rectangle().fill(ShortLength.color(c.duration).opacity(0.10)).frame(width: CGFloat(c.duration) * pps, height: height).offset(x: CGFloat(c.start) * pps).allowsHitTesting(false)
-            if let cur = cursor, model.playhead == nil { Rectangle().fill(.orange).frame(width: 2, height: height).offset(x: CGFloat(cur) * pps).allowsHitTesting(false) }
+            if let cur = cursor { Rectangle().fill(.orange).frame(width: 2, height: height).offset(x: CGFloat(cur) * pps).allowsHitTesting(false) }
             if let ph = model.playhead { Rectangle().fill(.white).frame(width: 2, height: height).offset(x: CGFloat(ph) * pps).allowsHitTesting(false) }
             handle(.green, "START", t: c.start, isStart: true)
             handle(.red, "END", t: c.end, isStart: false)
+            if let cur = cursor {                                  // a small card right at the spot you clicked
+                HStack(spacing: 6) {
+                    Button { setEdge(start: true, at: cur) } label: { Text("Start the Short here").font(.caption.weight(.semibold)) }.tint(.green)
+                    Button { setEdge(start: false, at: cur) } label: { Text("End the Short here").font(.caption.weight(.semibold)) }.tint(.red)
+                    Button { cursor = nil; model.stopPlayback() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("Close this card")
+                }
+                .buttonStyle(.bordered).controlSize(.small).padding(5)
+                .background(RoundedRectangle(cornerRadius: 8).fill(.regularMaterial)).shadow(radius: 3)
+                .offset(x: min(max(4, CGFloat(cur) * pps - 90), max(4, CGFloat(dur) * pps - 270)), y: topPad + waveH + 4)
+            }
         }
         .frame(width: CGFloat(dur) * pps + 60, height: height, alignment: .topLeading)
         .coordinateSpace(name: "tl")
         .contentShape(Rectangle())
-        .gesture(SpatialTapGesture(coordinateSpace: .named("tl")).onEnded { v in cursor = Double(v.location.x / pps) })
+        .gesture(SpatialTapGesture(coordinateSpace: .named("tl")).onEnded { v in let t = Double(v.location.x / pps); cursor = t; model.playRange(t, dur) })
     }
 
     func jump(_ proxy: ScrollViewProxy, _ t: Double) { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(max(0, Int(t / chunkSec)), anchor: .leading) } }
@@ -197,7 +211,7 @@ struct WordTimeline: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: CGFloat(w.start - t0) * pps, y: topPad + waveH + 2 + CGFloat(place[i]) * rowH)
-                .help("“\(w.text)” at \(clock(w.start)). Click to start the Short here; Shift-click to end it here.")
+                .help("“\(w.text)” at \(clock(w.start)). Click to hear the song from this word; a card then lets you start or end the Short here.")
             }
         }
         .frame(width: CGFloat(chunkSec) * pps, height: height, alignment: .topLeading)
@@ -215,12 +229,12 @@ struct WordTimeline: View {
         .offset(x: CGFloat(t) * pps - 13)
         .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("tl"))
             .onChanged { g in
-                let near = 8 / Double(pps), free = NSEvent.modifierFlags.contains(.shift)
-                @MainActor func snapped(_ v: Double) -> Double { free ? v : model.snapToWordEdge(v, within: near) }
-                let v = snapped(min(max(0, Double(g.location.x / pps)), dur))
+                let near = NSEvent.modifierFlags.contains(.shift) ? 0 : 10 / Double(pps)          // snapping reach: 10 pixels
+                let v = model.snap(min(max(0, Double(g.location.x / pps)), dur), near: near)
                 if isStart { model.update(clip.id) { $0.start = min(v, $0.end - 2) } } else { model.update(clip.id) { $0.end = max(v, $0.start + 2) } }
-            })
-        .help(isStart ? "START: drag to change where the Short starts. Hold Shift for free movement." : "END: drag to change where the Short ends. Hold Shift for free movement.")
+            }
+            .onEnded { _ in model.playRange(isStart ? c.start : max(c.start, c.end - 3), isStart ? c.start + 3 : c.end) })
+        .help(isStart ? "START: drag to change where the Short starts. It sticks to words and beats; hold Shift for free movement." : "END: drag to change where the Short ends. It sticks to words and beats; hold Shift for free movement.")
     }
 
     /// Puts each word on the first row where it does not touch the previous word on that row.
@@ -234,8 +248,11 @@ struct WordTimeline: View {
         return out
     }
 
-    func pick(_ w: TimedWord) {
-        if NSEvent.modifierFlags.contains(.shift) { model.update(clip.id) { $0.end = max($0.start + 2, w.end + 0.1) } }
-        else { model.update(clip.id) { let d = $0.duration; $0.start = max(0, w.start - 0.05); if $0.end <= $0.start + 2 { $0.end = $0.start + min(d, 30) } }; cursor = w.start }
+    func pick(_ w: TimedWord) { cursor = w.start; model.playRange(w.start, dur) }
+    func setEdge(start: Bool, at t: Double) {
+        let v = model.snap(t, near: 0.4)
+        model.update(clip.id) { if start { $0.start = min(v, $0.end - 2) } else { $0.end = max(v, $0.start + 2) } }
+        model.playRange(start ? v : max(c.start, v - 3), start ? v + 3 : v)
+        cursor = nil
     }
 }

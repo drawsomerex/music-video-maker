@@ -233,6 +233,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Name of the file") var name: String?
         @Option(help: "Opening title text (default: the song title)") var hook: String?
         @Option(help: "Motion: calm (default) or punchy") var motion = "calm"
+        @Option(help: "End with a fade of this many seconds instead of looping back to the start (e.g. 2 for a slow fade, 0.05 to stop sharply)") var fade: Double?
         @Option(help: "Lyric text style: pill (default), pop, stack, sweep, auto") var text = "pill"
         @Option(help: "Accent colour name: Hot pink (default), Sun yellow, Electric cyan, Lime, Tangerine, Violet, Auto") var accent = "Hot pink"
         @Flag(help: "Gentle zoom pulse on the beat (calm mode)") var pulse = false
@@ -279,7 +280,7 @@ struct MVideo: AsyncParsableCommand {
                 clip.dynamic = !plain; clip.loop = whole ? false : !noLoop
                 if let s = seed { clip.styleSeed = s }
                 if let c = cta { clip.cta = c }
-                clip.captionY = captionY; clip.hook = hook ?? ""; clip.motion = motion; clip.textStyle = text; clip.accent = accent; clip.pulse = pulse
+                clip.captionY = captionY; clip.hook = hook ?? ""; clip.motion = motion; if let f = fade { clip.loop = false; clip.fadeOut = f }; clip.textStyle = text; clip.accent = accent; clip.pulse = pulse
                 if let n = name, !whole { clip.name = n }
                 if clip.dynamic { print("Title: \(clip.hook.isEmpty ? plan.title : clip.hook)   Look: \(ShortStyle.make(seed: clip.styleSeed, clip: clip).summary)") }
                 func clock(_ x: Double) -> String { String(format: "%d:%04.1f", Int(x) / 60, x - Double(Int(x) / 60 * 60)) }

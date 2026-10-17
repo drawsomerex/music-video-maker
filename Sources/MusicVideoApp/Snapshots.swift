@@ -21,6 +21,17 @@ enum Snapshots {
                 let p = model.plan!
                 func rep(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
                 model.leadIn = 1.5; model.tailOut = 1.5
+                // snapping: near words -> word edge; in music-only stretches -> beat; Off -> exactly where pointed
+                if let lw = p.lines.last?.words.last {
+                    model.beats = stride(from: 0.4, to: p.songDuration, by: 0.55).map { $0 }
+                    model.snapMode = .smart
+                    let inWords = model.snap(lw.end - 0.02, near: 0.2) == lw.end
+                    let tail = lw.end + 3.1; let b = model.snap(tail, near: 0.25)
+                    let isBeat = model.beats.contains { abs($0 - b) < 1e-9 }
+                    model.snapMode = .off; let off = model.snap(tail, near: 0.25) == tail
+                    model.snapMode = .smart
+                    rep("snap smart: near last word edge -> \(inWords ? "OK" : "WRONG"); in the music-only tail -> \(isBeat ? "OK (beat)" : "no beat found"); Off keeps the point -> \(off ? "OK" : "WRONG")")
+                }
                 model.selectLines(id, 3, 6); let a = model.currentShort!; let ex = Pipeline.clip(plan: p, lines: 3, to: 6, lead: 1.5, tail: 1.5)
                 rep("selectLines 3-6 -> \(a.start)…\(a.end) expected \(ex.start)…\(ex.end) \(abs(a.start - ex.start) < 0.01 && abs(a.end - ex.end) < 0.01 ? "OK" : "WRONG")")
                 let w = p.lines[4].words[1]
@@ -57,7 +68,9 @@ enum Snapshots {
             }
             model.waveform = peaks
             model.selectLines(c.id, 3, 8)
-            save("shorts", CGSize(width: 1180, height: 1100), ShortEditor(clip: model.currentShort!, snapshot: true))
+            model.beats = stride(from: 0.4, to: p.songDuration, by: 0.55).map { $0 }
+            save("shorts", CGSize(width: 1180, height: 1500), ShortEditor(clip: model.currentShort!, snapshot: true))
+            if let last = p.lines.last { model.update(c.id) { $0.start = last.start - 14; $0.end = last.end + 6 }; save("shorts-end", CGSize(width: 1180, height: 1500), ShortEditor(clip: model.currentShort!, snapshot: true)) }
         }
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())
         save("update-sheet", CGSize(width: 520, height: 420), UpdateSheet())

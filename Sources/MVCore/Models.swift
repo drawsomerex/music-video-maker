@@ -209,6 +209,7 @@ public struct ShortClip: Codable, Identifiable, Hashable {
     public var accent: String = "Hot pink"    // a palette name, or "Auto"
     public var pulse: Bool = false            // gentle zoom pulse on beats (calm mode)
     public var captionY: Double? = nil        // caption block's bottom edge as a fraction of the frame height (nil = default)
+    public var fadeOut: Double? = nil         // how long the picture and music fade at the end, in seconds (nil = the style's default; used when the ending does not loop)
     public var duration: Double { end - start }
     /// Hard limit for a YouTube Short, in seconds.
     public static let maxDuration = 180.0
@@ -216,7 +217,7 @@ public struct ShortClip: Codable, Identifiable, Hashable {
     public func isWhole(of songDuration: Double) -> Bool { start <= 0.05 && end >= songDuration - 0.05 }
     public init(name: String, start: Double, end: Double) { self.name = name; self.start = start; self.end = end }
 
-    enum CodingKeys: String, CodingKey { case id, name, start, end, dynamic, styleSeed, hook, cta, loop, motion, textStyle, accent, pulse, captionY }
+    enum CodingKeys: String, CodingKey { case id, name, start, end, dynamic, styleSeed, hook, cta, loop, motion, textStyle, accent, pulse, captionY, fadeOut }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -232,6 +233,7 @@ public struct ShortClip: Codable, Identifiable, Hashable {
         accent = try c.decodeIfPresent(String.self, forKey: .accent) ?? "Hot pink"
         pulse = try c.decodeIfPresent(Bool.self, forKey: .pulse) ?? false
         captionY = try c.decodeIfPresent(Double.self, forKey: .captionY)
+        fadeOut = try c.decodeIfPresent(Double.self, forKey: .fadeOut)
     }
 }
 

@@ -39,7 +39,7 @@ public final class FrameComposer: @unchecked Sendable {
         loop = dyn && (short?.loop ?? false)
         D = dyn ? (style.calm ? 0.65 : 0.40) : 1.1
         fadeIn = short == nil ? 0.6 : (dyn ? 0 : 0.25)
-        fadeOut = short == nil ? 1.5 : (whole && !loop ? 1.5 : (dyn ? (loop ? 0 : 0.4) : 0.5))
+        fadeOut = short == nil ? 1.5 : (loop && dyn ? 0 : (short?.fadeOut ?? (whole && !loop ? 1.5 : (dyn ? 0.4 : 0.5))))
         let off = plan.audioOffset
         var b: [Double] = hasIntro ? [0, plan.introDuration] : [0]
         for (i, s) in plan.sections.enumerated() where i > 0 { b.append(s.start + off) }
@@ -277,7 +277,7 @@ public enum VideoRenderer {
         }
         let params = AVMutableAudioMixInputParameters(track: cTrack)
         // Shorts with the dynamic kit fade the music up under the opening title; a looping Short only dips for a few ms at the seam.
-        let fadeLen = short == nil ? 1.5 : ((short!.isWhole(of: plan.songDuration) && !short!.loop) ? 1.5 : ((short!.dynamic && short!.loop) ? 0.12 : 0.5))
+        let fadeLen = short == nil ? 1.5 : ((short!.dynamic && short!.loop) ? 0.12 : (short!.fadeOut ?? ((short!.isWhole(of: plan.songDuration) && !short!.loop) ? 1.5 : 0.5)))
         if let s = short { params.setVolumeRamp(fromStartVolume: 0, toEndVolume: 1, timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: s.dynamic ? 1.8 : 0.15, preferredTimescale: ts))) }
         params.setVolumeRamp(fromStartVolume: 1, toEndVolume: 0, timeRange: CMTimeRange(start: CMTime(seconds: max(0, audioLen - fadeLen), preferredTimescale: ts), duration: CMTime(seconds: min(fadeLen, audioLen), preferredTimescale: ts)))
         let mix = AVMutableAudioMix(); mix.inputParameters = [params]

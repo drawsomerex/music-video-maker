@@ -9,14 +9,12 @@ struct ShortEditor: View {
     @EnvironmentObject var model: AppModel
     let clip: ShortClip
     @State private var previewT = 1.0
-    @State private var step = 0.1                    // seconds moved by one press of Earlier / Later
     @State private var cursor: Double?               // the spot you last clicked on the timeline
     @State private var showMore = false
     var snapshot = false                      // layout pictures only
 
     var plan: Plan { model.plan! }
     var c: ShortClip { model.currentShort ?? clip }
-    var here: Double? { model.playhead ?? cursor }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -36,11 +34,47 @@ struct ShortEditor: View {
             header
             SongMap(clip: clip, cursor: $cursor)
             WordTimeline(clip: clip, cursor: $cursor, snapshot: snapshot)
-            controls
+            snapRow
+            playRow
+            EdgeCard(clip: clip, isStart: true)
+            EdgeCard(clip: clip, isStart: false)
             lookBox
             makeRow
         }.padding(18)
     }
+
+    // MARK: how things stick to words and beats
+    var snapRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Text("Markers stick to:").font(.callout.weight(.semibold))
+                Picker("", selection: $model.snapMode) { ForEach(AppModel.SnapMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 280)
+                    .help("Smart: sticks to word edges while words are being sung, and to the beat in the music-only parts. Beats: only the beat. Words: only word edges. Off: stays exactly where you put it. Holding Shift while dragging also turns it off.")
+            }
+            Text({ switch model.snapMode {
+                case .smart: return "Smart: near words the marker sticks to the edge of a word; in music-only parts it sticks to the beat."
+                case .beats: return "Beats: the marker always sticks to the nearest beat of the music."
+                case .words: return "Words: the marker sticks to the nearest edge of a word."
+                case .off: return "Off: the marker stays exactly where you put it." } }()).font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: play
+    var playRow: some View {
+        HStack(spacing: 10) {
+            Button { playShort() } label: { Label(model.playhead == nil ? "Play the Short" : "Stop", systemImage: model.playhead == nil ? "play.fill" : "stop.fill").frame(minWidth: 120) }
+                .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.space, modifiers: [])
+                .help("Plays the Short from its start to its end. The space bar does the same; press it again to stop.")
+            Button { model.toggleLoop(c.start, c.end) } label: { Label(model.looping ? "Stop repeating" : "Play again and again", systemImage: "repeat") }
+                .controlSize(.large).keyboardShortcut("l", modifiers: [])
+                .help("Plays the Short over and over, starting half a second early, so you can hear whether the ends sound right. Keyboard: L.")
+            Spacer(minLength: 6)
+            Button { model.extendSelection(clip.id, seconds: 30) } label: { Label("Make it about 30 seconds", systemImage: "arrow.left.and.right") }
+                .controlSize(.large).help("Keeps where it starts and adds lyric lines until the Short is about 30 seconds long.")
+        }
+    }
+    func playShort() { if model.playhead != nil { model.stopPlayback() } else { model.playRange(c.start, c.end) } }
 
     // MARK: top: name, length, advice
     var header: some View {
@@ -53,63 +87,6 @@ struct ShortEditor: View {
             Text("\(clock(c.start)) → \(clock(c.end))  ·  " + ShortLength.message(c.duration)).font(.callout.weight(.medium)).foregroundStyle(ShortLength.color(c.duration)).monospacedDigit()
         }
     }
-
-    // MARK: play, mark, nudge
-    var controls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Listen and set the ends").font(.headline)
-            HStack(spacing: 10) {
-                Button { playShort() } label: { Label(model.playhead == nil ? "Play the Short" : "Stop", systemImage: model.playhead == nil ? "play.fill" : "stop.fill").frame(minWidth: 120) }
-                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.space, modifiers: [])
-                    .help("Plays just the Short, from its start to its end. The space bar does the same; press it again to stop.")
-                Button { model.toggleLoop(c.start, c.end) } label: { Label(model.looping ? "Stop looping" : "Loop it", systemImage: "repeat") }
-                    .controlSize(.large).keyboardShortcut("l", modifiers: [])
-                    .help("Plays the Short again and again, starting half a second early, so you can hear whether the ends sound clean. Keyboard: L.")
-                Button { model.playRange(cursor ?? c.start, plan.songDuration) } label: { Label("Play from the cursor", systemImage: "play.circle") }
-                    .controlSize(.large).disabled(cursor == nil)
-                    .help("Plays the song from the spot you clicked on the timeline, past the end of the Short, so you can listen for the right place to end it.")
-            }
-            HStack(spacing: 10) {
-                Button { markStart() } label: { Label("Start here", systemImage: "flag.fill") }.controlSize(.large).tint(.green).buttonStyle(.bordered)
-                    .disabled(here == nil).help("Makes the Short start at the spot you are listening to or clicked on (it moves to the nearest word edge).")
-                Button { markEnd() } label: { Label("End here", systemImage: "flag.checkered") }.controlSize(.large).tint(.red).buttonStyle(.bordered)
-                    .disabled(here == nil).help("Makes the Short end at the spot you are listening to or clicked on (it moves to the nearest word edge).")
-                Text(here.map { "Cursor at \(clock($0))" } ?? "Click the timeline, or press Play, to set a cursor.").font(.callout).foregroundStyle(.secondary)
-            }
-            HStack(alignment: .top, spacing: 14) {
-                edgeCard("Starts at", c.start, .green, earlier: { nudgeStart(-step) }, later: { nudgeStart(step) }, hear: { model.playRange(c.start, c.start + 3) })
-                edgeCard("Ends at", c.end, .red, earlier: { nudgeEnd(-step) }, later: { nudgeEnd(step) }, hear: { model.playRange(max(c.start, c.end - 3), c.end + 0.3) })
-            }
-            HStack(spacing: 10) {
-                Text("Each press moves by").font(.callout)
-                Picker("", selection: $step) { Text("0.1 s").tag(0.1); Text("0.5 s").tag(0.5); Text("1 s").tag(1.0) }.pickerStyle(.segmented).labelsHidden().frame(width: 190)
-                    .help("How far Earlier and Later move an end. A small step is for precise cuts; a big step gets you close quickly.")
-                Spacer()
-                Button { model.extendSelection(clip.id, seconds: 30) } label: { Label("Make it about 30 seconds", systemImage: "arrow.left.and.right") }
-                    .help("Keeps the start and adds lyric lines until the Short is about 30 seconds long.")
-            }
-        }
-        .padding(14).background(RoundedRectangle(cornerRadius: 12).fill(.quaternary.opacity(0.35)))
-    }
-
-    func edgeCard(_ title: String, _ t: Double, _ color: Color, earlier: @escaping () -> Void, later: @escaping () -> Void, hear: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) { Circle().fill(color).frame(width: 10, height: 10); Text(title).font(.subheadline.weight(.semibold)); Text(clock(t)).font(.title3.monospacedDigit().weight(.bold)) }
-            HStack(spacing: 8) {
-                Button(action: earlier) { Label("Earlier", systemImage: "chevron.left") }.help("Moves this end earlier and plays it so you can hear the change.")
-                Button(action: later) { Label("Later", systemImage: "chevron.right").labelStyle(TrailingIcon()) }.help("Moves this end later and plays it so you can hear the change.")
-                Button(action: hear) { Label("Hear it", systemImage: "speaker.wave.2") }.help("Plays this end of the Short again.")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).strokeBorder(color.opacity(0.6), lineWidth: 1.5))
-    }
-
-    func playShort() { if model.playhead != nil { model.stopPlayback() } else { model.playRange(c.start, c.end) } }
-    func markStart() { guard let t = here else { return }; let v = model.snapToWordEdge(t, within: 0.4); model.update(clip.id) { $0.start = min(v, $0.end - 2) }; model.playRange(v, v + 3) }
-    func markEnd() { guard let t = here else { return }; let v = model.snapToWordEdge(t, within: 0.4); model.update(clip.id) { $0.end = max(v, $0.start + 2) }; model.playRange(max(c.start, v - 3), v + 0.3) }
-    func nudgeStart(_ d: Double) { let v = max(0, c.start + d); model.update(clip.id) { $0.start = min(v, $0.end - 2) }; model.playRange(v, v + 3) }
-    func nudgeEnd(_ d: Double) { let v = c.end + d; model.update(clip.id) { $0.end = max(v, $0.start + 2) }; model.playRange(max(c.start, v - 3), v + 0.3) }
 
     // MARK: look (the few choices that matter; the rest is under "More options")
     var lookBox: some View {
@@ -216,11 +193,6 @@ struct ShortMoreOptions: View {
                 Text("Beat pulse").frame(width: 130, alignment: .leading)
                 opt("On", c.pulse, "A gentle throb on the beat of the music.") { set { $0.pulse = true } }
                 opt("Off", !c.pulse, "No throb.") { set { $0.pulse = false } }
-            }
-            HStack(spacing: 8) {
-                Text("Looping end").frame(width: 130, alignment: .leading)
-                opt("On", c.loop, "Makes the end flow back into the start so the clip repeats smoothly on phones.") { set { $0.loop = true } }
-                opt("Off", !c.loop, "A normal ending.") { set { $0.loop = false } }
             }
             HStack(spacing: 8) {
                 Text("Closing text").frame(width: 130, alignment: .leading)
