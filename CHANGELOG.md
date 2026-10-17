@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-17
+
 ### Fixed
 - **The picture on the Pictures screen is widescreen (16:9) again** instead of a square, and it now grows and shrinks with the window (up to a much larger size).
 - **The full-video Preview stays widescreen** after you have visited the Shorts tab.
