@@ -12,6 +12,7 @@ enum Snapshots {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         model.title = "Highway Lights"; model.subject = "A song for the open road"
         model.lyrics = "The road is wide and the sky is high\nWe're chasing the sun as the day goes by\n\nHighway lights, hold me tight"
+        if model.plan != nil { model.plan?.totalGenerationCostUSD = 0.432; model.plan?.imagesGeneratedCount = 9; model.plan?.sections[2].candidates = []; model.plan?.sections[2].selected = -1; model.plan?.sections[5].candidates = []; model.plan?.sections[5].selected = -1 }
         let updater = Updater()
         updater.available = Updater.Release(version: "9.9.9", notes: "• Easier screens\n• Captions now follow the singing more closely\n• Bug fixes", zip: URL(string: "https://example.com/x.zip")!, sha256: nil, page: nil)
         func save(_ name: String, _ size: CGSize, _ view: some View) {
@@ -25,6 +26,8 @@ enum Snapshots {
         save("divide", CGSize(width: 520, height: 560), LyricDividerView(scrollable: false).padding())
         save("setup", CGSize(width: 1120, height: 760), SetupView())
         save("setup-small", CGSize(width: 860, height: 560), SetupView())
+        save("cost-bar", CGSize(width: 1000, height: 40), CostBar())
+        save("cost-bar-small", CGSize(width: 700, height: 40), CostBar())
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())
         save("update-sheet", CGSize(width: 520, height: 420), UpdateSheet())
         save("recording-fix", CGSize(width: 560, height: 360), RecordingFixSheet())

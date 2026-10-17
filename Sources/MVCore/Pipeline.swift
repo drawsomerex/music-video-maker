@@ -13,6 +13,21 @@ public enum Pipeline {
 
     public static let projectFileName = "project.mvproj"
     /// The save file. Older projects used plan.json; reading falls back to it.
+    /// Adds up what picture generation has cost across every song saved under `root` (each project keeps its own running total).
+    public static func totalSpent(in root: URL) -> (usd: Double, pictures: Int, songs: Int) {
+        var usd = 0.0, pics = 0, songs = 0
+        let fm = FileManager.default
+        for dir in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
+            for sub in ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []) + [dir] {
+                let f = sub.appendingPathComponent(projectFileName)
+                guard let d = try? Data(contentsOf: f), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                let c = (o["totalGenerationCostUSD"] as? Double) ?? 0
+                usd += c; pics += (o["imagesGeneratedCount"] as? Int) ?? 0; if c > 0 { songs += 1 }
+            }
+        }
+        return (usd, pics, songs)
+    }
+
     public static func planURL(_ work: URL) -> URL { work.appendingPathComponent(projectFileName) }
     public static func transcriptURL(_ work: URL) -> URL { work.appendingPathComponent("transcript.txt") }
     public static func syncedLyricsURL(_ work: URL) -> URL { work.appendingPathComponent("lyrics_synced.txt") }

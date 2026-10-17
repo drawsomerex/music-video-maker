@@ -10,6 +10,7 @@ struct RootView: View {
         VStack(spacing: 0) {
             UpdateStrip()
             if model.busy { BackgroundTaskBanner().transition(.move(edge: .top).combined(with: .opacity)) }
+            if !model.needsNativeSetup { CostBar() }
             screens
         }
         .background(WindowFitter())
