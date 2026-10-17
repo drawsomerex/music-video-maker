@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-10-17
+
 ### Fixed
 - **The start/end markers on the video-clip strip now follow the mouse.** Before, pressing on a marker made it run away to the end; now it moves exactly with the pointer and stops where you let go.
 - **Video clips that repeat now loop smoothly.** The end of the clip dissolves into its beginning (up to 0.8 s) and playback carries on from there — no more hard cut back to the start.
