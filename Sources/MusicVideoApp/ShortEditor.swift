@@ -39,7 +39,7 @@ struct ShortEditor: View {
         .sheet(isPresented: $showMore) { ShortMoreOptions(clipID: clip.id).environmentObject(model) }
         .sheet(isPresented: $showWords) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack { Text("All the words of the song").font(.title2.bold()); Spacer(); Button("Done") { showWords = false }.keyboardShortcut(.defaultAction) }
+                HStack { Text("All the words of the song").font(.title2.bold()); Spacer(); Button("Done") { showWords = false }.help("Close the list of words.").keyboardShortcut(.defaultAction) }
                 WordTimeline(clip: clip, cursor: $cursor)
             }.padding(20).frame(minWidth: 760, idealWidth: 900)
         }

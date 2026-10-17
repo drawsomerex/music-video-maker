@@ -166,12 +166,12 @@ struct LivePreviewPane: View {
             HStack(spacing: 8) {
                 Image(systemName: "captions.bubble").foregroundStyle(.secondary)
                 Slider(value: Binding(get: { live.captionY ?? defaultCaption }, set: { live.setCaption($0) }), in: 0.04...0.86) { editing in if !editing { onCaptionCommit(live.captionY) } }
-                Button("Reset") { live.setCaption(nil); onCaptionCommit(nil) }.controlSize(.mini).disabled(live.captionY == nil)
+                Button("Reset") { live.setCaption(nil); onCaptionCommit(nil) }.controlSize(.mini).disabled(live.captionY == nil).help("Put the words back in their usual place.")
             }
             HStack {
                 Text("Drag the captions in the preview, or use the slider").font(.caption2).foregroundStyle(.tertiary)
                 Spacer()
-                if live.vertical { Toggle("Safe zones", isOn: $safeZones).toggleStyle(.checkbox).controlSize(.mini) }
+                if live.vertical { Toggle("Safe zones", isOn: $safeZones).toggleStyle(.checkbox).controlSize(.mini).help("Red areas are covered by YouTube's own buttons and title. Keep the words out of them.") }
             }
         }
     }

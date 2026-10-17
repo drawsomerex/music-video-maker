@@ -32,7 +32,7 @@ struct DescriptionSheet: View {
                     .help("Keeps the description above (including any changes you made) and writes fresh picture ideas from it.")
                 if model.busy { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button("Done") { dismiss() }.help("Save and close this window.").buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
         }
         .padding(24).frame(width: 560)
@@ -123,7 +123,7 @@ struct StyleSheet: View {
                     .help("The style words this song's pictures use right now. You can also write them by hand here.")
                 Text("New pictures use these words. Pictures you already made are not changed.").font(.callout).foregroundStyle(.secondary)
             }
-            HStack { Spacer(); Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
+            HStack { Spacer(); Button("Done") { dismiss() }.help("Save and close this window.").buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
         }
     }
 

@@ -43,7 +43,7 @@ struct HelpCenterView: View {
                 Picker("", selection: $tab) { Text("Ask a question").tag(0); Text("Read the guide").tag(1) }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 270)
                     .help("“Ask a question” answers in plain words. “Read the guide” shows everything the app can do.")
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction).help("Close the help window.")
             }
             if tab == 0 { ask } else { guide }
         }
@@ -70,7 +70,7 @@ struct HelpCenterView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 8)], alignment: .leading, spacing: 8) {
                     ForEach(suggestions, id: \.self) { s in
                         Button { question = s; send(s) } label: { Text(s).frame(maxWidth: .infinity, alignment: .leading) }
-                            .buttonStyle(.bordered).disabled(asking)
+                            .buttonStyle(.bordered).disabled(asking).help("Ask this question. The answer comes from the guide, on your Mac.")
                     }
                 }
             }
@@ -131,7 +131,7 @@ struct HelpCenterView: View {
                                 Text(s.title).font(.callout.weight(openSection == s.id ? .semibold : .regular)).multilineTextAlignment(.leading)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5).padding(.horizontal, 8)
                                     .background(RoundedRectangle(cornerRadius: 7).fill(openSection == s.id ? Color.accentColor.opacity(0.18) : .clear))
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).help("Read this part of the guide.")
                         }
                     }
                 }

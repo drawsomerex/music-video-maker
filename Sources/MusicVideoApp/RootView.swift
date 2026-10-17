@@ -607,7 +607,7 @@ struct SettingsView: View {
                     modelPicker("Writes the image prompts", $model.config.llmModel, OMLX.defaultLLM)
                     TextField("Server URL (blank = http://127.0.0.1:8000)", text: $model.config.omlxURL)
                     SecureField("API key (blank = read from oMLX's own settings)", text: $model.config.omlxKey)
-                    Button("Re-check connection") { Task { await check() } }
+                    Button("Re-check connection") { Task { await check() } }.help("Test the connection to the oMLX server again.")
                 }
             }
         }
@@ -664,12 +664,12 @@ struct NativeSetupView: View {
                     Text("Small — about 1.5 GB total (fastest, plainer prompts)").tag("small")
                     Text("Balanced — about 4.1 GB total, Gemma 4 E2B (recommended)").tag("balanced")
                     Text("Best — about 6.5 GB total").tag("best")
-                }.pickerStyle(.radioGroup).labelsHidden()
+                }.pickerStyle(.radioGroup).labelsHidden().help("Bigger models write better picture ideas but need more space and time to download. Balanced is right for most Macs.")
                 Text("Includes Parakeet Ultra for word-accurate lyric timing (0.5 GB) plus a language model for the prompts. Bigger models write better prompts.")
                     .font(.caption).foregroundStyle(.tertiary).frame(maxWidth: 440).multilineTextAlignment(.center)
                 ModelRows().frame(width: 520)
                 Button { model.runNativeSetup() } label: { Label("Download & set up", systemImage: "arrow.down.to.line").padding(.horizontal, 10) }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .buttonStyle(.borderedProminent).controlSize(.large).help("Download the AI models (one time, needs internet). The progress is shown below.")
             }
         }.padding(40)
         .overlay(alignment: .topTrailing) { HelpButton(screen: "First-time setup (downloading models)").padding(16) }

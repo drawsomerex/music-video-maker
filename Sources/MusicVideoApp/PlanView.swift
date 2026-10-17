@@ -314,8 +314,8 @@ struct PlanView: View {
                     Text("\(plan.shorts.isEmpty ? "Several" : "\(plan.shorts.count)") vertical clips of about 30 seconds each, cut between the parts of your song.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .toggleStyle(.checkbox)
-            Button("Done") { showMakeOptions = false }.keyboardShortcut(.defaultAction).frame(maxWidth: .infinity, alignment: .trailing)
+            .toggleStyle(.checkbox).help("Also make the vertical clips when the main video is made. You can change the clips on the Shorts page.")
+            Button("Done") { showMakeOptions = false }.help("Close this window.").keyboardShortcut(.defaultAction).frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 

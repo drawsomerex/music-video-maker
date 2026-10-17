@@ -159,6 +159,11 @@ enum HelpGuide {
         "More" has: Motion (Calm or Punchy), Beat pulse, Closing text, "Try a different look" (a new random look) and "Make 3 versions" (the same clip made three times with different looks).
         "Make this clip" creates the finished vertical video.
         """),
+        HelpSection(id: "tips", title: "Mouseover tips and keyboard shortcuts", keywords: "tooltip tip hint mouseover hover point explain what does button keyboard shortcut space bar key L help", body: """
+        Every button, switch, slider and picture in the app explains itself: rest the mouse pointer on it for about a second and a small yellow note appears saying what it does.
+        Keyboard: the space bar plays or stops the Short; the L key plays it again and again; hold Shift while dragging a marker to turn sticking off.
+        The "Help" button on every screen opens this guide and the question box. The strip across the top shows what you have spent on pictures.
+        """),
         HelpSection(id: "steps", title: "Going back, new songs and earlier projects", keywords: "back go back previous step change song new project another song different mp3 open earlier project close start over", body: """
         The three steps at the top (Song, Pictures, Video) are buttons. Click Song to look at or change the title, setting and lyrics of the open video; click Pictures to return to the pictures; click Video to see the finished video again (it is available once you have made one).
         If you choose an MP3 with a different name than the video you are working on, the app starts a new video and the earlier one stays saved. A file with the same name keeps the current video.
