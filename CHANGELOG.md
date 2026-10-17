@@ -5,6 +5,11 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **The picture on the Pictures screen is widescreen (16:9) again** instead of a square, and it now grows and shrinks with the window (up to a much larger size).
+- **The full-video Preview stays widescreen** after you have visited the Shorts tab.
+- **Shorts: all the caption settings are always visible** — Title, Words (Pill, Pop, Big, Sweep, Surprise) and Colour (Hot pink, Sun yellow …) — and choosing one switches the clip to the lively style so the pink pill etc. always shows.
+- **Better window resizing**: the picture list can be wider, and the first screen's left column adapts instead of keeping a fixed width.
 ## [1.4.1] - 2026-10-17
 
 ## [1.4.0] - 2026-10-17

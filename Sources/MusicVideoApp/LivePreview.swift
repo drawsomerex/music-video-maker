@@ -25,7 +25,7 @@ final class LivePreview: ObservableObject {
     private var audioStart = 0.0
     private var fadeIn = false
     private let queue = DispatchQueue(label: "mv.live", qos: .userInitiated)
-    private(set) var vertical = true
+    @Published private(set) var vertical = true
 
     /// Builds (or reuses) the composer for this plan/clip. Cheap when nothing changed.
     func load(plan: Plan, work: URL, clip: ShortClip?, audio: URL) async {

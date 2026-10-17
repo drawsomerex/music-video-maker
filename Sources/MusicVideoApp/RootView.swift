@@ -166,7 +166,7 @@ struct SetupView: View {
                 }
                 .padding(.trailing, 2)
                 }
-                .frame(width: 350)
+                .frame(minWidth: 290, idealWidth: 350, maxWidth: 440)
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {

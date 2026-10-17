@@ -1135,7 +1135,8 @@ final class AppModel: ObservableObject {
     func openFullPreview() {
         guard let p = plan, let w = workDir, let audio = audioFileURL else { return }
         showFullPreview = true
-        Task { live.invalidate(); await live.load(plan: p, work: w, clip: nil, audio: audio); live.seek(min(live.time, 5)) }
+        previewTask?.cancel()
+        previewTask = Task { live.invalidate(); await live.load(plan: p, work: w, clip: nil, audio: audio); live.seek(min(live.time, 5)) }
     }
 
     func setCaptionY(_ v: Double?, shortID: UUID?) {

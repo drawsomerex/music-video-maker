@@ -26,7 +26,7 @@ struct PlanView: View {
                 styleBar
                 Divider()
                 HSplitView {
-                    sidebar.frame(minWidth: 220, idealWidth: 300, maxWidth: 400)
+                    sidebar.frame(minWidth: 220, idealWidth: 300, maxWidth: 520)
                     detail.frame(minWidth: 420)
                 }
                 Divider()
@@ -459,7 +459,7 @@ struct DropWell: View {
 
     var dropWell: some View {
         VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { geo in
+            Color.clear.aspectRatio(16.0 / 9, contentMode: .fit).overlay { GeometryReader { geo in
                 let w = geo.size.width, h = geo.size.height
                 ZStack {
                     if let c = sec.selectedCandidate, let t = c.thumbFile {
@@ -524,8 +524,8 @@ struct DropWell: View {
                         if sec.selectedCandidate == nil { choose() }
                     }
                 )
-            }
-            .frame(maxWidth: 640).aspectRatio(16.0 / 9, contentMode: .fit)
+            } }
+            .frame(maxWidth: 1000)
             .background(RoundedRectangle(cornerRadius: 12).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: sec.selectedCandidate == nil ? [6, 5] : [])).foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.5)))

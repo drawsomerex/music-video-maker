@@ -140,10 +140,10 @@ struct ShortEditor: View {
                 Button { showMore = true } label: { Label("More", systemImage: "slider.horizontal.3") }
                     .help("Calm or punchy motion, beat pulse, closing text, a new random look and three versions.")
             }
-            if c.dynamic {
+            Group {
                 HStack(spacing: 8) {
                     Text("Title").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
-                    TextField("blank = \(plan.title)", text: Binding(get: { c.hook }, set: { v in set { $0.hook = v } })).textFieldStyle(.roundedBorder)
+                    TextField("blank = \(plan.title)", text: Binding(get: { c.hook }, set: { v in set { $0.hook = v; if !v.isEmpty { $0.dynamic = true } } })).textFieldStyle(.roundedBorder)
                         .help("The big words shown during the first two seconds. Leave empty to use your song title.")
                     Button { model.writeHook(clip.id) } label: { Image(systemName: "sparkles") }.disabled(model.hookBusy || model.busy)
                         .help("Suggest one: the AI reads this clip's words and suggests a short, catchy opening title.")
@@ -151,18 +151,18 @@ struct ShortEditor: View {
                 HStack(spacing: 6) {
                     Text("Words").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
                     ForEach([("pill", "Pill"), ("pop", "Pop"), ("stack", "Big"), ("sweep", "Sweep"), ("auto", "Surprise")], id: \.0) { k in
-                        choice(k.1, on: c.textStyle == k.0, help: wordsHelp(k.0)) { set { $0.textStyle = k.0 } }
+                        choice(k.1, on: c.textStyle == k.0, help: wordsHelp(k.0)) { set { $0.textStyle = k.0; $0.dynamic = true } }
                     }
                 }
                 HStack(spacing: 8) {
                     Text("Colour").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
                     ForEach(ShortStyle.swatches, id: \.name) { s in
-                        Button { set { $0.accent = s.name } } label: {
+                        Button { set { $0.accent = s.name; $0.dynamic = true } } label: {
                             Circle().fill(Color(red: s.r, green: s.g, blue: s.b)).frame(width: 22, height: 22)
                                 .overlay(Circle().strokeBorder(c.accent == s.name ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: c.accent == s.name ? 3 : 1))
                         }.buttonStyle(.plain).help(s.name)
                     }
-                    choice("Auto", on: c.accent == "Auto", help: "The app picks a colour for you.") { set { $0.accent = "Auto" } }
+                    choice("Auto", on: c.accent == "Auto", help: "The app picks a colour for you.") { set { $0.accent = "Auto"; $0.dynamic = true } }
                 }
             }
         }.font(.callout)
