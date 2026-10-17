@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-17
+
 ### Added
 - **Report a problem — and see whether it is fixed.** *Help ▸ Report a Problem…* (also a button in the Help window and on error messages). Anyone can send a report without an account; it arrives as an issue in the project's GitHub list. **My reports** shows *Received / Being worked on / Done ✓* plus the author's reply, and the app tells you at start-up when something you reported is fixed. Only the text you type and the app/macOS/Mac type are sent. The tiny relay that files the reports is in `relay/` (setup in `relay/README.md`); until its address is set in `scripts/release.conf`, the sheet offers *Copy my report* / *Open the bug page*.
 - **Video clips instead of pictures.** Drag an MP4 or MOV into any part's picture box (or click and choose it). It plays while the part is on screen and repeats if shorter; works in the full video, Shorts and the preview. Clips are copied into the song's folder.
