@@ -32,7 +32,7 @@ final class LivePreview: ObservableObject {
         let sig = [clip.map { "\($0.id)|\($0.start)|\($0.end)|\($0.dynamic)|\($0.styleSeed)|\($0.hook)|\($0.cta)|\($0.motion)|\($0.textStyle)|\($0.accent)|\($0.pulse)|\($0.loop)" } ?? "full",
                    plan.sections.map {
                        guard let c = $0.selectedCandidate else { return "-" }
-                       return "\(c.fullFile ?? "-")@\(Int(c.focusX * 1000)),\(Int(c.focusY * 1000))"
+                       return "\(c.fullFile ?? "-")@\(Int(c.focusX * 1000)),\(Int(c.focusY * 1000))|\(c.camStartX ?? -1),\(c.camStartY ?? -1),\(c.camEndX ?? -1),\(c.camEndY ?? -1),\(c.camZoom)"
                    }.joined(separator: ","),
                    "\(plan.lines.count)|\(plan.lines.map { Int($0.start * 100) }.hashValue)|\(plan.title)"].joined(separator: "#")
         vertical = clip != nil

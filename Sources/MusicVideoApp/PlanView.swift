@@ -19,13 +19,11 @@ struct PlanView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
         VStack(spacing: 0) {
             modeBar
             Divider()
             if mode == 0 {
-                // On a small screen the top area may use at most ~40 % of the window height and scrolls instead of pushing the picture area off screen.
-                ScrollView(.vertical) { styleBar }.frame(maxHeight: max(150, geo.size.height * 0.40)).fixedSize(horizontal: false, vertical: true)
+                styleBar
                 Divider()
                 HSplitView {
                     sidebar.frame(minWidth: 220, idealWidth: 300, maxWidth: 400)
@@ -37,7 +35,6 @@ struct PlanView: View {
                 ShortsView()
             }
         }
-        }
         .sheet(isPresented: $model.showFullPreview, onDismiss: { model.live.pause() }) {
             VStack(spacing: 12) {
                 HStack { Text("Preview — \(plan.title)").font(.headline); Spacer(); Button("Done") { model.showFullPreview = false }.keyboardShortcut(.defaultAction) }
@@ -46,6 +43,9 @@ struct PlanView: View {
                 Text("This is exactly what the finished video will look like. Drag the words up or down to move them.").font(.callout).foregroundStyle(.secondary)
             }.padding(20).frame(minWidth: 620, idealWidth: 800, minHeight: 460, idealHeight: 620)
         }
+        .onChange(of: model.requestRegenAll) { _, v in if v { confirmRegenAll = true; model.requestRegenAll = false } }
+        .sheet(isPresented: $showDescriptionSheet) { DescriptionSheet().environmentObject(model) }
+        .sheet(isPresented: $showStyleSheet) { StyleSheet().environmentObject(model) }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
                 .environmentObject(model)
@@ -104,61 +104,44 @@ struct PlanView: View {
         }
     }
 
-    // MARK: style + bulk actions
-    @State private var showDescription = false
+    // MARK: top area — one clear message and a few labelled buttons (no hidden drop-downs)
+    @State private var showDescriptionSheet = false
+    @State private var showStyleSheet = false
 
     var styleBar: some View {
         VStack(spacing: 10) {
-            HStack(alignment: .top, spacing: 16) {
-                nextStepCard
-                pictureMaker.frame(width: 370)
-            }
+            nextStepCard
             if model.canAddInstrumentalIntro, let first = plan.lines.first?.start {
                 HStack(spacing: 12) {
                     Image(systemName: "music.note").foregroundStyle(.orange)
-                    Text("The first words start at \(timeString(first)), but the music before them has no picture of its own. Add one so that part of the song has its own scene.")
+                    Text("The first words start at \(timeString(first)), but the music before them has no picture of its own.")
                         .font(.callout).fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button { model.addInstrumentalIntro() } label: { Label("Add picture for the opening music", systemImage: "plus.circle.fill") }
+                    Spacer(minLength: 8)
+                    Button { model.addInstrumentalIntro() } label: { Label("Add a picture for the opening music", systemImage: "plus.circle.fill") }
                         .buttonStyle(.borderedProminent).disabled(model.busy)
                         .help("Adds a new part to the list for the music before the first words and writes a picture idea for it. Your other pictures stay exactly where they are.")
                 }
                 .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
             }
-            DisclosureGroup(isExpanded: $showDescription) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("What the song is about (the app wrote this from your lyrics)").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-                        Spacer()
-                        if model.busy { ProgressView().controlSize(.small) }
-                        Button { model.redescribe() } label: { Label("Write it again", systemImage: "arrow.clockwise") }.disabled(model.busy)
-                            .help("Has the AI read your lyrics again and write a new description and new picture ideas. Your own edits to the description are replaced.")
-                        Button { model.regeneratePrompts() } label: { Label("Make new picture ideas", systemImage: "wand.and.stars") }.disabled(model.busy)
-                            .help("Keeps the description below (including any changes you made) and writes fresh picture ideas from it.")
-                    }
-                    TextEditor(text: Binding(get: { model.plan?.description ?? "" }, set: { model.setDescription($0) }))
-                        .font(.callout).scrollContentBackground(.hidden).padding(6)
-                        .frame(height: 70).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
-                        .help("You can edit this. Every picture idea is built from it, so changing it changes the pictures.")
-                    HStack {
-                        Text("Art style for every picture (keeps them looking alike)").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-                        Spacer()
-                        Menu {
-                            ForEach(Array(StylePreset.all.dropFirst())) { preset in Button(preset.name) { model.applyStylePreset(preset.name) } }
-                        } label: { Label("Choose a style", systemImage: "paintpalette") }
-                        .fixedSize().help("Pick a ready-made art style such as oil painting, watercolor or anime. It is added to every picture idea.")
-                    }
-                    TextEditor(text: Binding(get: { model.plan?.style ?? "" }, set: { model.setStyle($0) }))
-                        .font(.callout).scrollContentBackground(.hidden).padding(6)
-                        .frame(height: 50).background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
-                        .help("The look of the pictures, in words. It is added to every picture idea so all the pictures match.")
-                }.padding(.top, 6)
-            } label: {
-                Label("Song description and art style (written for you; open to change)", systemImage: "text.alignleft").font(.callout.weight(.medium))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 300), spacing: 8)], alignment: .leading, spacing: 8) {
+                Button { model.generateAllMissingImages() } label: {
+                    Label(model.missing.isEmpty ? "All pictures are ready" : "Make all missing pictures (\(model.missing.count))", systemImage: "wand.and.sparkles").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).disabled(model.missing.isEmpty || model.busy)
+                .help(model.hasOpenRouterKey ? "Draws a picture for every part that has none (about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total). You can watch the progress and cancel at any time."
+                                             : "Draws the pictures for you. First add your OpenRouter key with the “Picture maker key” button.")
+                Button { chooseFolder() } label: { Label("Add pictures from a folder", systemImage: "folder").frame(maxWidth: .infinity) }
+                    .help("Choose a folder of pictures named 00.png, 01.png, 02.png and so on. 00 is the title card. Each picture goes to the matching part of the song.")
+                Button { showDescriptionSheet = true } label: { Label("Song description", systemImage: "text.alignleft").frame(maxWidth: .infinity) }
+                    .help("Read or change what the app thinks the song is about. Every picture idea is built from it.")
+                Button { showStyleSheet = true } label: { Label("Art style", systemImage: "paintpalette").frame(maxWidth: .infinity) }
+                    .help("Choose how all the pictures should look, such as oil painting, watercolor or anime.")
+                Button { model.showOpenRouterKeySheet = true } label: { Label(model.hasOpenRouterKey ? "Picture maker key & credit" : "Add picture maker key", systemImage: "key.fill").frame(maxWidth: .infinity) }
+                    .help(model.hasOpenRouterKey ? "See your remaining OpenRouter credit, change your key, or make every picture again." : "Add your OpenRouter key so the app can draw the pictures for you. You can also skip this and drag in your own pictures.")
+                Button { model.copyAllPrompts() } label: { Label("Copy all picture ideas", systemImage: "doc.on.doc").frame(maxWidth: .infinity) }
+                    .help("Copies every picture idea so you can paste them into another image maker.")
             }
-            .help("The app already wrote these. Open this only if you want to change how the pictures look.")
+            .buttonStyle(.bordered)
         }
         .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
     }
@@ -174,64 +157,10 @@ struct PlanView: View {
                              detail: "Press “Make all missing pictures” to have the app draw the rest, or click a part in the list and drag in your own picture.")
             } else {
                 NextStepCard(icon: "photo.on.rectangle", title: "\(model.loadedCount) of \(model.totalImages) pictures ready",
-                             detail: "Click a part in the list on the left, then drag in a picture you made. To have the app draw them for you, add an OpenRouter key.")
+                             detail: "Click a part in the list on the left, then drag in a picture you made. To have the app draw them for you, add a picture maker key.")
             }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    var pictureMaker: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles.rectangle.stack.fill").foregroundStyle(.tint)
-                Text("Picture maker").font(.headline)
-                Spacer()
-                Button { model.showOpenRouterKeySheet = true } label: { Label(model.hasOpenRouterKey ? "Key" : "Add key", systemImage: "key.fill") }
-                    .help(model.hasOpenRouterKey ? "Change or check your OpenRouter key." : "Add your OpenRouter key so the app can draw the pictures. You can also skip this and drag in your own pictures.")
-            }
-            if model.hasOpenRouterKey {
-                HStack(spacing: 6) {
-                    Text("Credit left:").font(.callout).foregroundStyle(.secondary)
-                    if model.checkingCredits { ProgressView().controlSize(.small) }
-                    else if let rem = model.openRouterCredits {
-                        Text(OpenRouter.formatCredits(rem)).font(.callout.monospacedDigit().weight(.bold)).foregroundStyle(rem < model.missingImagesCostUSD ? .orange : .green)
-                    } else { Button("Check") { model.refreshOpenRouterCredits(silent: false) }.buttonStyle(.borderless) }
-                    Spacer()
-                    Text("about \(OpenRouter.formatUSD(model.perImageCostUSD)) each").font(.callout).foregroundStyle(.secondary)
-                }
-                .help("What is left on your OpenRouter account, and the usual price of one picture.")
-            } else {
-                Text("Optional: add an OpenRouter key and the app will draw the pictures for you.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                Button { model.generateAllMissingImages() } label: {
-                    Label(model.missing.isEmpty ? "All pictures ready" : "Make all missing pictures (\(model.missing.count), about \(OpenRouter.formatUSD(model.missingImagesCostUSD)))", systemImage: "wand.and.sparkles")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .disabled(model.missing.isEmpty || model.busy)
-                .help("Draws a picture for every part that does not have one yet. You are only charged for pictures it makes. You can watch the progress and press Cancel at any time.")
-            }
-            HStack(spacing: 8) {
-                Menu {
-                    Button("Make every picture again (about \(OpenRouter.formatUSD(model.allImagesCostUSD)))") {
-                        if model.hasOpenRouterKey { confirmRegenAll = true } else { model.showOpenRouterKeySheet = true }
-                    }
-                    Divider()
-                    Button("Copy all picture ideas") { model.copyAllPrompts() }
-                    Button("Open picture ideas as a document") { if let w = model.workDir { NSWorkspace.shared.open(Pipeline.promptsURL(w)) } }
-                } label: { Label("More", systemImage: "ellipsis.circle") }
-                .fixedSize().help("Other things you can do with the pictures: make them all again, or copy the picture ideas to use in another app.")
-                Button { chooseFolder() } label: { Label("Add pictures from a folder…", systemImage: "folder") }
-                    .help("Choose a folder of pictures named 00.png, 01.png, 02.png and so on. 00 is the title card. Each picture goes to the matching part of the song.")
-                Spacer()
-                Text("This song so far: \(OpenRouter.formatUSD(plan.totalGenerationCostUSD))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                    .help("What this song has cost in picture-making so far.")
-            }
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.background.opacity(0.55)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
     }
 
     // MARK: sidebar
@@ -340,51 +269,52 @@ struct PlanView: View {
     }
 
     // MARK: footer
-    var footer: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 14) { previewControls; Spacer(minLength: 8); makeControls(compact: false) }
-            HStack(spacing: 10) { previewControls; Spacer(minLength: 6); makeControls(compact: true) }
-            VStack(spacing: 8) { HStack { previewControls; Spacer() }; HStack { Spacer(); makeControls(compact: true) } }
-        }
-        .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
-    }
+    @State private var showMakeOptions = false
 
-    var previewControls: some View {
+    var footer: some View {
         HStack(spacing: 12) {
             Button { model.openFullPreview() } label: { Label("Preview", systemImage: "play.rectangle") }.controlSize(.large).disabled(model.loadedCount == 0)
                 .help(model.loadedCount == 0 ? "Add at least one picture first, then you can watch a preview." : "Watch the video before it is made. Nothing is saved or changed.")
             VStack(alignment: .leading, spacing: 3) {
-                ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 130)
-                Text("\(model.loadedCount) of \(model.totalImages) pictures ready").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                ProgressView(value: Double(model.loadedCount), total: Double(max(1, model.totalImages))).frame(width: 110)
+                Text("\(model.loadedCount) of \(model.totalImages) pictures").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             }
             .help("How many parts of the song have a picture. Parts without one get a plain colour background.")
-        }
-    }
-
-    func makeControls(compact: Bool) -> some View {
-        HStack(spacing: compact ? 10 : 14) {
-            Toggle(isOn: $model.autoRenderShorts) {
-                Text(compact ? "Also Shorts" : "Also make \(plan.shorts.isEmpty ? "short" : "\(plan.shorts.count)") clips").font(.callout).lineLimit(1).fixedSize()
+            Spacer(minLength: 8)
+            Button { showMakeOptions = true } label: {
+                Label("\(model.quality == 2160 ? "4K" : "\(model.quality)p")\(model.autoRenderShorts ? " + clips" : "")", systemImage: "slider.horizontal.3")
             }
-            .toggleStyle(.checkbox)
-            .help("Also makes \(plan.shorts.isEmpty ? "several" : "\(plan.shorts.count)") vertical clips of about 30 seconds each for YouTube Shorts, cut between the parts of your song.")
-            Group {
-                if compact {
-                    Picker("Quality", selection: $model.quality) { Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160) }
-                        .pickerStyle(.menu).frame(width: 110)
-                } else {
-                    Picker("Quality", selection: $model.quality) { Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160) }
-                        .pickerStyle(.segmented).frame(width: 240)
-                }
-            }
-            .labelsHidden()
-            .help("Picture sharpness. 1080p HD is right for YouTube. 4K is sharper but takes much longer and makes a bigger file.")
+            .controlSize(.large)
+            .help("Choose the picture sharpness and whether short clips for YouTube Shorts are made too.")
+            .popover(isPresented: $showMakeOptions, arrowEdge: .top) { makeOptions.padding(18).frame(width: 330) }
             Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: {
-                Label(model.autoRenderShorts && !compact ? "Make my video and clips" : "Make my video", systemImage: "film")
-                    .font(.headline).padding(.horizontal, 8).padding(.vertical, 3)
+                Label("Make my video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 3).fixedSize()
             }
             .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
-            .help("Creates the finished video file. It takes a few minutes; you can watch the progress and cancel at any time.")
+            .help(model.autoRenderShorts ? "Creates the finished video and the short clips. It takes a few minutes; you can watch the progress and cancel at any time."
+                                         : "Creates the finished video file. It takes a few minutes; you can watch the progress and cancel at any time.")
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
+    }
+
+    var makeOptions: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Before you make it").font(.headline)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Picture sharpness").font(.subheadline.weight(.medium))
+                Picker("", selection: $model.quality) { Text("720p").tag(720); Text("1080p HD").tag(1080); Text("1440p").tag(1440); Text("4K").tag(2160) }
+                    .pickerStyle(.segmented).labelsHidden()
+                    .help("1080p HD is right for YouTube. 4K is sharper but takes much longer and makes a bigger file.")
+                Text("1080p HD is right for YouTube.").font(.callout).foregroundStyle(.secondary)
+            }
+            Toggle(isOn: $model.autoRenderShorts) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Also make short clips for YouTube Shorts").font(.subheadline.weight(.medium))
+                    Text("\(plan.shorts.isEmpty ? "Several" : "\(plan.shorts.count)") vertical clips of about 30 seconds each, cut between the parts of your song.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.checkbox)
+            Button("Done") { showMakeOptions = false }.keyboardShortcut(.defaultAction).frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
@@ -449,6 +379,10 @@ struct OpenRouterKeySheet: View {
                 Text(err).font(.caption).foregroundStyle(.red)
             }
 
+            if model.hasOpenRouterKey && model.totalImages > 0 {
+                Button { dismiss(); model.requestRegenAll = true } label: { Label("Make every picture again (about \(OpenRouter.formatUSD(model.allImagesCostUSD)))", systemImage: "arrow.triangle.2.circlepath") }
+                    .help("Throws away the current pictures and draws a new one for every part. You will be asked to confirm first.")
+            }
             HStack {
                 Button("Cancel", role: .cancel) { dismiss() }
                 Spacer()
@@ -483,6 +417,7 @@ struct DropWell: View {
     let section: Int
     @State private var targeted = false
     @State private var showShortCrop = true
+    @State private var dragEnd: Bool?           // while dragging a camera dot: false = start dot, true = end dot
     var sec: PhotoSection {
         if section < 0 || !model.plan!.sections.indices.contains(section) { return model.plan!.intro }
         return model.plan!.sections[section]
@@ -500,12 +435,6 @@ struct DropWell: View {
                 Text("Picture for this part").font(.headline)
                 Spacer()
                 if sec.selectedCandidate != nil {
-                    Toggle("Show the camera aim", isOn: $showShortCrop)
-                        .toggleStyle(.checkbox).font(.callout).foregroundStyle(.secondary)
-                        .help("Shows the orange dot the camera slowly moves toward, and the dashed box that is kept in the tall YouTube Shorts version.")
-                    Button("Aim automatically") { model.resetFocus(section: section) }
-                        .buttonStyle(.bordered)
-                        .help("Lets the app find the most interesting spot in the picture (such as a face) and aim the camera there.")
                     Button {
                         model.generateImage(section: section)
                     } label: {
@@ -536,7 +465,9 @@ struct DropWell: View {
                         Thumb(file: model.workDir!.appendingPathComponent(t))
                             .frame(width: w, height: h)
                             .clipped()
-                        if showShortCrop {
+                        if let cam = c.cameraPath {
+                            cameraOverlay(cam, c, w, h)
+                        } else if showShortCrop {
                             let fx = CGFloat(c.focusX)
                             let fy = CGFloat(c.focusY)
                             // 9:16 vertical crop box inside a 16:9 frame has width = h * (9/16)
@@ -573,11 +504,19 @@ struct DropWell: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { g in
-                            guard sec.selectedCandidate != nil else { return }
-                            let nx = min(0.95, max(0.05, Double(g.location.x / max(1, w))))
-                            let ny = min(0.95, max(0.05, 1.0 - Double(g.location.y / max(1, h))))
-                            model.setFocus(x: nx, y: ny, section: section)
+                            guard let c = sec.selectedCandidate else { return }
+                            let fx = Double(g.location.x / max(1, w)), fy = Double(g.location.y / max(1, h))
+                            if let cam = c.cameraPath {                    // your own move: drag whichever dot (start or end) is closer
+                                if dragEnd == nil {
+                                    let ds = hypot(fx - cam.start.x, (fy - cam.start.y) * 0.56), de = hypot(fx - cam.end.x, (fy - cam.end.y) * 0.56)
+                                    dragEnd = de < ds
+                                }
+                                model.moveCameraPoint(section: section, end: dragEnd ?? false, x: fx, y: fy)
+                            } else {
+                                model.setFocus(x: min(0.95, max(0.05, fx)), y: min(0.95, max(0.05, 1.0 - fy)), section: section)
+                            }
                         }
+                        .onEnded { _ in dragEnd = nil }
                 )
                 .simultaneousGesture(
                     TapGesture().onEnded {
@@ -593,14 +532,73 @@ struct DropWell: View {
                 guard let u = urls.first else { return false }; model.load(u, section: section); return true
             } isTargeted: { targeted = $0 }
             if let c = sec.selectedCandidate {
+                cameraControls(c).frame(maxWidth: 640, alignment: .leading)
                 HStack {
-                    Text("Tip: drag the orange dot to choose where the camera drifts toward.").font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button("Choose a different file…") { choose() }
                         .help("Replaces this picture with another file from your Mac.")
                     Button("Remove picture", role: .destructive) { model.removeImage(section: section) }
                         .help("Takes this picture away. That part of the video will show a plain colour until you add another.")
                 }.frame(maxWidth: 640)
+            }
+        }
+    }
+
+    // MARK: camera move (Ken Burns): automatic, or your own start and end points
+    func cameraOverlay(_ cam: CameraPath, _ c: ImageCandidate, _ w: CGFloat, _ h: CGFloat) -> some View {
+        let iw = Double(max(1, c.width)), ih = Double(max(1, c.height))
+        let z = cam.zooms(imageW: iw, imageH: ih, aspect: 16.0 / 9)
+        let fs = cam.frame(imageW: iw, imageH: ih, aspect: 16.0 / 9, end: false), fe = cam.frame(imageW: iw, imageH: ih, aspect: 16.0 / 9, end: true)
+        func center(_ p: CGPoint, _ f: CGSize) -> CGPoint {                 // keep the drawn frame inside the picture, as the renderer does
+            CGPoint(x: min(max(p.x, f.width / 2), 1 - f.width / 2) * w, y: min(max(p.y, f.height / 2), 1 - f.height / 2) * h)
+        }
+        let s = center(cam.start, fs), e = center(cam.end, fe)
+        _ = z
+        return ZStack {
+            Path { p in p.move(to: s); p.addLine(to: e) }.stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [7, 5])).shadow(color: .black.opacity(0.7), radius: 2)
+            RoundedRectangle(cornerRadius: 4).strokeBorder(Color.green, style: StrokeStyle(lineWidth: 2, dash: [6, 4])).frame(width: fs.width * w, height: fs.height * h).position(s).shadow(color: .black.opacity(0.6), radius: 2)
+            RoundedRectangle(cornerRadius: 4).strokeBorder(Color.red, lineWidth: 2).frame(width: fe.width * w, height: fe.height * h).position(e).shadow(color: .black.opacity(0.6), radius: 2)
+            dot("1", .green).position(CGPoint(x: cam.start.x * w, y: cam.start.y * h)).help("START. The camera begins here. Drag this dot.")
+            dot("2", .red).position(CGPoint(x: cam.end.x * w, y: cam.end.y * h)).help("END. The camera slowly travels here. Drag this dot.")
+        }
+    }
+    func dot(_ n: String, _ color: Color) -> some View {
+        ZStack { Circle().fill(color).frame(width: 28, height: 28); Circle().strokeBorder(.white, lineWidth: 2).frame(width: 28, height: 28); Text(n).font(.system(size: 14, weight: .bold)).foregroundStyle(.white) }
+            .shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    @ViewBuilder func cameraControls(_ c: ImageCandidate) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text("Camera").font(.subheadline.weight(.semibold))
+                Button { model.useAutomaticCamera(section: section) } label: { Label("Automatic", systemImage: "wand.and.stars").frame(minWidth: 110) }
+                    .buttonStyle(.bordered).tint(c.cameraPath == nil ? .accentColor : nil)
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(c.cameraPath == nil ? Color.accentColor : .clear, lineWidth: 2))
+                    .help("The camera drifts slowly toward the most interesting part of the picture. You can still drag the orange dot to aim it.")
+                Button { model.chooseCameraMove(section: section) } label: { Label("I choose the move", systemImage: "arrow.right.circle").frame(minWidth: 140) }
+                    .buttonStyle(.bordered).tint(c.cameraPath != nil ? .accentColor : nil)
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(c.cameraPath != nil ? Color.accentColor : .clear, lineWidth: 2))
+                    .help("Choose where the camera starts and where it ends. Two dots appear on the picture: drag them.")
+                if c.cameraPath == nil {
+                    Toggle("Show the aim", isOn: $showShortCrop).toggleStyle(.checkbox).font(.callout)
+                        .help("Shows the orange dot the camera moves toward, and the dashed box kept in the tall YouTube Shorts version.")
+                    Button("Aim for me") { model.resetFocus(section: section) }
+                        .help("Lets the app find the most interesting spot in the picture (such as a face) and aim the camera there.")
+                }
+            }
+            if let cam = c.cameraPath {
+                Text("Drag the green dot ① (where the camera starts) and the red dot ② (where it ends). The dashed green frame is what the viewer sees first, the red frame what they see last; the picture slowly glides between them.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    ForEach([(0, "Moves closer", "plus.magnifyingglass"), (1, "Stays level", "equal.circle"), (2, "Moves wider", "minus.magnifyingglass")], id: \.0) { z in
+                        Button { model.setCameraZoom(section: section, zoom: z.0) } label: { Label(z.1, systemImage: z.2) }
+                            .buttonStyle(.bordered).tint(cam.zoom == z.0 ? .accentColor : nil)
+                            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(cam.zoom == z.0 ? Color.accentColor : .clear, lineWidth: 2))
+                            .help(z.0 == 0 ? "While it travels, the view also moves slowly closer to the picture." : (z.0 == 1 ? "The view slides across without zooming." : "While it travels, the view also moves slowly back, showing more of the picture."))
+                    }
+                    Button { model.swapCameraPoints(section: section) } label: { Label("Swap start and end", systemImage: "arrow.left.arrow.right") }
+                        .help("Reverses the direction of travel.")
+                }
             }
         }
     }

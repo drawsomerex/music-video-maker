@@ -190,6 +190,7 @@ final class AppModel: ObservableObject {
     @Published var checkingCredits = false
     @Published var openRouterCreditError: String? = nil
     @Published var showOpenRouterKeySheet = false
+    @Published var requestRegenAll = false      // the key window asks the Pictures screen to confirm “make every picture again”
 
     var hasOpenRouterKey: Bool { !config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var perImageCostUSD: Double { plan?.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage }
@@ -293,6 +294,7 @@ final class AppModel: ObservableObject {
     }
     func toggleDivider(before i: Int) { lyrics = LyricText.toggleDivider(lyrics, before: i) }
     func clearDividers() { lyrics = LyricText.clearDividers(lyrics) }
+    func divideEvenly(_ n: Int) { lyrics = LyricText.divideEvenly(lyrics, parts: n) }
     func dividersFromVerses() { lyrics = LyricText.dividersFromVerses(lyrics) }
 
     /// Forgets the open project (it stays saved on disk) so the Song screen starts empty.
@@ -678,6 +680,33 @@ final class AppModel: ObservableObject {
             p.sections[section].candidates[p.sections[section].selected].focusY = cy
         }
         plan = p; persist(); live.invalidate()
+    }
+
+    // MARK: camera move chosen by hand (start point → end point)
+    func updateCandidate(section: Int, _ f: (inout ImageCandidate) -> Void) {
+        guard var p = plan else { return }
+        if section < 0 {
+            if p.intro.candidates.indices.contains(p.intro.selected) { f(&p.intro.candidates[p.intro.selected]) }
+        } else if p.sections.indices.contains(section), p.sections[section].candidates.indices.contains(p.sections[section].selected) {
+            f(&p.sections[section].candidates[p.sections[section].selected])
+        }
+        plan = p; persist(); live.invalidate()
+    }
+    func chooseCameraMove(section: Int) {
+        updateCandidate(section: section) { c in
+            if c.cameraPath == nil { c.camStartX = 0.30; c.camStartY = 0.5; c.camEndX = 0.70; c.camEndY = 0.5; c.camZoom = 0 }
+        }
+    }
+    func useAutomaticCamera(section: Int) { updateCandidate(section: section) { $0.camStartX = nil; $0.camStartY = nil; $0.camEndX = nil; $0.camEndY = nil } }
+    func moveCameraPoint(section: Int, end: Bool, x: Double, y: Double) {
+        let nx = min(0.97, max(0.03, x)), ny = min(0.97, max(0.03, y))
+        updateCandidate(section: section) { c in if end { c.camEndX = nx; c.camEndY = ny } else { c.camStartX = nx; c.camStartY = ny } }
+    }
+    func setCameraZoom(section: Int, zoom: Int) { updateCandidate(section: section) { $0.camZoom = zoom } }
+    func swapCameraPoints(section: Int) {
+        updateCandidate(section: section) { c in
+            swap(&c.camStartX, &c.camEndX); swap(&c.camStartY, &c.camEndY)
+        }
     }
 
     func resetFocus(section: Int) {

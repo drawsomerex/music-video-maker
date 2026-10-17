@@ -1,5 +1,6 @@
 // Data model: Config (settings), Plan/Section (the save file), ShortClip and VideoSettings.
 import Foundation
+import CoreGraphics
 
 public struct TimedWord: Codable, Hashable {
     public var text: String
@@ -31,11 +32,18 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var score: Double = 0
     public var focusX: Double = 0.5       // 0...1 from left (saliency)
     public var focusY: Double = 0.5       // 0...1 from top
+    /// A camera move chosen by hand: the view travels from `camStart` to `camEnd` (0…1 across and down the picture). nil = the app decides.
+    public var camStartX: Double? = nil, camStartY: Double? = nil, camEndX: Double? = nil, camEndY: Double? = nil
+    public var camZoom: Int = 0           // 0 = moves closer, 1 = stays level, 2 = moves wider
+    public var cameraPath: CameraPath? {
+        guard let a = camStartX, let b = camStartY, let c = camEndX, let d = camEndY else { return nil }
+        return CameraPath(start: CGPoint(x: a, y: b), end: CGPoint(x: c, y: d), zoom: camZoom)
+    }
     public var tags: String = ""         // provider keywords / alt text, shown to the local LLM
     public var thumbFile: String? = nil   // relative to work dir
     public var fullFile: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -54,6 +62,9 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         tags = try c.decodeIfPresent(String.self, forKey: .tags) ?? ""
         thumbFile = try c.decodeIfPresent(String.self, forKey: .thumbFile)
         fullFile = try c.decodeIfPresent(String.self, forKey: .fullFile)
+        camStartX = try c.decodeIfPresent(Double.self, forKey: .camStartX); camStartY = try c.decodeIfPresent(Double.self, forKey: .camStartY)
+        camEndX = try c.decodeIfPresent(Double.self, forKey: .camEndX); camEndY = try c.decodeIfPresent(Double.self, forKey: .camEndY)
+        camZoom = try c.decodeIfPresent(Int.self, forKey: .camZoom) ?? 0
     }
 
     public init(id: String, provider: String, thumbURL: String, fullURL: String, pageURL: String,

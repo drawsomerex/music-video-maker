@@ -3,6 +3,28 @@ import Foundation
 import CoreGraphics
 import AppKit
 
+/// A camera move chosen by hand: the view travels from `start` to `end` (0…1 across/down the picture) while it moves closer, stays level or moves wider.
+public struct CameraPath: Equatable {
+    public var start: CGPoint, end: CGPoint
+    public var zoom: Int                  // 0 = closer, 1 = level, 2 = wider
+    public init(start: CGPoint, end: CGPoint, zoom: Int) { self.start = start; self.end = end; self.zoom = zoom }
+
+    /// Zoom at the start and the end that keeps both chosen points inside the picture (the renderer and the on-screen preview both use this).
+    public func zooms(imageW iw: Double, imageH ih: Double, aspect: Double) -> (z0: Double, z1: Double) {
+        let bw = (iw / ih > aspect) ? (ih * aspect) : iw, bh = bw / aspect
+        let halfW = 0.5 * (bw / max(1, iw)), halfH = 0.5 * (bh / max(1, ih))
+        func need(_ p: CGPoint) -> Double { max(halfW / max(0.02, 0.5 - abs(p.x - 0.5)), halfH / max(0.02, 0.5 - abs(p.y - 0.5))) }
+        let level = min(max(max(need(start), need(end)) * 1.01, 1.10), 2.4)
+        switch zoom { case 0: return (level, level * 1.14); case 2: return (level * 1.14, level); default: return (level, level) }
+    }
+    /// The visible part of the picture (as fractions of its width/height) at the start (`end == false`) or end of the move.
+    public func frame(imageW iw: Double, imageH ih: Double, aspect: Double, end atEnd: Bool) -> CGSize {
+        let bw = (iw / ih > aspect) ? (ih * aspect) : iw, bh = bw / aspect
+        let z = atEnd ? zooms(imageW: iw, imageH: ih, aspect: aspect).z1 : zooms(imageW: iw, imageH: ih, aspect: aspect).z0
+        return CGSize(width: bw / max(1, iw) / z, height: bh / max(1, ih) / z)
+    }
+}
+
 /// A photo (or gradient fallback) with a smooth, aspect-safe Ken Burns camera move.
 ///
 /// Why naive Ken Burns implementations "jump" or stall:
@@ -25,13 +47,15 @@ final class PhotoScene {
     let focus: CGPoint                  // normalized saliency focus in [0, 1] x [0, 1]
     let vertical: Bool
     let energetic: Bool                 // true for punchy Shorts
+    let camera: CameraPath?             // a move chosen by hand (nil = automatic)
     let mode: Int                       // 0 = push-in, 1 = pull-out, 2 = pan L→R, 3 = pan R→L, 4 = diagonal glide
     private let rndZoom: Double
     private let rndPanX: Double
     private let rndPanY: Double
     private let diagFlip: Bool
 
-    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, beats: [Double] = [], preferredMode: Int? = nil) {
+    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, beats: [Double] = [], preferredMode: Int? = nil, camera: CameraPath? = nil) {
+        self.camera = camera
         self.box = box
         self.a = a
         self.b = b
@@ -74,6 +98,11 @@ final class PhotoScene {
                 x: min(0.5 + maxDX, max(0.5 - maxDX, p.x)),
                 y: min(0.5 + maxDY, max(0.5 - maxDY, p.y))
             )
+        }
+
+        if let cam = camera {                    // the user's own move: exactly their two points, zoom chosen so both fit inside the picture
+            let z = cam.zooms(imageW: iw, imageH: ih, aspect: target)
+            return (clampCenter(cam.start, zoom: z.z0), z.z0, clampCenter(cam.end, zoom: z.z1), z.z1)
         }
 
         // Scale the move distance gently by section duration so short (5s) and long (16s) sections have similar, calm speed

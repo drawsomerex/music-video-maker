@@ -21,6 +21,8 @@ enum Snapshots {
                 try? png.write(to: dir.appendingPathComponent("\(name).png"))
             }
         }
+        model.lyrics = "The road is wide and the sky is high\nWe're chasing the sun as the day goes by\n---\nHighway lights, hold me tight\nThrough the quiet of the night\nHeadlights flicker, engines hum\n---\nWhen the morning light has come\nWe will find our way back home"
+        save("divide", CGSize(width: 520, height: 560), LyricDividerView(scrollable: false).padding())
         save("setup", CGSize(width: 1120, height: 760), SetupView())
         save("setup-small", CGSize(width: 860, height: 560), SetupView())
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())

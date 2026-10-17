@@ -5,6 +5,13 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Choose the camera move yourself (Ken Burns).** Under each picture: *Camera ▸ Automatic* (as before) or *I choose the move*. Then two numbered dots appear on the picture: drag **① green = where the camera starts** and **② red = where it ends**; dashed frames show exactly what the viewer sees first and last, and the picture glides between them. *Moves closer / Stays level / Moves wider* sets the zoom while it travels, *Swap start and end* reverses the direction. Used for the full video and for Shorts, and shown in the live preview.
+
+### Changed
+- **Dividing the lyrics is now a "cut the lyrics" screen**: coloured picture bars (“Picture 2 · 3 lines”), a clear “✂ cut here” line between every two lyric lines, click a bar to join pictures, plus *One picture per verse*, *N equal pictures* and *Start over*.
+- **Pictures screen**: the “Song description and art style” drop-down is gone. The top area is a message plus plain buttons (*Make all missing pictures, Add pictures from a folder, Song description, Art style, Picture maker key & credit, Copy all picture ideas*); description and art style open in their own windows, and art styles are buttons you press. The bottom bar is just *Preview*, a small *1080p + clips* options button and **Make my video**, so nothing can cover anything else.
+
 ## [1.2.2] - 2026-10-16
 
 ### Added

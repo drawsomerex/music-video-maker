@@ -67,4 +67,20 @@ public enum LyricText {
         for (i, l) in lines.enumerated() { if starts.contains(i) { out.append("---") }; out.append(l) }
         return out.joined(separator: "\n")
     }
+
+    /// Divides the lyrics into `parts` parts of about the same number of lines, nudging each cut to a nearby verse break when there is one.
+    public static func divideEvenly(_ raw: String, parts: Int) -> String {
+        let rs = rows(clearDividers(raw))
+        guard rs.count > 1, parts > 1 else { return clearDividers(raw) }
+        let n = min(parts, rs.count)
+        var cuts: [Int] = []
+        for k in 1..<n {
+            let ideal = Int((Double(k) * Double(rs.count) / Double(n)).rounded())
+            let window = rs.count / (n * 4)
+            let near = window == 0 ? [] : (max(1, ideal - window)...min(rs.count - 1, ideal + window)).filter { rs[$0].blankBefore }
+            cuts.append(near.min { abs($0 - ideal) < abs($1 - ideal) } ?? ideal)
+        }
+        let uniq = Array(Set(cuts)).filter { $0 > 0 && $0 < rs.count }.sorted()
+        return text(lines: rs.map(\.text), partStarts: uniq)
+    }
 }
