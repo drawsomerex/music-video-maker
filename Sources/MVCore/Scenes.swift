@@ -110,7 +110,7 @@ final class PhotoScene {
         // Scale the move distance gently by section duration so short (5s) and long (16s) sections have similar, calm speed
         let duration = max(2.0, b - a)
         let durScale = min(1.15, max(0.55, duration / 12.0)) * (energetic ? 1.18 : 1.0)
-        let zoomDelta = (0.085 + 0.035 * rndZoom) * durScale
+        let zoomDelta = (0.15 + 0.06 * rndZoom) * durScale
 
         let z0: Double
         let z1: Double
@@ -141,8 +141,8 @@ final class PhotoScene {
         case 2, 3:
             // Smooth horizontal pan across subject height with subtle zoom drift
             // The default move: a quick, confident sweep across the whole picture, ending on the subject
-            let zLow = vertical ? 1.06 : 1.30
-            let zHigh = zLow + zoomDelta * (vertical ? 0.55 : 1.3)
+            let zLow = vertical ? 1.08 : 1.45
+            let zHigh = zLow + zoomDelta * (vertical ? 0.55 : 1.2)
             let leftToRight = (mode == 2)
             z0 = leftToRight ? zLow : zHigh
             z1 = leftToRight ? zHigh : zLow
@@ -150,7 +150,7 @@ final class PhotoScene {
             let availX0 = max(0.0, 0.5 - halfW0 / z0)
             let availX1 = max(0.0, 0.5 - halfW0 / z1)
             let maxPan = min(availX0, availX1)
-            let panRadius = vertical ? min(maxPan * 0.95, 0.30 * durScale) : (maxPan * 0.97)
+            let panRadius = vertical ? min(maxPan * 0.95, 0.40 * durScale) : (maxPan * 0.97)
 
             // Sweep from edge to edge of what the zoom allows (centred), so the whole width of the picture passes by
             let centerBiasX = 0.5
@@ -163,13 +163,13 @@ final class PhotoScene {
 
         default:
             // Cinematic diagonal rostrum glide toward subject
-            z0 = 1.05
+            z0 = 1.14
             z1 = z0 + zoomDelta * 0.90
             let dirX: Double = diagFlip ? 1.0 : -1.0
             let availX = max(0.0, 0.5 - halfW0 / z0)
             let availY = max(0.0, 0.5 - halfH0 / z0)
-            let dx = min(availX * 0.80, (vertical ? 0.09 : 0.045) * durScale) * dirX
-            let dy = min(availY * 0.80, 0.035 * durScale) * (rndPanY >= 0 ? 1.0 : -1.0)
+            let dx = min(availX * 0.85, (vertical ? 0.14 : 0.09) * durScale) * dirX
+            let dy = min(availY * 0.85, 0.06 * durScale) * (rndPanY >= 0 ? 1.0 : -1.0)
             raw0 = CGPoint(x: subj.x - dx, y: subj.y - dy)
             raw1 = CGPoint(x: subj.x + dx * 0.5, y: subj.y + dy * 0.5)
         }
