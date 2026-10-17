@@ -68,7 +68,7 @@ public final class FrameComposer: @unchecked Sendable {
             sc.append(PhotoScene(box: boxes[i], a: a, b: max(e, a + 1), seed: sceneSeed,
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
                                  shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
-                                 video: c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx) }, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath))
+                                 video: c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx, start: c?.videoStart ?? 0, end: c?.videoEnd) }, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath))
         }
         scenes = sc
         var rng = SeededRNG((dyn ? short!.styleSeed : 0xC0FFEE) ^ UInt64(plan.title.hashValue & 0xFFFF)); var last = -1; var ks: [TransitionKind] = []

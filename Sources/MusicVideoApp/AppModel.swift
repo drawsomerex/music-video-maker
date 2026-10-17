@@ -681,6 +681,17 @@ final class AppModel: ObservableObject {
         Pipeline.removeImage(section: section, plan: &p, work: w); plan = p; live.invalidate()
     }
 
+    /// Chooses which part of a video clip plays (seconds inside the clip); `end` nil = to the end of the clip.
+    func setVideoTrim(section: Int, start: Double, end: Double?) {
+        guard var p = plan else { return }
+        func apply(_ s: inout PhotoSection) {
+            guard s.candidates.indices.contains(s.selected) else { return }
+            s.candidates[s.selected].videoStart = max(0, start); s.candidates[s.selected].videoEnd = end
+        }
+        if section < 0 { apply(&p.intro) } else if p.sections.indices.contains(section) { apply(&p.sections[section]) }
+        plan = p; persist(); live.invalidate()
+    }
+
     func setFocus(x: Double, y: Double, section: Int) {
         guard var p = plan else { return }
         let cx = min(0.95, max(0.05, x)), cy = min(0.95, max(0.05, y))

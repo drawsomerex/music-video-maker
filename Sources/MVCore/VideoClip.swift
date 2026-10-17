@@ -6,13 +6,16 @@ import CoreGraphics
 final class VideoClipSource: @unchecked Sendable {
     private let asset: AVURLAsset
     private let gen: AVAssetImageGenerator
-    private let seconds: Double
+    private let seconds: Double          // length of the part that plays (after trimming)
+    private let from: Double             // where in the clip it starts
     private let lock = NSLock()
     private var lastKey = Int.min, lastImage: CGImage?
 
-    init(url: URL, maxPixel: Int) {
+    init(url: URL, maxPixel: Int, start: Double = 0, end: Double? = nil) {
         asset = AVURLAsset(url: url)
-        seconds = max(0.1, CMTimeGetSeconds(asset.duration))
+        let whole = max(0.1, CMTimeGetSeconds(asset.duration))
+        from = min(max(0, start), whole - 0.1)
+        seconds = max(0.1, min(end ?? whole, whole) - from)
         gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.requestedTimeToleranceBefore = .zero
@@ -26,7 +29,7 @@ final class VideoClipSource: @unchecked Sendable {
         let local = t.truncatingRemainder(dividingBy: seconds)
         let key = Int((local * 30).rounded())                    // 30 pictures per second is plenty
         if key == lastKey, let img = lastImage { return img }
-        let img = try? gen.copyCGImage(at: CMTime(seconds: min(local, seconds - 0.04), preferredTimescale: 600), actualTime: nil)
+        let img = try? gen.copyCGImage(at: CMTime(seconds: from + min(local, seconds - 0.04), preferredTimescale: 600), actualTime: nil)
         if let img { lastKey = key; lastImage = img }
         return img ?? lastImage
     }

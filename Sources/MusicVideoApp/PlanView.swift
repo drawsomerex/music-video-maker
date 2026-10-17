@@ -533,7 +533,8 @@ struct DropWell: View {
                 guard let u = urls.first else { return false }; model.load(u, section: section); return true
             } isTargeted: { targeted = $0 }
             if let c = sec.selectedCandidate {
-                cameraControls(c).frame(maxWidth: 640, alignment: .leading)
+                if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
+                else { cameraControls(c).frame(maxWidth: 640, alignment: .leading) }
                 HStack {
                     Spacer()
                     Button("Choose a different file…") { choose() }

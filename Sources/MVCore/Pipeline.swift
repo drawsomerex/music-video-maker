@@ -354,7 +354,7 @@ public enum Pipeline {
         try FileManager.default.copyItem(at: url, to: dst)
         writeJPEG(frame, poster, 0.92); writeJPEG(frame, thumb, 0.8)
         var c = ImageCandidate(id: "video:\(n)", provider: "Video", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
-        c.thumbFile = thumb; c.fullFile = poster; c.videoFile = vid
+        c.thumbFile = thumb; c.fullFile = poster; c.videoFile = vid; c.videoLength = secs
         if index < 0 { plan.intro.candidates = [c]; plan.intro.selected = 0 } else { plan.sections[index].candidates = [c]; plan.sections[index].selected = 0 }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
