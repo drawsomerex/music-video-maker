@@ -23,6 +23,18 @@ final class VideoClipSource: @unchecked Sendable {
         gen.maximumSize = CGSize(width: maxPixel, height: maxPixel)
     }
 
+    /// What to show `t` seconds into a scene that lasts `sceneLength`. A clip that has to repeat loops like a professional video loop:
+    /// the last stretch of the clip dissolves into its beginning (an overlap of up to 0.8 s) and playback carries on from there, so there is never a hard cut.
+    func looped(at t: Double, sceneLength: Double) -> (main: CGImage?, over: CGImage?, overAlpha: Double) {
+        guard sceneLength > seconds + 0.05 else { return (frame(at: t), nil, 0) }
+        let f = min(0.8, seconds / 3), period = seconds - f
+        let local = t.truncatingRemainder(dividingBy: period)
+        if t >= period, local < f {                                 // the seam: the end of the clip dissolves into its beginning
+            return (frame(at: period + local), frame(at: local), local / f)
+        }
+        return (frame(at: local), nil, 0)
+    }
+
     /// The picture of the clip `t` seconds after the scene began (the clip repeats if it is shorter than the scene).
     func frame(at t: Double) -> CGImage? {
         lock.lock(); defer { lock.unlock() }

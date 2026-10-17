@@ -185,13 +185,19 @@ final class PhotoScene {
         let uCos = 0.5 - 0.5 * cos(.pi * u0)
         let u = 0.28 * u0 + 0.72 * uCos
 
-        if let v = video, let frame = v.frame(at: max(0, t - a)) {
-            let iw = Double(frame.width), ih = Double(frame.height), target = Double(W) / Double(H)
-            let rw = iw / ih > target ? ih * target : iw, rh = rw / target       // cover crop, centred (on the focus point for tall frames)
-            let cx = min(max(iw / 2, rw / 2), iw - rw / 2), cy = min(max(ih / 2, rh / 2), ih - rh / 2)
-            let s = Double(W) / rw
-            ctx.draw(frame, in: CGRect(x: -(cx - rw / 2) * s, y: -(ih - (cy - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
-            return
+        if let v = video {
+            let shot = v.looped(at: max(0, t - a), sceneLength: self.b - a)
+            if let frame = shot.main {
+                func put(_ img: CGImage) {
+                    let iw = Double(img.width), ih = Double(img.height), target = Double(W) / Double(H)
+                    let rw = iw / ih > target ? ih * target : iw, rh = rw / target       // cover crop, centred
+                    let cx = iw / 2, cy = ih / 2, s = Double(W) / rw
+                    ctx.draw(img, in: CGRect(x: -(cx - rw / 2) * s, y: -(ih - (cy - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
+                }
+                put(frame)
+                if let over = shot.over { ctx.saveGState(); ctx.setAlpha(CGFloat(shot.overAlpha)); put(over); ctx.restoreGState() }
+                return
+            }
         }
         guard let img = box?.get() else { drawGradient(ctx, W, H, u0); return }
         let iw = Double(img.width), ih = Double(img.height)
