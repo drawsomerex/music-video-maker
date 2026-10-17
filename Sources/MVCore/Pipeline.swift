@@ -690,6 +690,11 @@ public enum Pipeline {
             let text = "\(meta)\n\n— look: \(style.summary) · seed \(c.styleSeed)\n"
             try? text.write(to: out.deletingPathExtension().appendingPathExtension("txt"), atomically: true, encoding: .utf8)
         }
+        // A plain range file next to the video: which part of the song it is and the exact word times, for other tools (e.g. ffmpeg).
+        let words = plan.lines.flatMap(\.words).filter { $0.end > c.start && $0.start < c.end }.map { ["word": $0.text, "start": ($0.start * 1000).rounded() / 1000, "end": ($0.end * 1000).rounded() / 1000] as [String: Any] }
+        let range: [String: Any] = ["clip_id": c.id.uuidString, "title": c.name, "source": plan.title, "start_time": (c.start * 1000).rounded() / 1000, "end_time": (c.end * 1000).rounded() / 1000,
+                                    "duration": ((c.end - c.start) * 1000).rounded() / 1000, "lyrics_included": words]
+        if let d = try? JSONSerialization.data(withJSONObject: range, options: [.prettyPrinted, .sortedKeys]) { try? d.write(to: out.deletingPathExtension().appendingPathExtension("json")) }
         return out
     }
 }

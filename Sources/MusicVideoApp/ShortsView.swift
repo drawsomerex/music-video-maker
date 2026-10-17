@@ -87,6 +87,7 @@ struct ShortEditor: View {
     @State private var previewT = 1.0
     @State private var zoomFocus = 0        // 0 = whole clip, 1 = around the start, 2 = around the end
     @State private var zoomSpan = 8.0       // seconds visible when zoomed on an edge
+    @State private var anchor: Int?         // the lyric line where a drag across the list began
 
     var plan: Plan { model.plan! }
     var c: ShortClip { model.currentShort ?? clip }
@@ -100,16 +101,12 @@ struct ShortEditor: View {
                         TextField("Name", text: Binding(get: { c.name }, set: { n in model.update(clip.id) { $0.name = n } })).textFieldStyle(.roundedBorder).font(.title3.bold())
                             .help("A name for this clip. It becomes the file name.")
                     }
-                    summary
-                    Text("Step 1 — Choose the words").font(.headline)
-                    lyricPicker
-                    Text("Step 2 — Choose the look").font(.headline)
-                    styleBox
-                    Text("Step 3 — Fine-tune where the clip starts and ends").font(.headline)
-                    Text("The wavy picture is your song. Drag the green handle (start) and red handle (end), or use the small buttons. Press the ▶ buttons to hear how the cut sounds.").font(.callout).foregroundStyle(.secondary)
+                    selectionHeader
+                    Text("Choose your hook").font(.headline)
+                    Text("The song is shown below with its parts on top. The bright box is your Short; everything outside it is dimmed. Drag the box to move it, drag its edges to change where it starts and ends (they snap to the nearest word; hold Shift to turn snapping off), or choose lyric lines in the list further down.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 10) {
                         Picker("Zoom on", selection: $zoomFocus) { Text("Whole clip").tag(0); Text("Start").tag(1); Text("End").tag(2) }.pickerStyle(.segmented).frame(minWidth: 170, maxWidth: 240).labelsHidden()
-                            .help("Zoom in on the start or the end of the clip to place the cut precisely. Every word is labelled when you are zoomed in.")
+                            .help("The lower picture is a close-up. Show the whole clip, or zoom in on its start or end to place the cut precisely. Every word is labelled when you are zoomed in.")
                         if zoomFocus != 0 {
                             Button { zoomSpan = min(40, zoomSpan * 1.6) } label: { Image(systemName: "minus.magnifyingglass") }.controlSize(.small)
                             Slider(value: Binding(get: { log(zoomSpan) }, set: { zoomSpan = exp($0) }), in: log(1.5)...log(40)).frame(minWidth: 70, maxWidth: 130)
@@ -118,7 +115,11 @@ struct ShortEditor: View {
                         }
                     }
                     WaveformEditor(clip: c, id: clip.id, zoomFocus: zoomFocus, zoomSpan: zoomSpan)
+                    lyricPicker
+                    Text("Fine-tune").font(.headline)
                     HStack(alignment: .top, spacing: 24) { edge("Start", isStart: true); edge("End", isStart: false) }
+                    Text("Choose the look").font(.headline)
+                    styleBox
                     transport
                 }.padding(20)
             }
@@ -138,64 +139,106 @@ struct ShortEditor: View {
         return (max(0, first - c.start), max(0, c.end - last))
     }
 
-    var summary: some View {
-        HStack(spacing: 12) {
-            Label("\(clock(c.start)) → \(clock(c.end))", systemImage: "scissors").monospacedDigit()
-            Text(String(format: "%.1f s", c.duration)).monospacedDigit().padding(.horizontal, 8).padding(.vertical, 2)
-                .background(Capsule().fill(c.duration >= ShortClip.maxDuration - 0.05 ? Color.orange.opacity(0.25) : c.duration <= 60 ? Color.green.opacity(0.18) : Color.orange.opacity(0.18)))
-            Text(c.duration >= ShortClip.maxDuration - 0.05 ? "At the 3:00 Short limit" : c.duration <= 60 ? "Under a minute" : "Over a minute").font(.caption)
-                .foregroundStyle(c.duration >= ShortClip.maxDuration - 0.05 ? .orange : .secondary)
-            if let m = musicAround {
-                Text(String(format: "♪ %.1f s before the words · %.1f s after", m.before, m.after)).font(.caption).monospacedDigit()
-                    .foregroundStyle(m.before < 1.5 || m.after < 1.5 ? .orange : .secondary)
-                    .help("Music-only time at the start and end. Short because the neighbouring lyric line is right next to it — move the handle into the gap, or accept it.")
+    // MARK: length guardrails + loop preview
+    var selectionHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Label("\(clock(c.start)) → \(clock(c.end))", systemImage: "scissors").monospacedDigit()
+                LengthBadge(duration: c.duration)
+                Text(ShortLength.message(c.duration)).font(.callout.weight(.medium)).foregroundStyle(ShortLength.color(c.duration))
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 10) {
+                Button { model.toggleLoop(c.start, c.end) } label: { Label(model.looping ? "Stop" : "Loop preview", systemImage: model.looping ? "stop.fill" : "repeat") }
+                    .keyboardShortcut("l", modifiers: [])
+                    .help("Plays just this selection again and again, starting half a second early, so you can hear whether the cut sounds clean. Keyboard: press L (or the space bar) to start and stop.")
+                Button("") { model.toggleLoop(c.start, c.end) }.keyboardShortcut(.space, modifiers: []).frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
+                Button { model.extendSelection(clip.id, seconds: 30) } label: { Label("Make it about 30 seconds", systemImage: "arrow.left.and.right") }
+                    .help("Keeps where it starts and adds lyric lines until the clip is about 30 seconds long.")
+                if let m = musicAround {
+                    Text(String(format: "♪ %.1f s before the words · %.1f s after", m.before, m.after)).font(.caption).monospacedDigit()
+                        .foregroundStyle(m.before < 1.5 || m.after < 1.5 ? .orange : .secondary)
+                        .help("Music-only time at the start and end. Short because the neighbouring lyric line is right next to it. Move the handle into the gap, or accept it.")
+                }
             }
         }.font(.callout)
     }
 
-    // MARK: lyrics
+    // MARK: lyrics, grouped by the song's parts. Click a line, or drag across several lines, and the selection snaps to them.
+    enum LyricRow { case header(String, Int); case line(Int) }
+    var lyricRows: [LyricRow] {
+        var out: [LyricRow] = []
+        for (i, sec) in plan.sections.enumerated() {
+            let title = sec.lineIDs.isEmpty ? "Music only" : "Part \(i + (plan.sections.first?.lineIDs.isEmpty == true ? 0 : 1))"
+            if sec.lineIDs.isEmpty && sec.end - sec.start < 4 { continue }
+            out.append(.header(title, i)); for l in sec.lineIDs where plan.lines.indices.contains(l) { out.append(.line(l)) }
+        }
+        return out
+    }
+    static let rowH: CGFloat = 28
+
+    func lineAt(_ y: CGFloat, _ rows: [LyricRow]) -> Int? {
+        guard !rows.isEmpty else { return nil }
+        var i = min(rows.count - 1, max(0, Int(y / ShortEditor.rowH)))
+        while i < rows.count { if case .line(let l) = rows[i] { return l }; i += 1 }          // a part's heading means its first line
+        i = rows.count - 1; while i >= 0 { if case .line(let l) = rows[i] { return l }; i -= 1 }
+        return nil
+    }
+
     var lyricPicker: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let rows = lyricRows
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 14) {
                 Stepper(value: $model.leadIn, in: 0...12, step: 0.5) { Text("Music before the words: \(String(format: "%.1f", model.leadIn)) s").font(.callout).monospacedDigit() }
                     .help("How many seconds of music play before the first sung word. Applied when you choose lines.")
                 Stepper(value: $model.tailOut, in: 0...12, step: 0.5) { Text("after: \(String(format: "%.1f", model.tailOut)) s").font(.callout).monospacedDigit() }
                     .help("How many seconds of music play after the last sung word.")
-                
-            }.padding(.bottom, 4)
-            Text("Click a line to begin the clip there. Hold the Shift key and click another line to end it there.").font(.callout).foregroundStyle(.secondary).padding(.bottom, 6)
+            }
+            Text("Click a line to choose it, or press and drag across several lines. Hold Shift and click to stretch the clip to another line. The box on the timeline above follows you.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(plan.lines.indices, id: \.self) { i in
-                            let l = plan.lines[i]; let inside = range.map { $0.contains(i) } ?? false
-                            HStack(spacing: 8) {
-                                Text(String(format: "%2d", i + 1)).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 20, alignment: .trailing)
-                                Text(clock(l.start)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 46, alignment: .leading)
-                                Text(l.text).font(.callout).foregroundStyle(inside ? .primary : .secondary).lineLimit(1)
-                                Spacer(minLength: 4)
-                                if range?.lowerBound == i { Text("START").font(.system(size: 9, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(.green)) }
-                                if range?.upperBound == i { Text("END").font(.system(size: 9, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(.red)) }
-                                Button("Start") { model.setShortLines(clip.id, from: i) }.buttonStyle(.bordered).controlSize(.mini)
-                                    .help("Begin the clip at this line.")
-                                Button("End") { model.setShortLines(clip.id, to: i) }.buttonStyle(.bordered).controlSize(.mini)
-                                    .help("End the clip at this line.")
-                            }
-                            .padding(.horizontal, 8).frame(height: 26)
-                            .background(inside ? Color.accentColor.opacity(0.16) : .clear).id(i)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                // Click = start here; Shift-click = end here.
-                                if NSEvent.modifierFlags.contains(.shift) { model.setShortLines(clip.id, to: i) } else { model.setShortLines(clip.id, from: i, fresh: true) }
+                        ForEach(Array(rows.enumerated()), id: \.offset) { n, row in
+                            switch row {
+                            case .header(let t, let si):
+                                HStack {
+                                    Text(t).font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("Use this whole part") { model.selectSection(clip.id, index: si) }.buttonStyle(.borderless).font(.caption)
+                                        .help("Selects every line of this part as one clip.")
+                                }.padding(.horizontal, 8).frame(height: ShortEditor.rowH).background(Color.secondary.opacity(0.10))
+                            case .line(let i):
+                                let l = plan.lines[i]; let inside = range.map { $0.contains(i) } ?? false
+                                HStack(spacing: 8) {
+                                    Text(clock(l.start)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 46, alignment: .leading)
+                                    Text(l.text).font(.callout).foregroundStyle(inside ? .primary : .secondary).lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    if range?.lowerBound == i { Text("START").font(.system(size: 9, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(.green)) }
+                                    if range?.upperBound == i { Text("END").font(.system(size: 9, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(.red)) }
+                                }
+                                .padding(.horizontal, 8).frame(height: ShortEditor.rowH)
+                                .background(inside ? ShortLength.color(c.duration).opacity(0.16) : .clear).id(i)
                             }
                         }
                     }
+                    .coordinateSpace(name: "lyrics")
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("lyrics"))
+                        .onChanged { g in
+                            guard let cur = lineAt(g.location.y, rows) else { return }
+                            if anchor == nil {
+                                if NSEvent.modifierFlags.contains(.shift), let r = range { anchor = cur < r.lowerBound ? r.upperBound : r.lowerBound }
+                                else { anchor = lineAt(g.startLocation.y, rows) ?? cur }
+                            }
+                            if let a = anchor { model.selectLines(clip.id, min(a, cur), max(a, cur)) }
+                        }
+                        .onEnded { _ in anchor = nil })
                 }
-                .frame(height: 210).background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
+                .frame(height: 220).background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
                 .onAppear { if let r = range { proxy.scrollTo(max(0, r.lowerBound - 1), anchor: .top) } }
             }
-            if let r = range { Text("Lines \(r.lowerBound + 1)–\(r.upperBound + 1) · “\(plan.lines[r.lowerBound].text)” … “\(plan.lines[r.upperBound].text)”").font(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.top, 4) }
+            if let r = range { Text("Lines \(r.lowerBound + 1)–\(r.upperBound + 1) · “\(plan.lines[r.lowerBound].text)” … “\(plan.lines[r.upperBound].text)”").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
         }
     }
 
@@ -329,14 +372,17 @@ struct WaveformEditor: View {
     let id: UUID
     let zoomFocus: Int
     let zoomSpan: Double
-    @State private var dragging: Int? = nil   // 0 = start, 1 = end
+    enum DragMode { case start, end, move(grab: Double) }
+    @State private var mode: DragMode? = nil
+    @State private var dragging: Int? = nil   // 0 = start, 1 = end (for the audition on release)
     @State private var frozen: ClosedRange<Double>? = nil   // keeps the window still while a handle is dragged
 
     var c: ShortClip { model.currentShort ?? clip }
 
     var body: some View {
         VStack(spacing: 6) {
-            strip(visible: 0...(model.plan?.songDuration ?? 1), height: 46, editable: false)
+            sectionsStrip
+            strip(visible: 0...(model.plan?.songDuration ?? 1), height: 64, editable: true, overview: true)
             strip(visible: frozen ?? detailRange, height: zoomFocus == 0 ? 90 : 120, editable: true)
         }
     }
@@ -353,7 +399,28 @@ struct WaveformEditor: View {
         }
     }
 
-    func strip(visible: ClosedRange<Double>, height: CGFloat, editable: Bool) -> some View {
+    /// The song's parts (the pictures) as coloured blocks above the waveform, so you can see where the verses and choruses are. Press one to select all of it.
+    var sectionsStrip: some View {
+        GeometryReader { geo in
+            let dur = max(1, model.plan?.songDuration ?? 1), w = geo.size.width
+            ZStack(alignment: .topLeading) {
+                ForEach(Array((model.plan?.sections ?? []).enumerated()), id: \.offset) { i, sec in
+                    let x0 = CGFloat(sec.start / dur) * w, x1 = CGFloat(sec.end / dur) * w
+                    let music = sec.lineIDs.isEmpty
+                    Button { model.selectSection(clip.id, index: i) } label: {
+                        Text(x1 - x0 > 54 ? (music ? "Music" : "Part \(i + (model.plan!.sections.first?.lineIDs.isEmpty == true ? 0 : 1))") : "")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                            .frame(width: max(2, x1 - x0 - 2), height: 20)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(music ? Color.gray.opacity(0.55) : [Color.blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown][i % 8].opacity(0.75)))
+                    }
+                    .buttonStyle(.plain).offset(x: x0 + 1)
+                    .help(music ? "A part with only music. Press to select it as a Short." : "Part \(i + 1) of the song. Press to select all of it as a Short.")
+                }
+            }
+        }.frame(height: 20)
+    }
+
+    func strip(visible: ClosedRange<Double>, height: CGFloat, editable: Bool, overview: Bool = false) -> some View {
         GeometryReader { geo in
             let w = geo.size.width
             let span = max(0.1, visible.upperBound - visible.lowerBound)
@@ -363,7 +430,7 @@ struct WaveformEditor: View {
                 let peaks = model.waveform
                 // selection
                 let a = x(c.start), b = x(c.end)
-                ctx.fill(Path(CGRect(x: max(0, a), y: 0, width: max(0, min(size.width, b) - max(0, a)), height: size.height)), with: .color(.accentColor.opacity(0.18)))
+                ctx.fill(Path(CGRect(x: max(0, a), y: 0, width: max(0, min(size.width, b) - max(0, a)), height: size.height)), with: .color(.white.opacity(0.10)))
                 // waveform (max over each pixel column)
                 if !peaks.isEmpty {
                     let mid = size.height / 2
@@ -391,6 +458,10 @@ struct WaveformEditor: View {
                         } }
                     }
                 }
+                // everything outside the Short is dimmed; the Short itself is outlined in the colour of its length (orange too short, green ideal, red long)
+                ctx.fill(Path(CGRect(x: 0, y: 0, width: max(0, min(size.width, a)), height: size.height)), with: .color(.black.opacity(0.42)))
+                ctx.fill(Path(CGRect(x: max(0, b), y: 0, width: max(0, size.width - max(0, b)), height: size.height)), with: .color(.black.opacity(0.42)))
+                ctx.stroke(Path(CGRect(x: max(1, a), y: 1, width: max(2, min(size.width - 1, b) - max(1, a)), height: size.height - 2)), with: .color(ShortLength.color(c.duration)), lineWidth: 2.5)
                 // handles
                 for (t, col) in [(c.start, Color.green), (c.end, Color.red)] where visible.contains(t) {
                     ctx.fill(Path(CGRect(x: x(t) - 1, y: 0, width: 2, height: size.height)), with: .color(col))
@@ -402,15 +473,43 @@ struct WaveformEditor: View {
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
             .gesture(editable ? DragGesture(minimumDistance: 0)
                 .onChanged { g in
-                    if dragging == nil { dragging = abs(g.startLocation.x - x(c.start)) <= abs(g.startLocation.x - x(c.end)) ? 0 : 1; frozen = visible }
+                    let dur = model.plan?.songDuration ?? 1
                     let t = time(min(max(0, g.location.x), w))
-                    model.update(id) { if dragging == 0 { $0.start = min(t, $0.end - 2) } else { $0.end = max(t, $0.start + 2) } }
+                    if mode == nil {
+                        frozen = overview ? nil : visible
+                        let xs = x(c.start), xe = x(c.end), px = g.startLocation.x
+                        if abs(px - xs) <= 12 { mode = .start; dragging = 0 }
+                        else if abs(px - xe) <= 12 { mode = .end; dragging = 1 }
+                        else if px > xs && px < xe { mode = .move(grab: time(px) - c.start) }
+                        else { mode = .move(grab: c.duration / 2) }          // pressing outside the window moves it there
+                    }
+                    let near = 8 * (visible.upperBound - visible.lowerBound) / Double(max(1, w))      // snapping reach: 8 pixels
+                    let free = NSEvent.modifierFlags.contains(.shift)                                   // Shift = no snapping
+                    @MainActor func snapped(_ v: Double) -> Double { free ? v : model.snapToWordEdge(v, within: near) }
+                    switch mode {
+                    case .start: let v = snapped(t); model.update(id) { $0.start = min(v, $0.end - 2) }
+                    case .end: let v = snapped(t); model.update(id) { $0.end = max(v, $0.start + 2) }
+                    case .move(let grab)?:
+                        let d = c.duration
+                        var s0 = min(max(0, t - grab), max(0, dur - d))
+                        let s1 = snapped(s0), e1 = snapped(s0 + d)
+                        if abs(s1 - s0) <= abs(e1 - (s0 + d)) { s0 = min(max(0, s1), max(0, dur - d)) } else { s0 = min(max(0, e1 - d), max(0, dur - d)) }
+                        model.update(id) { $0.start = s0; $0.end = s0 + d }
+                    case nil: break
+                    }
                 }
                 .onEnded { _ in
-                    let which = dragging; dragging = nil; frozen = nil
+                    let which = dragging; dragging = nil; frozen = nil; mode = nil
                     // Audition the edge you just moved: 2.5 s from the start, or the last 2.5 s up to the end.
                     if which == 0 { model.playRange(c.start, c.start + 2.5) } else if which == 1 { model.playRange(max(c.start, c.end - 2.5), c.end + 0.3) }
                 } : nil)
+            .overlay {
+                // the length badge sits on the selected window of the overview
+                if overview {
+                    let a = max(0, x(c.start)), b = min(w, x(c.end))
+                    if b - a > 70 { LengthBadge(duration: c.duration).position(x: (a + b) / 2, y: height - 14).allowsHitTesting(false) }
+                }
+            }
             .overlay(alignment: .topLeading) {
                 if editable { Text(clock(visible.lowerBound)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.tertiary).padding(3) }
             }
@@ -418,5 +517,34 @@ struct WaveformEditor: View {
                 if editable { Text(clock(visible.upperBound)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.tertiary).padding(3) }
             }
         }.frame(height: height)
+    }
+}
+
+
+/// Colours and words for how long a Short is: orange too short, green ideal, red long.
+enum ShortLength {
+    static func color(_ d: Double) -> Color {
+        if d < 5 { return .orange }
+        if d < 15 { return .secondary }
+        if d <= 60 { return .green }
+        return Color(red: 0.86, green: 0.11, blue: 0.2)
+    }
+    static func message(_ d: Double) -> String {
+        if d >= ShortClip.maxDuration - 0.05 { return "At the 3:00 limit for a Short." }
+        if d < 5 { return "Too short for a compelling Short." }
+        if d < 15 { return "A little short. 15 to 60 seconds works best." }
+        if d <= 60 { return "Ideal length for a Short." }
+        return "Longer than 60 seconds. YouTube allows up to 3 minutes for some uploads."
+    }
+}
+
+/// "34.2 s / 60 s" pill shown on the selection.
+struct LengthBadge: View {
+    let duration: Double
+    var body: some View {
+        Text(String(format: "%.1f s / 60 s", duration)).font(.system(size: 12, weight: .bold).monospacedDigit()).foregroundStyle(.white)
+            .padding(.horizontal, 10).padding(.vertical, 3).background(Capsule().fill(ShortLength.color(duration).opacity(0.92)))
+            .overlay(Capsule().strokeBorder(.white.opacity(0.5), lineWidth: 1))
+            .help("The length of this Short. Green is the ideal range, orange is too short, red is longer than 60 seconds.")
     }
 }

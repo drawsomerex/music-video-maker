@@ -31,7 +31,7 @@ enum HelpAssistant {
         3. If the guide and status do not clearly answer the question, answer exactly: “I don't know. That isn't covered in the help guide.” and nothing else. Do not guess.
         4. For “how do I…” questions give short numbered steps. For other questions give 1 to 3 short sentences. Never more than 120 words.
         5. Use the SCREEN STATUS to give advice for this exact situation (for example why a button is grey, or what is still missing). Do not repeat the status.
-        6. When the guide lists steps for the user's task, give those steps in order and do not skip any. Copy numbers (seconds, sizes, prices) exactly from the guide; if the guide gives no number, give none. If the guide describes two ways (for example the whole song versus one line), give the one that matches the question first.
+        6. When the guide lists steps for the user's task, give those steps in order and do not skip any. Copy numbers (seconds, sizes, prices) exactly from the guide; if the guide gives no number, give none. If the guide describes two ways (for example the whole song versus one line), give the one that matches the question first. Never add a step the guide does not contain.
 
         GUIDE:
         \(guide)

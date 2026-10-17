@@ -1044,21 +1044,58 @@ final class AppModel: ObservableObject {
         update(id) { $0.start = n.start; $0.end = n.end }
     }
 
-    func playRange(_ a: Double, _ b: Double) {
+    @Published var looping = false
+    /// Plays the selection again and again (half a second of lead-in each time); press again to stop.
+    func toggleLoop(_ a: Double, _ b: Double) {
+        if looping { stopPlayback(); return }
+        playRange(a, b, loop: true)
+    }
+    /// Snaps a time to the closest word or line edge when one is within `within` seconds (a word edge is where a word starts or ends).
+    func snapToWordEdge(_ t: Double, within: Double) -> Double {
+        guard let p = plan else { return t }
+        var best = t, bestD = within
+        func consider(_ x: Double) { let d = abs(x - t); if d < bestD { bestD = d; best = x } }
+        for l in p.lines { consider(l.start); consider(l.end); for w in l.words { consider(w.start); consider(w.end) } }
+        return best
+    }
+    /// Chooses lyric lines `a…b` for a Short (never past the 3:00 limit).
+    func selectLines(_ id: UUID, _ a: Int, _ b: Int) {
+        guard let p = plan, p.lines.indices.contains(a), p.lines.indices.contains(b) else { return }
+        var hi = max(a, b)
+        while hi > a && p.lines[hi].end - p.lines[a].start > ShortClip.maxDuration - leadIn - tailOut { hi -= 1 }
+        let n = Pipeline.clip(plan: p, lines: a, to: hi, lead: leadIn, tail: tailOut)
+        update(id) { $0.start = n.start; $0.end = n.end }
+    }
+    /// Keeps the start and adds lines until the clip is about `seconds` long.
+    func extendSelection(_ id: UUID, seconds: Double) {
+        guard let p = plan, let c = p.shorts.first(where: { $0.id == id }), let r = Pipeline.lineRange(plan: p, clip: c) else { return }
+        selectLines(id, r.lowerBound, Pipeline.lastLine(plan: p, from: r.lowerBound, within: seconds))
+    }
+    /// Selects one part of the song (all its lyric lines, or the whole stretch of a music-only part).
+    func selectSection(_ id: UUID, index: Int) {
+        guard let p = plan, p.sections.indices.contains(index) else { return }
+        let s = p.sections[index]
+        if let f = s.lineIDs.first, let l = s.lineIDs.last { selectLines(id, f, l) }
+        else { update(id) { $0.start = s.start; $0.end = s.end } }
+    }
+
+    func playRange(_ a: Double, _ b: Double, loop: Bool = false) {
         guard let u = audioFileURL else { return }
         stopPlayback()
         guard let pl = try? AVAudioPlayer(contentsOf: u) else { return }
-        audioPlayer = pl; pl.currentTime = max(0, a); pl.play(); playhead = a
+        let begin = max(0, loop ? a - 0.5 : a)
+        looping = loop
+        audioPlayer = pl; pl.currentTime = begin; pl.play(); playhead = begin
         playTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let p = self.audioPlayer else { return }
                 self.playhead = p.currentTime
-                if p.currentTime >= b || !p.isPlaying { self.stopPlayback() }
+                if p.currentTime >= b || !p.isPlaying { if loop { p.currentTime = begin; p.play() } else { self.stopPlayback() } }
             }
         }
     }
 
-    func stopPlayback() { playTimer?.invalidate(); playTimer = nil; audioPlayer?.stop(); audioPlayer = nil; playhead = nil }
+    func stopPlayback() { playTimer?.invalidate(); playTimer = nil; audioPlayer?.stop(); audioPlayer = nil; playhead = nil; looping = false }
 
     /// (Re)builds the live preview for the selected Short (debounced); `t` is the position to show afterwards.
     func refreshPreview(at t: Double) {

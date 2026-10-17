@@ -121,7 +121,7 @@ struct LivePreviewPane: View {
     @ObservedObject var live: LivePreview
     let defaultCaption: Double
     let onCaptionCommit: (Double?) -> Void
-    @State private var safeZones = false
+    @State private var safeZones = true       // Shorts: show where YouTube's own buttons and text cover the picture
     @State private var dragging = false
 
     var body: some View {
