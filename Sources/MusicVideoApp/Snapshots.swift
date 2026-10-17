@@ -57,9 +57,7 @@ enum Snapshots {
             }
             model.waveform = peaks
             model.selectLines(c.id, 3, 8)
-            let editor = WaveformEditor(clip: model.currentShort!, id: c.id, zoomFocus: 0, zoomSpan: 8)
-            save("shorts", CGSize(width: 760, height: 330), editor.padding())
-            save("wordlane", CGSize(width: 780, height: 140), WordLane(clipID: c.id, scrollable: false).padding(10))
+            save("shorts", CGSize(width: 1180, height: 1100), ShortEditor(clip: model.currentShort!, snapshot: true))
         }
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())
         save("update-sheet", CGSize(width: 520, height: 420), UpdateSheet())

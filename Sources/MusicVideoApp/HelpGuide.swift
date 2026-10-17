@@ -109,7 +109,7 @@ enum HelpGuide {
         """),
         HelpSection(id: "preview", title: "Preview and word timing", keywords: "preview watch captions words early late timing sync show sooner later nudge off fix the timing rough lyrics out of sync", body: """
         "Preview" (bottom left of the Pictures screen) plays the video as it will look, at a smaller size, before you make it. Nothing is saved. You can drag the words up or down to move them for the whole video.
-        To make ALL the words of the song appear earlier or later (for example when every word seems to arrive after the singer): press "Preview", then under the preview press "Show sooner" (earlier) or "Show later" (later). Each press moves every word of the song by 0.05 seconds. The setting is saved with the song. "Reset" returns to the standard timing, which shows the words 0.06 seconds early.
+        To make ALL the words (captions) of the song appear earlier or later (for example when every word seems to arrive after the singer): press "Preview", then under the preview press "Show sooner" (earlier) or "Show later" (later). On the Shorts page the same buttons under the vertical preview are named "Sooner" and "Later". They move the words only; they do not change where a Short starts or ends. Each press moves every word of the song by 0.05 seconds. The setting is saved with the song. "Reset" returns to the standard timing, which shows the words 0.06 seconds early.
         To correct only ONE lyric line: on the Pictures screen, click the part that contains the line and use the small −0.5s, −0.1s, +0.1s and +0.5s buttons next to that line. Those move just that line by half a second or a tenth of a second.
         If the top bar says "Word timing is rough", press "Fix the timing". The app listens to the song again to line every word up exactly (about a minute). Pictures are not touched.
         """),
@@ -124,36 +124,44 @@ enum HelpGuide {
         HelpSection(id: "shorts", title: "YouTube Shorts: what they are and how to start", keywords: "shorts youtube vertical short clips tiktok reels 9:16 phone clip 30 seconds minute whole song start begin make add", body: """
         On the Pictures screen, switch from "Full video" to "YouTube Shorts" at the top. A Short is a vertical video (1080 by 1920) that can be at most 3 minutes long.
         "Cut my song into clips for me" makes clips of about 30 seconds that start and end between the parts of your song.
-        "Choose the lines myself" starts one clip for you to shape.
+        "Choose the lines myself" starts one clip for you to shape (about 30 seconds, starting at the first sung words).
         "Whole song" turns the whole song into one vertical video, split into the fewest equal parts if it is longer than 3 minutes.
         "Add a clip" (in the list on the left) adds more clips. The trash button deletes the selected clip.
-        "Make this clip" creates the clip. "Make 3 versions" makes it three times with different looks. "Make all clips" makes every clip in the list.
+        "Make this clip" creates the clip. "Make all clips" (in the left list) makes every clip in the list.
         Shorts are saved in the same folder as the main video, named "<song title> – <clip name>.mp4". Next to each there is a text file with a suggested title, description and hashtags, and a .json file with the clip's start and end times and the exact times of its words.
         """),
-        HelpSection(id: "shortsTimeline", title: "Shorts: choosing the part of the song (timeline and lyric list)", keywords: "shorts select choose part timeline box drag edges snap snapping shift zoom lyric lines list chorus verse whole part thirty seconds move start end handles waveform", body: """
-        At the top of the Shorts editor the song's parts are coloured blocks. To select a whole part (for example a chorus) as a Short: press its block, or press "Use this whole part" above its lines in the lyric list.
-        Below the blocks is the whole song as a waveform. The bright box with the coloured outline is your Short; everything outside it is dimmed. To move the Short: drag the box. To change where it starts or ends: drag the box's left or right edge.
-        To turn snapping off: hold the Shift key while you drag. Without Shift, the edges snap to the nearest word or line edge when you get within about 8 pixels.
-        The lower picture is a close-up. "Zoom on" chooses Whole clip, Start or End, and the magnifier buttons zoom in and out; the words are written on it when you are zoomed in to about 20 seconds or less.
-        "The words" strip below the timeline shows every word of the song in large, readable type at the moment it is sung. Scroll it sideways. The words inside your Short are highlighted, with a green line where the Short starts and a red line where it ends. Click a word to start the Short at that word; Shift-click a word to end the Short at that word. The strip scrolls by itself to follow the start of the Short.
-        The lyric list under the timeline is grouped by part. To choose lines: click one line, or press and drag across several lines (the box on the timeline follows). Hold Shift and click to stretch the clip to another line. "Make it about 30 seconds" keeps the start and adds lines until the clip is about 30 seconds long.
-        The steppers "Music before the words" and "after" set how many seconds of music are added around the chosen lines.
-        Under "Fine-tune", "Move to the nearest pause", the small minus and plus buttons and "Hear the start" / "Hear the end" adjust and check each edge.
+        HelpSection(id: "shortsTimeline", title: "Shorts: choosing the part of the song (the song map and the word timeline)", keywords: "shorts select choose part timeline map box drag edges snap snapping shift zoom words click marker green red start end chorus verse whole part thirty seconds move waveform scroll", body: """
+        The Shorts editor is one page you read from top to bottom.
+        The whole song: the song's parts are coloured blocks. To use a whole part (for example a chorus) as your Short, press its block. Below the blocks is the whole song as a waveform. The bright box with the coloured outline is your Short; everything outside it is dimmed. Drag the box to move your Short, or drag its left or right edge to change where it starts or ends.
+        The song, word by word: this strip shows the waveform and every word of the song in large type at the moment it is sung. Scroll it sideways to move along the song, and use the magnifier buttons to zoom. The words inside your Short are highlighted, with a green marker (START) where it starts and a red marker (END) where it ends. To change where the Short starts or ends: drag the green or red marker, or click a word to start the Short at that word, or Shift-click a word to end it at that word.
+        To turn snapping off: hold the Shift key while you drag. Without Shift, the markers and box edges snap to the nearest word edge when you get within about 8 pixels.
+        Clicking empty space on the strip puts an orange cursor there. "Remove cursor" takes it away.
+        "Make it about 30 seconds" keeps the start and adds lyric lines until the Short is about 30 seconds long.
         """),
-        HelpSection(id: "shortsLength", title: "Shorts: length colours, loop preview and safe zones", keywords: "shorts length colour colours color box outline orange green red badge pill seconds too short ideal long 60 limit loop preview play listen hear selection l key space bar safe zones", body: """
-        A pill on the Short's box shows its length, for example "29.9 s / 60 s". The colours of the box and pill mean:
+        HelpSection(id: "shortsListen", title: "Shorts: listening, marking and fine-tuning the ends", keywords: "shorts play playing listen hear audio sound preview loop cursor start here end here earlier later step nudge fine tune fine-tune adjust precise space bar key length colour colours orange green red pill seconds too short ideal 60 limit safe zones set where ends end finish stop longer sooner extend", body: """
+        To hear just the part you selected: press "Play the Short" in the box "Listen and set the ends" (or press the space bar). To hear it again and again, press "Loop it".
+        To set where the Short ENDS (and likewise where it starts): drag the red END marker on "The song, word by word" strip; or drag the red edge of the bright box on "The whole song"; or Shift-click the last word you want; or listen and press "End here" at the right moment; or, in the box "Ends at", press "Later" (to end it later) or "Earlier" (to end it sooner).
+        To make the end a little later: press "Later" next to "Ends at". Each press moves it by the step chosen under "Each press moves by" (0.1 s unless you changed it) and plays it so you can hear the change. For the start, use "Earlier" and "Later" next to "Starts at".
+        Note: the "Sooner" and "Later" buttons under the PREVIEW on the right are a different thing; they move all the WORDS of the song (the captions), not the start or end of the Short.
+        The box "Listen and set the ends" has big buttons:
+        - "Play the Short" plays just the Short from its start to its end (the space bar does the same; press it again to stop).
+        - "Loop it" (or the L key) plays the Short again and again, starting half a second early, so you can hear whether the ends sound clean. Press it again to stop.
+        - "Play from the cursor" plays the song from the orange cursor, past the end of the Short, so you can listen for the right place to end.
+        - "Start here" and "End here" make the Short start or end at the spot you are listening to (the white line) or clicked (the orange cursor). The spot moves to the nearest word edge.
+        - "Starts at" and "Ends at" each have "Earlier", "Later" and "Hear it". Earlier and Later move that end and play it at once, so you hear the change. "Each press moves by" chooses 0.1 s, 0.5 s or 1 s.
+        Length colours: a pill at the top shows the length, for example "29.9 s / 60 s". Its colour and the box's outline mean:
         - Orange: under 5 seconds, too short for a compelling Short.
         - Grey: 5 to 15 seconds, a little short.
         - Green: 15 to 60 seconds, the ideal length.
         - Red: longer than 60 seconds (YouTube allows up to 3 minutes for some uploads).
         A Short can never be longer than 3:00 in this app.
-        To hear just the part you selected: press "Loop preview" (or press the L key or the space bar). It plays only the selection again and again, starting half a second early, so you can hear whether the cut sounds clean. Press it again to stop.
-        The preview on the right shows the vertical picture. "Safe zones" (on by default) shades the places where YouTube's own buttons and text cover the picture. Drag the captions in the preview to move them.
+        The preview on the right shows the vertical picture. "Safe zones" (on by default) shades the places where YouTube's own buttons and text cover the picture. Drag the captions in the preview to move them. "Sooner" and "Later" under the preview move all the words of the song a little earlier or later.
         """),
-        HelpSection(id: "shortsLook", title: "Shorts: choosing the look", keywords: "shorts look style lively title hook closing text calm punchy pill pop big sweep colour beat pulse loop ending different look variants suggest", body: """
-        "Lively style" adds an opening title (your song title by default; "Suggest one" asks the AI for a catchy title), a highlight that follows each word, smooth cuts and an optional closing text.
-        Motion can be Calm or Punchy. The words can be Pill, Pop, Big, Sweep or Surprise me. You can pick the colour, a beat pulse and a looping end.
-        "Try a different look" picks a new random look.
+        HelpSection(id: "shortsLook", title: "Shorts: choosing the look", keywords: "shorts look style lively simple title hook closing text calm punchy pill pop big sweep surprise colour color beat pulse loop ending different look variants suggest more options make 3 versions", body: """
+        "Choose the look" has: "Lively" (an opening title, a highlight that follows each word, smooth picture changes) or "Simple" (plain pictures with the words at the bottom).
+        With Lively: "Opening title" (your song title when left empty; "Suggest one" asks the AI for a catchy title), "The words" (Pill, Pop, Big, Sweep or Surprise me), and "Colour" (Hot pink, Sun yellow, Electric cyan, Lime, Tangerine, Violet or Auto).
+        "More options…" has: Motion (Calm or Punchy), Beat pulse, Looping end, Closing text, "Try a different look" (a new random look) and "Make 3 versions" (the same clip made three times with different looks).
+        "Make this clip" creates the finished vertical video.
         """),
         HelpSection(id: "steps", title: "Going back, new songs and earlier projects", keywords: "back go back previous step change song new project another song different mp3 open earlier project close start over", body: """
         The three steps at the top (Song, Pictures, Video) are buttons. Click Song to look at or change the title, setting and lyrics of the open video; click Pictures to return to the pictures; click Video to see the finished video again (it is available once you have made one).

@@ -652,15 +652,16 @@ struct Thumb: View {
 struct CaptionTimingBar: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Label("Words look too early or late?", systemImage: "captions.bubble").font(.callout.weight(.medium))
-            Button { model.nudgeCaptions(by: -0.05) } label: { Label("Show sooner", systemImage: "backward.fill") }
-                .help("Makes every word appear a little earlier (a twentieth of a second per click). Use this if the words seem to arrive after the singer.")
-            Text("now \(model.captionShiftText)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 130)
-            Button { model.nudgeCaptions(by: 0.05) } label: { Label("Show later", systemImage: "forward.fill") }
-                .help("Makes every word appear a little later. Use this if the words seem to arrive before the singer.")
-            Button("Reset") { model.resetCaptionTiming() }
-                .help("Goes back to the standard timing.")
+            HStack(spacing: 8) {
+                Button { model.nudgeCaptions(by: -0.05) } label: { Label("Sooner", systemImage: "backward.fill") }
+                    .help("Makes every word appear a little earlier (a twentieth of a second per click). Use this if the words seem to arrive after the singer.")
+                Button { model.nudgeCaptions(by: 0.05) } label: { Label("Later", systemImage: "forward.fill").labelStyle(TrailingIcon()) }
+                    .help("Makes every word appear a little later. Use this if the words seem to arrive before the singer.")
+                Button("Reset") { model.resetCaptionTiming() }.help("Goes back to the standard timing.")
+            }
+            Text("Now: words \(model.captionShiftText)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
         }
     }
 }
