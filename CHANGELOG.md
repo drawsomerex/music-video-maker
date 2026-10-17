@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Changed
+- **The automatic camera move is clearly visible now.** The default sweep across the picture is closer in (about 1.45×) and travels roughly half the width of the frame while slowly zooming in, and the diagonal glides are wider too — obvious motion, still smooth.
+
 ## [1.5.1] - 2026-10-17
 
 ### Added
