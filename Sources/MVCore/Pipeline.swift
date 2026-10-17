@@ -118,7 +118,11 @@ public enum Pipeline {
         _ = await BeatDetector.beats(audioPath: savedAudioPath, start: 0, end: duration, work: work)
 
         // Sections
-        var sections = Planner.plan(lines: lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: duration, opts: .init(imageInterval: imageInterval))
+        // Your own parts (`---`) win; otherwise your verse marks (blank lines, [Chorus] tags) cut the lyrics, unless that would make absurdly short pictures.
+        let explicitParts = !parsed.partBreaks.isEmpty
+        let verseOK = parsed.stanzaBreaks.count + 1 <= max(2, Int(duration / 6))
+        let cuts = explicitParts ? parsed.partBreaks : (verseOK ? parsed.stanzaBreaks : [])
+        var sections = Planner.plan(lines: lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: cuts, songDuration: duration, opts: .init(imageInterval: imageInterval))
         let first = lines.first?.start ?? duration
         // Title card plays over the song's instrumental intro when there's room; otherwise a short silent pre-roll.
         let introDur = first >= 3.3 ? min(6.0, first - 0.6) : 4.5
@@ -153,7 +157,8 @@ public enum Pipeline {
                         audioFile: FileManager.default.fileExists(atPath: ownAudio.path) ? audioName : "", songDuration: duration, lines: lines, intro: intro, sections: sections, description: description, style: written.style, introDuration: introDur, audioOffset: offset,
                         alignmentCoverage: aligned.coverage)
         plan.timing = timing
-        plan.partStarts = parsed.partBreaks.sorted()
+        plan.partStarts = cuts.sorted()
+        plan.partsFromVerses = !explicitParts && !cuts.isEmpty
         plan.setting = settingNote
         plan.shorts = autoShorts(plan: plan)
         try savePlan(plan, work)

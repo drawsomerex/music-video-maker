@@ -287,7 +287,12 @@ final class AppModel: ObservableObject {
     /// The lyrics as typed text: your own parts as `---` dividers, otherwise a blank line between the picture sections.
     static func lyricsText(of p: Plan) -> String {
         let texts = p.lines.map(\.text)
-        if !p.partStarts.isEmpty { return LyricText.text(lines: texts, partStarts: p.partStarts) }
+        if !p.partStarts.isEmpty && !p.partsFromVerses { return LyricText.text(lines: texts, partStarts: p.partStarts) }
+        if p.partsFromVerses {
+            let set = Set(p.partStarts); var out: [String] = []
+            for (i, t) in texts.enumerated() { if set.contains(i) && i > 0 { out.append("") }; out.append(t) }
+            return out.joined(separator: "\n")
+        }
         let starts = p.sections.compactMap(\.lineIDs.first).filter { $0 > 0 }
         let set = Set(starts); var out: [String] = []
         for (i, t) in texts.enumerated() { if set.contains(i) { out.append("") }; out.append(t) }

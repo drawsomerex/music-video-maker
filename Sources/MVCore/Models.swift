@@ -138,11 +138,13 @@ public struct Plan: Codable {
     public var partStarts: [Int] = []
     /// A setting/theme you typed (e.g. “Brightly lit colonial Philadelphia”). Every prompt follows it and states it explicitly.
     public var setting: String = ""
+    /// True when `partStarts` came from the user's own verse breaks (blank lines / [Chorus] tags) rather than `---` dividers.
+    public var partsFromVerses = false
     public static let defaultCaptionShift = -0.06
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -168,6 +170,7 @@ public struct Plan: Codable {
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
         partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []
         setting = try c.decodeIfPresent(String.self, forKey: .setting) ?? ""
+        partsFromVerses = try c.decodeIfPresent(Bool.self, forKey: .partsFromVerses) ?? false
     }
     public init(title: String, subject: String, audioPath: String, audioFile: String, songDuration: Double, lines: [LyricLine], intro: PhotoSection, sections: [PhotoSection],
                 description: String, style: String, introDuration: Double, audioOffset: Double, alignmentCoverage: Double) {
