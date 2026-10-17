@@ -5,6 +5,12 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **The picture on the Pictures screen is widescreen (16:9) again** instead of a square, and it now grows and shrinks with the window (up to a much larger size).
+- **The full-video Preview stays widescreen** after you have visited the Shorts tab.
+- **Shorts: all the caption settings are always visible** — Title, Words (Pill, Pop, Big, Sweep, Surprise) and Colour (Hot pink, Sun yellow …) — and choosing one switches the clip to the lively style so the pink pill etc. always shows.
+- **Better window resizing**: the picture list can be wider, and the first screen's left column adapts instead of keeping a fixed width.
+
 ### Changed
 - **The Shorts page is now one screen with no scrolling** (designed in Claude Design, option A). Clips are **tabs along the top**. On the left: name + length pill, the whole-song map, a **Where it starts / Where it ends** switch with ONE large close-up under it (waveform, words, beats, purple music-only stretches), the nudge buttons and *How it finishes* for the end, and the play buttons (*Play the Short, Repeat, Browse the words, Make it ~30 s*, and *Sticks to*). On the right: the vertical preview, caption timing, the look (Lively/Simple, title, words, colour dots) and **Make this clip**. *Browse the words* opens the word-by-word timeline for finding a part (click to hear from there, then start/end the Short there).
 

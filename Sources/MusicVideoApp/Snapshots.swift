@@ -81,6 +81,8 @@ enum Snapshots {
         if model.plan != nil {
             save("plan", CGSize(width: 1120, height: 760), PlanView())
             save("plan-small", CGSize(width: 860, height: 560), PlanView())
+            save("plan-large", CGSize(width: 1800, height: 1100), PlanView())
+            save("plan-mid", CGSize(width: 1000, height: 700), PlanView())
         }
         NSApplication.shared.terminate(nil)
     }
