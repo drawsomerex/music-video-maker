@@ -5,6 +5,14 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Report a problem — and see whether it is fixed.** *Help ▸ Report a Problem…* (also a button in the Help window and on error messages). Anyone can send a report without an account; it arrives as an issue in the project's GitHub list. **My reports** shows *Received / Being worked on / Done ✓* plus the author's reply, and the app tells you at start-up when something you reported is fixed. Only the text you type and the app/macOS/Mac type are sent. The tiny relay that files the reports is in `relay/` (setup in `relay/README.md`); until its address is set in `scripts/release.conf`, the sheet offers *Copy my report* / *Open the bug page*.
+- **Video clips instead of pictures.** Drag an MP4 or MOV into any part's picture box (or click and choose it). It plays while the part is on screen and repeats if shorter; works in the full video, Shorts and the preview. Clips are copied into the song's folder.
+
+### Changed
+- **Picture ideas are always bright.** The AI is told every picture must be bright, colourful and well lit (never dark, gloomy or night-time), the random time-of-day/weather choices no longer include night, fog or gloom, and every picture request ends with a brightness reminder.
+- **Faster, more dynamic automatic camera.** The default move is now a quick sweep across the whole picture, edge to edge, ending on the subject, alternating direction from picture to picture (about one in five is a diagonal glide).
+
 ## [1.4.2] - 2026-10-17
 
 ### Fixed

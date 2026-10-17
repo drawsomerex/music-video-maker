@@ -746,6 +746,9 @@ final class AppModel: ObservableObject {
         return String(format: "%.2f s %@", abs(v), v < 0 ? "early" : "late")
     }
     @Published var showGuide = QuickGuideView.shouldShowFirst
+    @Published var showReport = false        // the "Report a problem" window
+    var reportPrefill = "", reportErrorShown = ""
+    let reportCenter = ReportCenter()
     @Published var showHelp = false          // the Help window (ask a question / read the guide)
     var helpScreen = "Song screen (first screen)"
     /// Which screen is showing (told to the Help assistant).

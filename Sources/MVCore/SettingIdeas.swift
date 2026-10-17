@@ -10,7 +10,7 @@ extension PromptWriter {
         \(desc)Lyrics:
         \(lyrics.prefix(60).joined(separator: "\n"))
 
-        Suggest 10 DIFFERENT settings for the pictures of a music video for this song. Each one is a short phrase of 4 to 12 words naming a place, an era or time, and a mood or light, for example "Brightly lit colonial Philadelphia, 1776" or "A misty fishing village at dawn".
+        Suggest 10 DIFFERENT settings for the pictures of a music video for this song. Each one is a short phrase of 4 to 12 words naming a place, an era or time, and a mood or light, for example "Brightly lit colonial Philadelphia, 1776" or "A sunny fishing village at golden hour". Every idea must feel bright, warm and colourful, never dark, gloomy or night-time.
         Make them clearly different from one another (different places, eras and moods) while each one still suits what the lyrics are about. No text, names of living people or brand names. \(avoidText)
         Reply with ONLY a JSON array of 10 strings.
         """

@@ -102,6 +102,8 @@ struct HelpCenterView: View {
             HStack {
                 Button { dismiss(); model.showGuide = true } label: { Label("Quick start (5 steps)", systemImage: "list.number") }
                     .help("The short step-by-step introduction.")
+                Button { dismiss(); model.showReport = true } label: { Label("Report a problem", systemImage: "ladybug") }
+                    .help("Tell the author about something that is not working. You can see here later whether it is fixed.")
                 Spacer()
             }
         }

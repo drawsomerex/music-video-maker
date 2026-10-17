@@ -7,8 +7,10 @@ public struct PromptWriter {
     public init(omlx: OMLX) { self.omlx = omlx }
 
     static func theme(title: String, subject: String) -> String {
-        subject.trimmingCharacters(in: .whitespaces).isEmpty ? "Song: “\(title)”" : "Song: “\(title)”.\nSong description: \(subject)"
+        (subject.trimmingCharacters(in: .whitespaces).isEmpty ? "Song: “\(title)”" : "Song: “\(title)”.\nSong description: \(subject)") + "\n" + brightRule
     }
+    /// Every picture idea must look bright and inviting, whatever the lyrics are about.
+    public static let brightRule = "LIGHTING RULE: every picture must be BRIGHT, colourful, cheerful and well lit (daylight, sunny, golden, pastel or glowing light). Never dark, gloomy, murky, grim, foggy, night-time or low-key; even when the lyrics are sad or serious, show it with warm, luminous light and clear colours."
 
     /// Reads the lyrics and writes a concise description of the song: setting, era, story, mood and recurring imagery.
     public func describe(title: String, lyrics: [String], hint: String = "") async throws -> String {
@@ -103,7 +105,7 @@ public struct PromptWriter {
         let rest = prompt[prompt.index(after: sep)...].trimmingCharacters(in: CharacterSet(charactersIn: " :.\n"))
         return rest.count > 20 ? rest : prompt
     }
-    static let variations = ["at dawn with low mist", "in bright midday sun", "in warm golden-hour light", "at dusk with long shadows", "under moonlight", "in drifting fog", "from a high vantage point", "seen low to the ground", "in light rain", "through the branches of a tree"]
+    static let variations = ["in bright morning sun", "in bright midday sun", "in warm golden-hour light", "under a clear blue sky", "in soft pastel light", "in sparkling sunlight", "from a high vantage point", "seen low to the ground", "just after a sunny shower", "through the branches of a tree"]
 
     /// Returns (style, prompt per section id). Section id −1 is the opening title card.
     /// Resilient to truncated or slightly malformed LLM JSON: salvages partial entries and fills any missing sections individually.

@@ -13,6 +13,15 @@ struct MusicVideoApp: App {
         #if NATIVE_MLX
         NativeEngine.register()
         #endif
+        if Updater.env["MV_REPORT_TEST"] != nil {          // developer test: send one report, check its status, print what happened
+            Task { @MainActor in
+                let c = ReportCenter()
+                let ok = await c.send(text: "Test report: the Make button did nothing.\nSecond line", screen: "Test screen", errorShown: "", includeTechnical: true)
+                let done = await c.refresh()
+                FileHandle.standardError.write(Data("report sent=\(ok) error=\(c.error ?? "-") saved=\(c.reports.map { "\($0.number):\($0.state)" }) done=\(done.count)\n".utf8))
+                NSApplication.shared.terminate(nil)
+            }
+        }
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
@@ -38,21 +47,26 @@ struct MusicVideoApp: App {
                         if let r = updater.available { FileHandle.standardError.write(Data("update found: \(r.version)\n".utf8)); await updater.install(r) }
                         else { FileHandle.standardError.write(Data("no update: \(updater.message ?? "")\n".utf8)) }
                     } else if updater.dueForAutoCheck { await updater.check(silent: true) }
+                    let fixed = await model.reportCenter.refresh()
+                    if let f = fixed.first { model.notice = "Good news: the problem you reported (“\(f.title)”) is fixed." + (f.reply.isEmpty ? "" : "\n\n\(f.reply)") + "\n\nSee Help ▸ Report a Problem ▸ My reports." }
                 }
                 .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
                 .alert("Updates", isPresented: Binding(get: { updater.message != nil }, set: { if !$0 { updater.message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(updater.message ?? "") }
                 .sheet(isPresented: $model.showGuide) { QuickGuideView() }
                 .sheet(isPresented: $model.showHelp) { HelpCenterView().environmentObject(model) }
+                .sheet(isPresented: $model.showReport) { ReportSheet(center: model.reportCenter).environmentObject(model) }
                 .sheet(isPresented: $model.showRecordingFix) { RecordingFixSheet().environmentObject(model) }
                 .frame(minWidth: 860, minHeight: 560)
                 .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
                     Button("OK", role: .cancel) {}
+                    Button("Report this problem") { model.reportPrefill = "I saw this message: " + (model.errorMessage ?? "") + "\n\nI was trying to: "; model.reportErrorShown = model.errorMessage ?? ""; model.showReport = true }
                 } message: { Text(model.errorMessage ?? "") }
         }
         .commands {
             CommandGroup(replacing: .help) {
                 Button("Help & Questions…") { model.helpScreen = model.screenName; model.showHelp = true }.keyboardShortcut("?", modifiers: .command)
                 Button("Quick Guide") { model.showGuide = true }
+                Button("Report a Problem…") { model.showReport = true }
                 Divider()
                 Button(updater.available.map { "Update to Version \($0.version)…" } ?? "Check for Updates…") {
                     if updater.available != nil { updater.showAvailable = true } else { Task { await updater.check(silent: false) } }

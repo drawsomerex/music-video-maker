@@ -42,8 +42,10 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var tags: String = ""         // provider keywords / alt text, shown to the local LLM
     public var thumbFile: String? = nil   // relative to work dir
     public var fullFile: String? = nil
+    /// A video clip used instead of a still picture (relative to the work dir). `fullFile`/`thumbFile` then hold a still frame from it.
+    public var videoFile: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -65,6 +67,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         camStartX = try c.decodeIfPresent(Double.self, forKey: .camStartX); camStartY = try c.decodeIfPresent(Double.self, forKey: .camStartY)
         camEndX = try c.decodeIfPresent(Double.self, forKey: .camEndX); camEndY = try c.decodeIfPresent(Double.self, forKey: .camEndY)
         camZoom = try c.decodeIfPresent(Int.self, forKey: .camZoom) ?? 0
+        videoFile = try c.decodeIfPresent(String.self, forKey: .videoFile)
     }
 
     public init(id: String, provider: String, thumbURL: String, fullURL: String, pageURL: String,

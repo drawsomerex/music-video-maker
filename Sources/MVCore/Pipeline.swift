@@ -1,6 +1,7 @@
 // The workflow: plan (transcribe, sync, split, write prompts), attach pictures, render videos and Shorts, project folders.
 import Foundation
 import ImageIO
+import AVFoundation
 
 public enum Pipeline {
     public static func workDir(output: URL, title: String) -> URL {
@@ -249,7 +250,7 @@ public enum Pipeline {
         let style = plan.style.isEmpty ? "" : " Style: \(plan.style)"
         let setting = plan.setting.trimmingCharacters(in: .whitespacesAndNewlines)
         let stated = setting.isEmpty || s.prompt.lowercased().contains(setting.lowercased())
-        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(style) Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(style) Bright, vivid, evenly lit with cheerful colours (never dark or gloomy). Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
     }
 
     public static func promptsMarkdown(_ plan: Plan) -> String {
@@ -329,10 +330,44 @@ public enum Pipeline {
 
     // MARK: Step 2 — load your pictures
 
+    public static let videoExtensions = ["mp4", "mov", "m4v"]
+
+    /// Loads a video clip into a section. The clip is copied into the project; a still frame from it serves as the thumbnail and poster.
+    /// While the section is on screen the clip plays (looping if it is shorter than the section); the song's own sound is kept, the clip's sound is not used.
+    static func attachVideo(_ url: URL, section index: Int, plan: inout Plan, work: URL) throws -> String? {
+        let asset = AVURLAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .video).first else { throw MVError("“\(url.lastPathComponent)” isn't a video I can read. Try an MP4 or MOV file.") }
+        let size = track.naturalSize.applying(track.preferredTransform)
+        let w = Int(abs(size.width)), h = Int(abs(size.height))
+        let secs = CMTimeGetSeconds(asset.duration)
+        let n = index + 1, stamp = Int(Date().timeIntervalSince1970 * 1000)
+        let vid = "full/section_\(n)_\(stamp).\(url.pathExtension.lowercased())", poster = "full/section_\(n)_\(stamp).jpg", thumb = "thumbs/section_\(n)_\(stamp).jpg"
+        let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true; gen.maximumSize = CGSize(width: 1920, height: 1920)
+        let at = CMTime(seconds: min(0.5, max(0, secs / 2)), preferredTimescale: 600)
+        guard let frame = try? gen.copyCGImage(at: at, actualTime: nil) else { throw MVError("Couldn't read a picture from “\(url.lastPathComponent)”.") }
+        func writeJPEG(_ img: CGImage, _ rel: String, _ q: Double) {
+            if let d = CGImageDestinationCreateWithURL(work.appendingPathComponent(rel) as CFURL, "public.jpeg" as CFString, 1, nil) {
+                CGImageDestinationAddImage(d, img, [kCGImageDestinationLossyCompressionQuality: q] as CFDictionary); CGImageDestinationFinalize(d) }
+        }
+        try? FileManager.default.createDirectory(at: work.appendingPathComponent("full"), withIntermediateDirectories: true)
+        let dst = work.appendingPathComponent(vid); try? FileManager.default.removeItem(at: dst)
+        try FileManager.default.copyItem(at: url, to: dst)
+        writeJPEG(frame, poster, 0.92); writeJPEG(frame, thumb, 0.8)
+        var c = ImageCandidate(id: "video:\(n)", provider: "Video", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
+        c.thumbFile = thumb; c.fullFile = poster; c.videoFile = vid
+        if index < 0 { plan.intro.candidates = [c]; plan.intro.selected = 0 } else { plan.sections[index].candidates = [c]; plan.sections[index].selected = 0 }
+        cleanupUnreferencedImages(plan: plan, work: work)
+        try? savePlan(plan, work)
+        var notes: [String] = []
+        if w > 0, h > 0, Double(w) / Double(h) < 1.5 { notes.append("isn't widescreen (\(w)×\(h)); the video will crop it to 16:9") }
+        if secs > 0, let s = (index < 0 ? plan.intro : plan.sections[index]) as PhotoSection?, secs + 0.5 < s.duration, index >= 0 { notes.append("is only \(Int(secs)) s long, so it will repeat to fill the \(Int(s.duration)) s part") }
+        return notes.isEmpty ? nil : "“\(url.lastPathComponent)” " + notes.joined(separator: " and ") + "."
+    }
+
     /// Deletes any orphaned `section_*` image/thumbnail files in `full/` and `thumbs/` no longer referenced by any section in `plan`.
     public static func cleanupUnreferencedImages(plan: Plan, work: URL) {
         let allSecs = [plan.intro] + plan.sections
-        let usedFull = Set(allSecs.compactMap { $0.selectedCandidate?.fullFile })
+        let usedFull = Set(allSecs.flatMap { [$0.selectedCandidate?.fullFile, $0.selectedCandidate?.videoFile].compactMap { $0 } })
         let usedThumb = Set(allSecs.compactMap { $0.selectedCandidate?.thumbFile })
         let fm = FileManager.default
         for (sub, used) in [("full", usedFull), ("thumbs", usedThumb)] {
@@ -348,6 +383,7 @@ public enum Pipeline {
     /// Loads a picture into a section (−1 = title card). Copies it into the work folder, makes a thumbnail and finds its focal point for the Ken Burns move.
     @discardableResult
     public static func attach(imageAt url: URL, section index: Int, plan: inout Plan, work: URL) throws -> String? {
+        if videoExtensions.contains(url.pathExtension.lowercased()) { return try attachVideo(url, section: index, plan: &plan, work: work) }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
               let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int else { throw MVError("“\(url.lastPathComponent)” isn't an image I can read.") }
         let n = index + 1
@@ -381,7 +417,7 @@ public enum Pipeline {
     /// Loads every image in a folder whose file name starts with a section number (00 / intro = title card, 01 = first section, …).
     public static func attachFolder(_ folder: URL, plan: inout Plan, work: URL, progress: ProgressHandler? = nil) -> (loaded: [Int], warnings: [String]) {
         let allFiles = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).sorted { $0.lastPathComponent < $1.lastPathComponent }
-        let files = allFiles.filter { ["png", "jpg", "jpeg", "webp", "heic", "tiff"].contains($0.pathExtension.lowercased()) }
+        let files = allFiles.filter { ["png", "jpg", "jpeg", "webp", "heic", "tiff", "mp4", "mov", "m4v"].contains($0.pathExtension.lowercased()) }
         var loaded: [Int] = []; var warnings: [String] = []
         for (k, f) in files.enumerated() {
             progress?("Loading & analyzing \(f.lastPathComponent) (\(k + 1) of \(files.count))", Double(k) / Double(max(1, files.count)))

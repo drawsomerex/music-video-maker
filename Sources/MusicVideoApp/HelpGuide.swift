@@ -79,7 +79,7 @@ enum HelpGuide {
         For the selected part you see:
         - "Words in this part": the lyric lines. The play button plays that line. The small −0.5s, −0.1s, +0.1s and +0.5s buttons move just that line earlier or later in the video.
         - "Picture idea": a description of the picture. You can edit it. "Another idea" asks the AI for a different one (it avoids the ideas already used). "Copy" copies the idea together with the style and setting so you can use it in another image maker.
-        - "Picture for this part": drag a picture into the box or click it to choose a file. Use widescreen pictures (16:9), 1920 by 1080 pixels or larger. Other shapes are cropped to fit and the app warns you.
+        - "Picture for this part": drag a picture or a video clip (MP4 or MOV) into the box or click it to choose a file. Use widescreen pictures (16:9), 1920 by 1080 pixels or larger. Other shapes are cropped to fit and the app warns you.
         - "Make this picture for me" draws the picture with the picture maker (needs an OpenRouter key, costs a few cents). "Try another picture" draws a new one. "Choose a different file" and "Remove picture" are under the box.
         - "Camera": see the section "Camera movement".
         Parts that are only music have names like "Music before the words", "Music break" and "Music after the words" and get their own picture idea.
@@ -101,8 +101,8 @@ enum HelpGuide {
         "Make all missing pictures" draws a picture for every part without one and asks no further questions; it shows progress and can be cancelled. "Make every picture again" (inside "Picture maker key & credit") replaces all pictures after you confirm.
         """),
         HelpSection(id: "camera", title: "Camera movement (Ken Burns effect)", keywords: "camera ken burns zoom pan move direction start end dots closer wider level focus motion drift", body: """
-        Every picture slowly moves while it is on screen. Under each picture, "Camera" has two choices:
-        - "Automatic": the camera drifts toward the most interesting part of the picture. You can drag the orange dot to aim it, or press "Aim for me" to let the app find the spot. "Show the aim" shows the dot and the dashed box that is kept in the tall YouTube Shorts version.
+        Every picture moves while it is on screen. Under each picture, "Camera" has two choices:
+        - "Automatic": the camera sweeps quickly across the whole picture, edge to edge, ending on the most interesting part (the direction changes from one picture to the next, and now and then it glides diagonally). You can drag the orange dot to aim it, or press "Aim for me" to let the app find the spot. "Show the aim" shows the dot and the dashed box that is kept in the tall YouTube Shorts version.
         - "I choose the move": two numbered dots appear on the picture. Drag the green dot 1 to where the camera starts and the red dot 2 to where it ends. The dashed frames show what the viewer sees first and last. The picture glides between them.
         With your own move you also choose "Moves closer", "Stays level" or "Moves wider", and "Swap start and end" reverses the direction. If the two dots are far apart the app zooms in enough to keep both inside the picture (at most about 2.4 times).
         Your camera choices are used in the full video, in Shorts and in the preview.
@@ -164,6 +164,22 @@ enum HelpGuide {
         Keyboard: the space bar plays or stops the Short; the L key plays it again and again; hold Shift while dragging a marker to turn sticking off.
         The "Help" button on every screen opens this guide and the question box. The strip across the top shows what you have spent on pictures.
         """),
+        HelpSection(id: "videoClips", title: "Using a video clip instead of a picture", keywords: "video clip movie mp4 mov footage instead of picture animated moving own video drag", body: """
+        Any part (and the title card) can show a video clip instead of a still picture. Drag an MP4 or MOV file into the picture box on the Pictures screen, or click the box and choose the file.
+        The clip plays while that part is on screen. If the clip is shorter than the part it plays again from the start. It is cropped to fill the widescreen frame (or the tall Shorts frame). The clip's own sound is not used; your song keeps playing.
+        The camera moves do not apply to a video clip. The thumbnail in the list is a still frame from it. "Choose a different file" or "Remove" puts back a picture. Clips work in the full video, in Shorts and in the preview. Widescreen clips (16:9) look best.
+        Clips are copied into the song's folder, so the original can be moved or deleted afterwards.
+        """),
+        HelpSection(id: "reportBug", title: "Reporting a problem and seeing if it is fixed", keywords: "bug report problem error broken not working tell author feedback fixed status help contact send", body: """
+        To tell the author about something that does not work, press "Help" ▸ "Report a Problem…" in the menu bar, or the "Report a problem" button in the Help window, or "Report this problem" on an error message.
+        Write what you pressed and what happened, then press "Send report". You do not need an account. Only your text and the app version, macOS version and Mac type are sent (you can switch that off). Your songs, lyrics, files and keys are never sent.
+        "My reports" lists everything you reported. Each shows "Received", "Being worked on" or "Done ✓", with the author's comment when there is one. "Check again" looks for news; the app also checks when it starts and tells you when something you reported is fixed.
+        If sending is not set up in your copy of the app, "Copy my report" lets you paste it into an email or message.
+        """),
+        HelpSection(id: "pictureLook", title: "Bright pictures", keywords: "bright dark gloomy light colours colourful lighting mood sunny cheerful night", body: """
+        The picture ideas the app writes are always bright, colourful and well lit, even for sad songs. The words "dark", "gloomy" and "night-time" are avoided, and every picture request ends with a reminder to be bright and cheerful.
+        A picture style you chose (for example "Film Noir") can still look moody. If you want your own darker picture, drag it into the picture box.
+        """),
         HelpSection(id: "steps", title: "Going back, new songs and earlier projects", keywords: "back go back previous step change song new project another song different mp3 open earlier project close start over", body: """
         The three steps at the top (Song, Pictures, Video) are buttons. Click Song to look at or change the title, setting and lyrics of the open video; click Pictures to return to the pictures; click Video to see the finished video again (it is available once you have made one).
         If you choose an MP3 with a different name than the video you are working on, the app starts a new video and the earlier one stays saved. A file with the same name keeps the current video.
@@ -212,7 +228,7 @@ enum HelpGuide {
         """),
         HelpSection(id: "limits", title: "What the app cannot do", keywords: "cannot cant not possible impossible limit limitation unsupported support windows intel upload youtube edit timeline transitions font translate", body: """
         These things are not possible in this app:
-        - It does not edit video: no timeline, no cutting or joining video clips, no importing video.
+        - It does not edit video: no timeline and no cutting or joining. A video clip can be placed in a part instead of a picture, but it is used as it is (it repeats if it is shorter than the part, it is cropped to fill the frame, its own sound is not used).
         - It makes one video from one song. It cannot combine several songs into one video.
         - It cannot upload to YouTube; it only creates the files (and suggested titles and descriptions for Shorts).
         - The full video's lyric style (font and layout) is fixed; you can move the words up or down in the preview. Word styles and colours can be chosen only for Shorts.
