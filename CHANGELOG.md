@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-10-17
+
 ### Changed
 - **Clearer, resizable video-clip controls.** The start/end panel is rebuilt: a large preview with *Play this part*, a taller picture strip with big grab-handles (START time above, END time below so they never overlap), and two cards — *Start of the clip* and *End of the clip* — each with the time in large type, a **Start here / End here** button (click a picture in the strip to choose the moment) and −0.5 / −0.1 / +0.1 / +0.5 s buttons. It re-arranges itself for small and large windows (side-by-side when wide, stacked when narrow).
 
