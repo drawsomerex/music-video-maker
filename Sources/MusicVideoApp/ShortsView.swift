@@ -115,6 +115,7 @@ struct ShortEditor: View {
                         }
                     }
                     WaveformEditor(clip: c, id: clip.id, zoomFocus: zoomFocus, zoomSpan: zoomSpan)
+                    WordLane(clipID: clip.id)
                     lyricPicker
                     Text("Fine-tune").font(.headline)
                     HStack(alignment: .top, spacing: 24) { edge("Start", isStart: true); edge("End", isStart: false) }
@@ -448,13 +449,17 @@ struct WaveformEditor: View {
                 // lyric line ticks; when zoomed in, every word with its text so the cut can be matched to the singing
                 if let p = model.plan {
                     for l in p.lines where visible.contains(l.start) { ctx.fill(Path(CGRect(x: x(l.start), y: 0, width: 1, height: size.height * (editable ? 0.28 : 0.18))), with: .color(.orange.opacity(0.9))) }
-                    if editable && span <= 16 {
-                        var row = 0
+                    if editable && !overview && span <= 20 {
+                        // the words, on three staggered rows; a label is skipped when it would run into the previous one on its row
+                        var row = 0; var rowEnd: [CGFloat] = [-100, -100, -100]
                         for l in p.lines { for w in l.words where visible.contains(w.start) {
-                            let px = x(w.start)
-                            ctx.fill(Path(CGRect(x: px, y: size.height - 16 - CGFloat(row % 2) * 11, width: 1, height: 16 + CGFloat(row % 2) * 11)), with: .color(.orange.opacity(0.55)))
-                            ctx.draw(Text(w.text).font(.system(size: 9, weight: .medium)).foregroundColor(.orange), at: CGPoint(x: px + 2, y: size.height - 8 - CGFloat(row % 2) * 11), anchor: .leading)
-                            row += 1
+                            let px = x(w.start), r = row % 3; row += 1
+                            let textW = CGFloat(w.text.count) * 5.6 + 6
+                            ctx.fill(Path(CGRect(x: px, y: size.height - 14 - CGFloat(r) * 12, width: 1, height: 14 + CGFloat(r) * 12)), with: .color(.orange.opacity(0.55)))
+                            if px >= rowEnd[r] {
+                                ctx.draw(Text(w.text).font(.system(size: 10, weight: .semibold)).foregroundColor(.orange), at: CGPoint(x: px + 3, y: size.height - 8 - CGFloat(r) * 12), anchor: .leading)
+                                rowEnd[r] = px + textW
+                            }
                         } }
                     }
                 }
