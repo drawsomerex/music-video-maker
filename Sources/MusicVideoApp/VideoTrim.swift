@@ -26,6 +26,7 @@ struct VideoTrimView: View {
     @State private var shown: NSImage?
     @State private var playing = false
     @State private var playTask: Task<Void, Never>?
+    @State private var grab: CGFloat?              // where the handle was when this drag began
     private let minLen = 0.5
 
     private var url: URL? { candidate.videoFile.flatMap { model.workDir?.appendingPathComponent($0) } }
@@ -99,13 +100,14 @@ struct VideoTrimView: View {
                     Rectangle().fill(.white).frame(width: 2, height: h + 6).shadow(radius: 2).offset(x: lx - 1, y: top - 3)
                     // markers: the bars sit on the strip; START's time label is above it, END's is below, so they never collide
                     bar(.green).offset(x: min(max(0, sx - 11), w - 22), y: top - 3).zIndex(2)
-                        .gesture(DragGesture(minimumDistance: 0).onChanged { g in move(start: true, to: Double((sx + g.translation.width) / w) * length) }.onEnded { _ in commit() })
+                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("strip")).onChanged { g in dragHandle(isStart: true, g, from: sx, width: w) }.onEnded { _ in grab = nil; commit() })
                     bar(.red).offset(x: min(max(0, ex - 11), w - 22), y: top - 3).zIndex(2)
-                        .gesture(DragGesture(minimumDistance: 0).onChanged { g in move(start: false, to: Double((ex + g.translation.width) / w) * length) }.onEnded { _ in commit() })
+                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("strip")).onChanged { g in dragHandle(isStart: false, g, from: ex, width: w) }.onEnded { _ in grab = nil; commit() })
                     pill("START \(clock(start))", .green).offset(x: min(max(0, sx - 55), max(0, w - 110)), y: 0)
                     pill("END \(clock(end))", .red).offset(x: min(max(0, ex - 55), max(0, w - 110)), y: top + h + 6)
                 }
                 .frame(width: w, height: top + h + 34, alignment: .topLeading)
+                .coordinateSpace(name: "strip")
                 .contentShape(Rectangle())
                 .onTapGesture { p in if p.y > top { stopPlay(); showFrame(at: Double(max(0, min(1, p.x / w))) * length) } }
                 .help("The whole clip from beginning to end. The bright part between the markers is what is used. Click a picture to look at that moment.")
@@ -181,6 +183,13 @@ struct VideoTrimView: View {
 
     // MARK: behaviour
     func clock(_ t: Double) -> String { String(format: "%d:%04.1f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60)) }
+
+    /// The handle follows the mouse: its position when the drag began plus how far the mouse has travelled (measured on the strip, which does not move).
+    func dragHandle(isStart: Bool, _ g: DragGesture.Value, from x0: CGFloat, width w: CGFloat) {
+        if grab == nil { grab = x0 }
+        let x = (grab ?? x0) + (g.location.x - g.startLocation.x)
+        move(start: isStart, to: Double(min(max(0, x), w) / w) * length)
+    }
 
     func move(start isStart: Bool, to raw: Double) {
         stopPlay()
