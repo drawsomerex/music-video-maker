@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-17
+
 ### Added
 - **Choose which part of a video clip plays.** Under a video clip's picture box: a strip of pictures from the clip with a green **START** and a red **END** marker. Drag the start later or the end earlier (everything outside is dimmed); small −0.5/−0.1/+0.1/+0.5 buttons for fine tuning; the picture beside it shows the frame at the marker you moved; *Play this part* shows the chosen stretch; *Use the whole clip* resets. The default is still the whole clip. Used in the video, Shorts and the preview.
 
