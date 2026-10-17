@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-17
+
 ### Changed
 - **The Shorts page is now one screen with no scrolling** (designed in Claude Design, option A). Clips are **tabs along the top**. On the left: name + length pill, the whole-song map, a **Where it starts / Where it ends** switch with ONE large close-up under it (waveform, words, beats, purple music-only stretches), the nudge buttons and *How it finishes* for the end, and the play buttons (*Play the Short, Repeat, Browse the words, Make it ~30 s*, and *Sticks to*). On the right: the vertical preview, caption timing, the look (Lively/Simple, title, words, colour dots) and **Make this clip**. *Browse the words* opens the word-by-word timeline for finding a part (click to hear from there, then start/end the Short there).
 
