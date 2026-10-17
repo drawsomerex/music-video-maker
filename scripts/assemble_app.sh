@@ -4,6 +4,7 @@ set -euo pipefail
 BIN="$1"; APP="$2"; FLAVOR="${3:-omlx}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(tr -d ' \n' < "$ROOT/VERSION" 2>/dev/null || echo 1.0.0)"
 REPO="$(grep -E '^REPO=' "$ROOT/scripts/release.conf" 2>/dev/null | cut -d= -f2 | tr -d ' ')"
+REPORT_URL="$(grep -E '^REPORT_URL=' "$ROOT/scripts/release.conf" 2>/dev/null | cut -d= -f2- | tr -d ' ')"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/MusicVideoApp" "$APP/Contents/MacOS/MusicVideoApp"
 # Compiler-embedded source paths (from C++ __FILE__ in MLX) would reveal this Mac's user name; overwrite them with same-length filler.
@@ -33,6 +34,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
  <key>CFBundleVersion</key><string>$VERSION</string>
  <key>MVFlavor</key><string>$FLAVOR</string>
  <key>MVUpdateRepo</key><string>$REPO</string>
+ <key>MVReportURL</key><string>$REPORT_URL</string>
  <key>LSMinimumSystemVersion</key><string>14.0</string>
  <key>NSHighResolutionCapable</key><true/>
  <key>LSApplicationCategoryType</key><string>public.app-category.video</string>

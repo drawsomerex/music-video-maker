@@ -2,12 +2,12 @@
 import Foundation
 
 enum PromptVariety {
-    static let times = ["at sunrise", "in soft early-morning light", "at midday under a high sun", "in warm late-afternoon light", "at golden hour", "at dusk as the first lamps come on",
-                        "at twilight", "at night by lamplight", "under bright moonlight", "in the grey light just before dawn"]
-    static let weather = ["clear and crisp", "with drifting clouds", "just after rain, with wet reflections", "in light fog", "with a gentle breeze moving everything", "hazy and warm",
-                          "under dramatic clouds", "with low mist near the ground", "in thin falling snow", "with long cool shadows"]
+    static let times = ["at sunrise", "in soft early-morning light", "at midday under a high sun", "in warm late-afternoon light", "at golden hour", "in bright afternoon sun",
+                        "in glowing morning light", "in dappled sunlight", "under a clear blue sky", "in warm, radiant light"]
+    static let weather = ["clear and crisp", "with fluffy white clouds", "just after a sunny shower, with sparkling reflections", "with a gentle breeze moving everything", "warm and golden",
+                          "with a rainbow in the distance", "bright and fresh", "with sunlight streaming through", "in glittering fresh snow under blue sky", "with sparkling light"]
     static let views = ["a wide establishing view", "a medium shot", "seen from a high vantage point", "seen low to the ground", "framed through an archway, doorway or window",
-                        "a silhouette against the light", "a detail of an everyday object that belongs to this place", "a long view down a street or path",
+                        "a figure lit by the sun", "a detail of an everyday object that belongs to this place", "a long view down a street or path",
                         "seen from behind a small group of people (no faces)", "a reflection in water or glass"]
 
     /// One hint per section: lists are dealt out in shuffled rounds, so neighbours never repeat and the same combination does not come back soon.

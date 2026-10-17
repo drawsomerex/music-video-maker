@@ -495,7 +495,7 @@ struct DropWell: View {
                     } else {
                         VStack(spacing: 10) {
                             Image(systemName: "photo.badge.plus").font(.system(size: 34)).foregroundStyle(.secondary)
-                            Text("Drag a picture here, or click to choose one").font(.headline)
+                            Text("Drag a picture or video clip here, or click to choose one").font(.headline)
                             Text("Widescreen pictures work best (1920 × 1080 or larger)").font(.callout).foregroundStyle(.secondary)
                         }
                         .frame(width: w, height: h)
@@ -605,7 +605,7 @@ struct DropWell: View {
     }
 
     func choose() {
-        let p = NSOpenPanel(); p.allowedContentTypes = [.image]; p.allowsMultipleSelection = false
+        let p = NSOpenPanel(); p.allowedContentTypes = [.image, .movie]; p.allowsMultipleSelection = false
         if p.runModal() == .OK, let u = p.url { model.load(u, section: section) }
     }
 }

@@ -59,16 +59,16 @@ public final class FrameComposer: @unchecked Sendable {
             let c = all[i].selectedCandidate
             let sceneSeed = all[i].seed &+ UInt64(i)
             var modeRng = SeededRNG(sceneSeed &+ 99)
-            var candidateMode = Int(modeRng.next() % 5)
-            if settings.vertical { candidateMode = [0, 2, 3, 1, 4][candidateMode] }
-            if candidateMode == prevMode {
-                candidateMode = (candidateMode + 1 + Int(modeRng.next() % 3)) % 5
-            }
+            // Default: sweep across the whole picture towards the subject (left→right if it sits on the right, else right→left), never the same direction twice running.
+            // Roughly one scene in five is a diagonal glide for variety.
+            var candidateMode = (c?.focusX ?? 0.5) >= 0.5 ? 2 : 3
+            if modeRng.next() % 5 == 0 { candidateMode = 4 }
+            else if candidateMode == prevMode { candidateMode = candidateMode == 2 ? 3 : 2 }
             prevMode = candidateMode
             sc.append(PhotoScene(box: boxes[i], a: a, b: max(e, a + 1), seed: sceneSeed,
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
                                  shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
-                                 beats: beats, preferredMode: candidateMode, camera: c?.cameraPath))
+                                 video: c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx) }, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath))
         }
         scenes = sc
         var rng = SeededRNG((dyn ? short!.styleSeed : 0xC0FFEE) ^ UInt64(plan.title.hashValue & 0xFFFF)); var last = -1; var ks: [TransitionKind] = []

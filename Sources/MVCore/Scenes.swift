@@ -42,6 +42,7 @@ public struct CameraPath: Equatable {
 ///   of the crop rectangle move in straight lines and every intermediate frame stays 100% inside the image without clamping jumps.
 final class PhotoScene {
     let box: ImageBox?
+    let video: VideoClipSource?          // a video clip that plays during this scene instead of a moving still picture
     let a: Double, b: Double            // video-time interval
     let seed: UInt64
     let focus: CGPoint                  // normalized saliency focus in [0, 1] x [0, 1]
@@ -54,9 +55,10 @@ final class PhotoScene {
     private let rndPanY: Double
     private let diagFlip: Bool
 
-    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, beats: [Double] = [], preferredMode: Int? = nil, camera: CameraPath? = nil) {
+    init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, video: VideoClipSource? = nil, beats: [Double] = [], preferredMode: Int? = nil, camera: CameraPath? = nil) {
         self.camera = camera
         self.box = box
+        self.video = video
         self.a = a
         self.b = b
         self.seed = seed
@@ -138,8 +140,9 @@ final class PhotoScene {
 
         case 2, 3:
             // Smooth horizontal pan across subject height with subtle zoom drift
-            let zLow = vertical ? 1.04 : 1.10
-            let zHigh = zLow + zoomDelta * 0.55
+            // The default move: a quick, confident sweep across the whole picture, ending on the subject
+            let zLow = vertical ? 1.06 : 1.30
+            let zHigh = zLow + zoomDelta * (vertical ? 0.55 : 1.3)
             let leftToRight = (mode == 2)
             z0 = leftToRight ? zLow : zHigh
             z1 = leftToRight ? zHigh : zLow
@@ -147,10 +150,10 @@ final class PhotoScene {
             let availX0 = max(0.0, 0.5 - halfW0 / z0)
             let availX1 = max(0.0, 0.5 - halfW0 / z1)
             let maxPan = min(availX0, availX1)
-            let panRadius = vertical ? min(maxPan * 0.80, 0.11 * durScale) : (maxPan * 0.88)
+            let panRadius = vertical ? min(maxPan * 0.95, 0.30 * durScale) : (maxPan * 0.97)
 
-            // Center the pan around the subject's X while staying well inside [-maxPan, +maxPan]
-            let centerBiasX = min(0.5 + max(0, maxPan - panRadius), max(0.5 - max(0, maxPan - panRadius), subj.x))
+            // Sweep from edge to edge of what the zoom allows (centred), so the whole width of the picture passes by
+            let centerBiasX = 0.5
             let startX = leftToRight ? (centerBiasX - panRadius) : (centerBiasX + panRadius)
             let endX   = leftToRight ? (centerBiasX + panRadius) : (centerBiasX - panRadius)
             let yDrift = 0.012 * rndPanY * durScale
@@ -182,6 +185,14 @@ final class PhotoScene {
         let uCos = 0.5 - 0.5 * cos(.pi * u0)
         let u = 0.28 * u0 + 0.72 * uCos
 
+        if let v = video, let frame = v.frame(at: max(0, t - a)) {
+            let iw = Double(frame.width), ih = Double(frame.height), target = Double(W) / Double(H)
+            let rw = iw / ih > target ? ih * target : iw, rh = rw / target       // cover crop, centred (on the focus point for tall frames)
+            let cx = min(max(iw / 2, rw / 2), iw - rw / 2), cy = min(max(ih / 2, rh / 2), ih - rh / 2)
+            let s = Double(W) / rw
+            ctx.draw(frame, in: CGRect(x: -(cx - rw / 2) * s, y: -(ih - (cy - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
+            return
+        }
         guard let img = box?.get() else { drawGradient(ctx, W, H, u0); return }
         let iw = Double(img.width), ih = Double(img.height)
         let target = Double(W) / Double(H)
