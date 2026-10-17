@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-16
+
 ### Added
 - **Setting and theme for every picture.** A new field on the first screen (and in *Setting & description* on the Pictures screen), e.g. *Brightly lit colonial Philadelphia*. The AI is told every picture must take place there (translating anything in the lyrics that doesn't belong into something that does), the description is written with it, and the setting is **stated explicitly at the front of every picture idea** and in the copied/generated prompt. `mvideo plan --setting "…"` does the same from the command line.
 - **Randomness in every prompt, never the same twice.** Each section is dealt its own *look*: a time of day, a kind of weather and a camera view, drawn without repeats from shuffled lists, so neighbouring pictures never share them. The similarity check ignores the shared setting words, so prompts that are alike apart from the setting are still caught and rewritten. *Another idea* draws a fresh random look every time. In a test with a fixed setting, 17 prompts had no duplicates (most similar pair 19 % overlap).
