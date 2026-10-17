@@ -83,6 +83,11 @@ enum Snapshots {
             save("plan-small", CGSize(width: 860, height: 560), PlanView())
             save("plan-large", CGSize(width: 1800, height: 1100), PlanView())
             save("plan-mid", CGSize(width: 1000, height: 700), PlanView())
+            if let i = model.plan?.sections.firstIndex(where: { $0.selectedCandidate?.videoFile != nil }), let c = model.plan?.sections[i].selectedCandidate {
+                save("video-trim-wide", CGSize(width: 1000, height: 430), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
+                save("video-trim-mid", CGSize(width: 640, height: 520), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
+                save("video-trim-narrow", CGSize(width: 440, height: 680), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
+            }
         }
         NSApplication.shared.terminate(nil)
     }
