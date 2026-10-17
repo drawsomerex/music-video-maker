@@ -1,6 +1,12 @@
-// Choosing which part of a video clip plays: a strip of pictures from the clip with a green START and a red END marker.
-// Drag the markers (or use the small buttons); the picture on the left always shows the frame at the marker you moved,
-// and "Play this part" runs through the chosen stretch. Everything outside the markers is dimmed and is not used.
+// Choosing which part of a video clip plays.
+//
+//   [ preview picture ]   a strip of pictures from the clip with a green START and a red END marker
+//   [ Play this part ]    (drag the markers, or click the strip to look at a moment, then press "Start here" / "End here")
+//   ┌ Start of the clip ───────┐  ┌ End of the clip ─────────┐
+//   │ 0:03.0  ◀ ▶ nudge buttons │  │ 0:06.5  ◀ ▶ nudge buttons │
+//   └──────────────────────────┘  └──────────────────────────┘
+//
+// The layout adapts: wide windows put the preview beside the strip and the two cards side by side; narrow windows stack everything.
 import SwiftUI
 import AVFoundation
 import MVCore
@@ -15,137 +21,201 @@ struct VideoTrimView: View {
     @State private var length = 0.0
     @State private var start = 0.0
     @State private var end = 0.0
+    @State private var look = 0.0                  // the moment shown in the preview (and marked on the strip)
     @State private var strip: [NSImage] = []
     @State private var shown: NSImage?
-    @State private var shownLabel = ""
     @State private var playing = false
     @State private var playTask: Task<Void, Never>?
-    @State private var dragging = false
     private let minLen = 0.5
 
     private var url: URL? { candidate.videoFile.flatMap { model.workDir?.appendingPathComponent($0) } }
     private var playsFor: Double { max(0, end - start) }
+    private var isWhole: Bool { start <= 0.01 && end >= length - 0.01 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Which part of the video clip to use").font(.headline)
-                Spacer()
-                Button { reset() } label: { Label("Use the whole clip", systemImage: "arrow.counterclockwise") }
-                    .disabled(start <= 0.01 && end >= length - 0.01).help("Puts the start and end back to the very beginning and very end of the clip.")
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 16) { previewBox.frame(width: 260); VStack(alignment: .leading, spacing: 12) { filmstrip; cards } }
+                VStack(alignment: .leading, spacing: 12) { HStack(alignment: .top, spacing: 14) { previewBox.frame(width: 240); Spacer(minLength: 0) }; filmstrip; cards }
             }
-            HStack(alignment: .top, spacing: 14) {
-                VStack(spacing: 4) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8).fill(.black)
-                        if let img = shown { Image(nsImage: img).resizable().scaledToFit() }
-                    }.frame(width: 190, height: 107).clipShape(RoundedRectangle(cornerRadius: 8))
-                    Text(shownLabel).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    Button { playing ? stopPlay() : play() } label: { Label(playing ? "Stop" : "Play this part", systemImage: playing ? "stop.fill" : "play.fill").frame(maxWidth: .infinity) }
-                        .buttonStyle(.borderedProminent).controlSize(.regular)
-                        .help("Plays the part between the green and red markers (without sound — your song plays in the finished video).")
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    filmstrip.frame(height: 62)
-                    HStack(spacing: 6) {
-                        Circle().fill(.green).frame(width: 10, height: 10)
-                        Text("Starts at").font(.callout.weight(.semibold)); Text(clock(start)).font(.callout.monospacedDigit())
-                        nudge(-0.5, isStart: true); nudge(-0.1, isStart: true); nudge(0.1, isStart: true); nudge(0.5, isStart: true)
-                        Spacer(minLength: 8)
-                        Circle().fill(.red).frame(width: 10, height: 10)
-                        Text("Ends at").font(.callout.weight(.semibold)); Text(clock(end)).font(.callout.monospacedDigit())
-                        nudge(-0.5, isStart: false); nudge(-0.1, isStart: false); nudge(0.1, isStart: false); nudge(0.5, isStart: false)
-                    }
-                    Text(summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            Text(summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
+        .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
         .task(id: candidate.videoFile) { await load() }
         .onDisappear { stopPlay() }
     }
 
-    var summary: String {
-        let whole = start <= 0.01 && end >= length - 0.01
-        var s = whole ? "The whole clip plays (\(String(format: "%.1f", playsFor)) s)." : "Only this part of the clip plays: \(String(format: "%.1f", playsFor)) s of \(String(format: "%.1f", length)) s."
-        if partLength > 0 { s += playsFor + 0.3 < partLength ? " This part of the song lasts \(Int(partLength.rounded())) s, so the clip repeats." : (playsFor > partLength + 0.3 ? " This part of the song lasts \(Int(partLength.rounded())) s, so the end of the clip is not reached." : "") }
-        return s + " Drag the green and red markers, or click a picture in the strip."
-    }
-
-    // MARK: the strip
-    var filmstrip: some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            let sx = CGFloat(length > 0 ? start / length : 0) * w, ex = CGFloat(length > 0 ? end / length : 1) * w
-            ZStack(alignment: .leading) {
-                HStack(spacing: 0) {
-                    ForEach(Array(strip.enumerated()), id: \.offset) { _, img in
-                        Image(nsImage: img).resizable().scaledToFill().frame(width: w / CGFloat(max(1, strip.count)), height: h).clipped()
-                    }
-                }.frame(width: w, height: h).background(Color.black.opacity(0.15))
-                Rectangle().fill(.black.opacity(0.55)).frame(width: max(0, sx), height: h)                       // before the start: not used
-                Rectangle().fill(.black.opacity(0.55)).frame(width: max(0, w - ex), height: h).offset(x: ex)     // after the end: not used
-                Rectangle().strokeBorder(Color.white.opacity(0.9), lineWidth: 2).frame(width: max(2, ex - sx), height: h).offset(x: sx)
-                marker(.green, label: "START").offset(x: sx - 7)
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { g in move(start: true, to: Double((sx + g.translation.width + 7) / w) * length) }.onEnded { _ in commit() })
-                marker(.red, label: "END").offset(x: ex - 7)
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { g in move(start: false, to: Double((ex + g.translation.width + 7) / w) * length) }.onEnded { _ in commit() })
+    // MARK: pieces
+    var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Video clip", systemImage: "film").font(.headline)
+                Text("Choose which part of the clip is used.").font(.callout).foregroundStyle(.secondary)
             }
-            .contentShape(Rectangle())
-            .onTapGesture { location in showFrame(at: Double(location.x / w) * length, label: "Frame at \(clock(Double(location.x / w) * length))") }
-            .help("The clip from beginning to end. The bright part between the markers is what plays. Click anywhere to look at that moment.")
+            Spacer()
+            Button { reset() } label: { Label("Use the whole clip", systemImage: "arrow.counterclockwise") }
+                .disabled(isWhole).help("Puts the start and end back to the very beginning and very end of the clip.")
         }
     }
 
-    func marker(_ color: Color, label: String) -> some View {
-        VStack(spacing: 0) {
-            Text(label).font(.system(size: 8, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 4).background(color)
-            Rectangle().fill(color).frame(width: 14)
-        }.frame(width: 14).contentShape(Rectangle())
-            .help(label == "START" ? "Drag to choose where the clip starts playing." : "Drag to choose where the clip stops.")
+    var previewBox: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10).fill(.black)
+                if let img = shown { Image(nsImage: img).resizable().scaledToFit() }
+                else { ProgressView().controlSize(.small) }
+            }
+            .aspectRatio(16.0 / 9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            Text(playing ? "Playing — \(clock(look))" : "Looking at \(clock(look))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            Button { playing ? stopPlay() : play() } label: { Label(playing ? "Stop" : "Play this part", systemImage: playing ? "stop.fill" : "play.fill").frame(maxWidth: .infinity).padding(.vertical, 3) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .help("Plays the part between the green and red markers (no sound here — your song plays in the finished video).")
+        }
     }
 
-    func nudge(_ d: Double, isStart: Bool) -> some View {
-        Button { move(start: isStart, to: (isStart ? start : end) + d); commit() } label: { Text((d > 0 ? "+" : "−") + String(format: "%g", abs(d))).font(.caption.monospacedDigit()) }
-            .buttonStyle(.bordered).controlSize(.small)
-            .help(isStart ? (d < 0 ? "Start the clip \(abs(d)) s earlier." : "Start the clip \(abs(d)) s later.") : (d < 0 ? "Stop the clip \(abs(d)) s earlier." : "Stop the clip \(abs(d)) s later."))
+    var filmstrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            GeometryReader { geo in
+                let w = max(1, geo.size.width), h: CGFloat = 70, top: CGFloat = 26
+                let sx = CGFloat(length > 0 ? start / length : 0) * w, ex = CGFloat(length > 0 ? end / length : 1) * w
+                let lx = CGFloat(length > 0 ? look / length : 0) * w
+                ZStack(alignment: .topLeading) {
+                    // the pictures
+                    HStack(spacing: 0) {
+                        ForEach(Array(strip.enumerated()), id: \.offset) { _, img in
+                            Image(nsImage: img).resizable().scaledToFill().frame(width: w / CGFloat(max(1, strip.count)), height: h).clipped()
+                        }
+                    }
+                    .frame(width: w, height: h).background(Color.black.opacity(0.2)).clipShape(RoundedRectangle(cornerRadius: 8)).offset(y: top)
+                    // dimmed = not used
+                    Rectangle().fill(.black.opacity(0.62)).frame(width: max(0, sx), height: h).offset(y: top)
+                    Rectangle().fill(.black.opacity(0.62)).frame(width: max(0, w - ex), height: h).offset(x: ex, y: top)
+                    RoundedRectangle(cornerRadius: 4).strokeBorder(Color.white, lineWidth: 2).frame(width: max(3, ex - sx), height: h).offset(x: sx, y: top)
+                    // where the preview is looking
+                    Rectangle().fill(.white).frame(width: 2, height: h + 6).shadow(radius: 2).offset(x: lx - 1, y: top - 3)
+                    // markers: the bars sit on the strip; START's time label is above it, END's is below, so they never collide
+                    bar(.green).offset(x: min(max(0, sx - 11), w - 22), y: top - 3).zIndex(2)
+                        .gesture(DragGesture(minimumDistance: 0).onChanged { g in move(start: true, to: Double((sx + g.translation.width) / w) * length) }.onEnded { _ in commit() })
+                    bar(.red).offset(x: min(max(0, ex - 11), w - 22), y: top - 3).zIndex(2)
+                        .gesture(DragGesture(minimumDistance: 0).onChanged { g in move(start: false, to: Double((ex + g.translation.width) / w) * length) }.onEnded { _ in commit() })
+                    pill("START \(clock(start))", .green).offset(x: min(max(0, sx - 55), max(0, w - 110)), y: 0)
+                    pill("END \(clock(end))", .red).offset(x: min(max(0, ex - 55), max(0, w - 110)), y: top + h + 6)
+                }
+                .frame(width: w, height: top + h + 34, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .onTapGesture { p in if p.y > top { stopPlay(); showFrame(at: Double(max(0, min(1, p.x / w))) * length) } }
+                .help("The whole clip from beginning to end. The bright part between the markers is what is used. Click a picture to look at that moment.")
+            }
+            .frame(height: 130)
+            HStack {
+                Text("0:00.0").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                Spacer()
+                Text("Drag the green and red markers — or click a picture to look at it").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text(clock(length)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    func bar(_ color: Color) -> some View {
+        RoundedRectangle(cornerRadius: 5).fill(color).frame(width: 22, height: 76)
+            .overlay(VStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Capsule().fill(.white.opacity(0.9)).frame(width: 10, height: 2) } })
+            .shadow(radius: 2).contentShape(Rectangle())
+            .help(color == .green ? "Drag to choose where the clip starts playing." : "Drag to choose where the clip stops.")
+    }
+    func pill(_ text: String, _ color: Color) -> some View {
+        Text(text).font(.system(size: 12, weight: .bold).monospacedDigit()).foregroundStyle(.white)
+            .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(color)).frame(width: 110, alignment: .center).fixedSize()
+    }
+
+    var cards: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) { card(isStart: true); card(isStart: false) }
+            VStack(spacing: 12) { card(isStart: true); card(isStart: false) }
+        }
+    }
+
+    func card(isStart: Bool) -> some View {
+        let color: Color = isStart ? .green : .red, t = isStart ? start : end
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle().fill(color).frame(width: 12, height: 12)
+                Text(isStart ? "Start of the clip" : "End of the clip").font(.callout.weight(.semibold))
+                Spacer()
+                Text(clock(t)).font(.title3.monospacedDigit().weight(.semibold))
+            }
+            Button { move(start: isStart, to: look); commit() } label: { Label(isStart ? "Start here (at \(clock(look)))" : "End here (at \(clock(look)))", systemImage: "scope").frame(maxWidth: .infinity) }
+                .buttonStyle(.bordered).controlSize(.regular)
+                .help(isStart ? "Makes the clip start at the moment you are looking at in the preview. Click a picture in the strip first to choose the moment." : "Makes the clip stop at the moment you are looking at in the preview. Click a picture in the strip first to choose the moment.")
+            HStack(spacing: 6) {
+                Text(isStart ? "Start" : "End").font(.caption).foregroundStyle(.secondary)
+                nudge(-0.5, isStart); nudge(-0.1, isStart); nudge(0.1, isStart); nudge(0.5, isStart)
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(color.opacity(0.5), lineWidth: 1.5))
+    }
+
+    func nudge(_ d: Double, _ isStart: Bool) -> some View {
+        Button { move(start: isStart, to: (isStart ? start : end) + d); commit() } label: {
+            Text(String(format: "%@%g s", d < 0 ? "−" : "+", abs(d))).font(.callout.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .help(isStart ? (d < 0 ? "Start the clip \(abs(d)) seconds earlier." : "Start the clip \(abs(d)) seconds later.")
+                      : (d < 0 ? "Stop the clip \(abs(d)) seconds earlier." : "Stop the clip \(abs(d)) seconds later."))
+    }
+
+    var summary: String {
+        var s = isWhole ? "The whole clip is used (\(String(format: "%.1f", playsFor)) seconds)." : "Using \(String(format: "%.1f", playsFor)) seconds of the \(String(format: "%.1f", length))-second clip: from \(clock(start)) to \(clock(end))."
+        if partLength > 0 {
+            if playsFor + 0.3 < partLength { s += " This part of the song lasts \(Int(partLength.rounded())) seconds, so the clip repeats." }
+            else if playsFor > partLength + 0.3 { s += " This part of the song lasts \(Int(partLength.rounded())) seconds, so the end of the clip is not reached." }
+        }
+        return s
     }
 
     // MARK: behaviour
     func clock(_ t: Double) -> String { String(format: "%d:%04.1f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60)) }
 
     func move(start isStart: Bool, to raw: Double) {
-        stopPlay(); dragging = true
+        stopPlay()
         let t = (min(max(0, raw), length) * 10).rounded() / 10
-        if isStart { start = min(t, end - minLen); start = max(0, start); showFrame(at: start, label: "Starts here: \(clock(start))") }
-        else { end = max(t, start + minLen); end = min(length, end); showFrame(at: max(start, end - 0.05), label: "Ends here: \(clock(end))") }
+        if isStart { start = max(0, min(t, end - minLen)); showFrame(at: start) }
+        else { end = min(length, max(t, start + minLen)); showFrame(at: max(start, end - 0.05)) }
     }
-    func commit() { dragging = false; model.setVideoTrim(section: section, start: start, end: end >= length - 0.01 ? nil : end) }
-    func reset() { stopPlay(); start = 0; end = length; commit(); showFrame(at: 0, label: "Starts here: \(clock(0))") }
+    func commit() { model.setVideoTrim(section: section, start: start, end: end >= length - 0.01 ? nil : end) }
+    func reset() { stopPlay(); start = 0; end = length; commit(); showFrame(at: 0) }
 
-    func generator() -> AVAssetImageGenerator? {
+    func generator(max px: CGFloat = 640) -> AVAssetImageGenerator? {
         guard let u = url else { return nil }
         let g = AVAssetImageGenerator(asset: AVURLAsset(url: u)); g.appliesPreferredTrackTransform = true
-        g.maximumSize = CGSize(width: 480, height: 480)
+        g.maximumSize = CGSize(width: px, height: px)
         g.requestedTimeToleranceBefore = .zero; g.requestedTimeToleranceAfter = CMTime(seconds: 0.05, preferredTimescale: 600)
         return g
     }
-    func showFrame(at t: Double, label: String) {
-        shownLabel = label
+    func showFrame(at t: Double) {
+        look = min(max(0, t), length)
         guard let g = generator() else { return }
-        Task { if let r = try? await g.image(at: CMTime(seconds: min(max(0, t), max(0, length - 0.05)), preferredTimescale: 600)) { shown = NSImage(cgImage: r.image, size: .zero) } }
+        let at = look
+        Task { if let r = try? await g.image(at: CMTime(seconds: min(at, max(0, length - 0.05)), preferredTimescale: 600)) { shown = NSImage(cgImage: r.image, size: .zero) } }
     }
     func play() {
         playing = true
         playTask = Task {
-            guard let g = generator() else { playing = false; return }
+            guard let g = generator(max: 480) else { playing = false; return }
             var t = start
             while !Task.isCancelled && t < end {
-                if let r = try? await g.image(at: CMTime(seconds: t, preferredTimescale: 600)) { shown = NSImage(cgImage: r.image, size: .zero); shownLabel = "Playing: \(clock(t))" }
-                try? await Task.sleep(nanoseconds: 120_000_000); t += 0.12
+                look = t
+                if let r = try? await g.image(at: CMTime(seconds: t, preferredTimescale: 600)) { shown = NSImage(cgImage: r.image, size: .zero) }
+                try? await Task.sleep(nanoseconds: 100_000_000); t += 0.1
             }
-            playing = false; showFrame(at: start, label: "Starts here: \(clock(start))")
+            playing = false
+            if !Task.isCancelled { showFrame(at: start) }
         }
     }
     func stopPlay() { playTask?.cancel(); playTask = nil; playing = false }
@@ -158,11 +228,10 @@ struct VideoTrimView: View {
         length = max(0.5, len)
         start = min(candidate.videoStart, length - minLen); end = min(candidate.videoEnd ?? length, length)
         if end <= start { end = length }
-        showFrame(at: start, label: "Starts here: \(clock(start))")
-        guard let g = generator() else { return }
-        g.maximumSize = CGSize(width: 240, height: 140)
+        showFrame(at: start)
+        guard let g = generator(max: 240) else { return }
         var imgs: [NSImage] = []
-        let n = 12
+        let n = 14
         for i in 0..<n {
             let t = length * (Double(i) + 0.5) / Double(n)
             if let r = try? await g.image(at: CMTime(seconds: t, preferredTimescale: 600)) { imgs.append(NSImage(cgImage: r.image, size: .zero)) }
