@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-17
+
 ## [1.4.0] - 2026-10-17
 
 ### Changed
