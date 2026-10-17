@@ -14,14 +14,52 @@ struct ShortsView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        HSplitView {
-            list.frame(minWidth: 170, idealWidth: 220, maxWidth: 300)
-            Group {
-                if let c = model.currentShort { ShortEditor(clip: c).id(c.id) }
-                else { empty }
-            }.frame(minWidth: 520)
+        VStack(spacing: 0) {
+            if let c = model.currentShort {
+                tabs
+                Divider()
+                ShortEditor(clip: c).id(c.id)
+            } else { empty }
         }
         .onAppear { if model.selectedShort == nil { model.selectedShort = model.plan?.shorts.first?.id } }
+    }
+
+    /// The clips as tabs along the top: press one to work on it.
+    var tabs: some View {
+        HStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(model.plan?.shorts ?? []) { c in
+                        let on = c.id == model.selectedShort
+                        Button { model.selectedShort = c.id; model.stopPlayback(); model.refreshPreview(at: 1) } label: {
+                            HStack(spacing: 6) { Text(c.name).lineLimit(1).frame(maxWidth: 190); Text("\(Int(c.duration)) s").foregroundStyle(on ? .white.opacity(0.85) : .secondary).monospacedDigit() }
+                                .font(.callout.weight(on ? .semibold : .regular)).padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(on ? Color.accentColor : Color.secondary.opacity(0.12)))
+                                .foregroundStyle(on ? .white : .primary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(c.name): \(clock(c.start)) to \(clock(c.end)). Press to work on this clip.")
+                        .contextMenu { Button("Delete this clip", role: .destructive) { model.deleteShort(c.id) } }
+                    }
+                }.padding(.vertical, 2)
+            }
+            Menu {
+                Button("Cut my song into clips for me (4–7 of about 30 s)") { model.autoMakeShorts(replaceExisting: true) }
+                Button("New clip (about 30 s from the first words)") { model.newShort() }
+                Button("Whole song (split into parts if over 3:00)") { model.newWholeSong() }
+            } label: { Label("Add a clip", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
+                .help("Add another clip: cut the song automatically, start one yourself, or use the whole song.")
+            if let id = model.selectedShort {
+                Button(role: .destructive) { model.deleteShort(id) } label: { Image(systemName: "trash") }
+                    .help("Deletes the selected clip from this list. Videos you already made are kept.")
+            }
+            if let shorts = model.plan?.shorts, shorts.count > 1 {
+                Button { model.renderAllShorts() } label: { Label("Make all \(shorts.count) clips", systemImage: "film.stack") }
+                    .buttonStyle(.borderedProminent).disabled(model.shortProgress != nil)
+                    .help("Creates every clip in the list, one after another.")
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8).background(.regularMaterial)
     }
 
     var empty: some View {
@@ -41,44 +79,6 @@ struct ShortsView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    var list: some View {
-        VStack(spacing: 0) {
-            List(selection: Binding(get: { model.selectedShort }, set: { model.selectedShort = $0; model.stopPlayback(); model.refreshPreview(at: 1) })) {
-                ForEach(model.plan?.shorts ?? []) { c in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(c.name).font(.callout.weight(.semibold)).lineLimit(1)
-                        Text("\(clock(c.start)) – \(clock(c.end)) · \(Int(c.duration)) s").font(.caption).foregroundStyle(.secondary)
-                    }.tag(c.id).contextMenu { Button("Delete", role: .destructive) { model.deleteShort(c.id) } }
-                }
-            }.listStyle(.sidebar)
-            Divider()
-            VStack(spacing: 8) {
-                HStack {
-                    Menu {
-                        Button("Auto-make 4–7 Shorts (~30 s at stanza breaks)") { model.autoMakeShorts(replaceExisting: true) }
-                        Button("New Short (30 s from the lyrics)") { model.newShort() }
-                        Button("Whole song (split into parts if over 3:00)") { model.newWholeSong() }
-                    } label: { Label("Add a clip", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
-                    .help("Add another clip: cut the song automatically, choose lines yourself, or use the whole song.")
-                    Spacer()
-                    if let id = model.selectedShort { Button(role: .destructive) { model.deleteShort(id) } label: { Image(systemName: "trash") }
-                        .help("Deletes the selected clip from this list. Videos you already made are kept.") }
-                }
-                if let shorts = model.plan?.shorts, shorts.count > 1 {
-                    Button {
-                        model.renderAllShorts()
-                    } label: {
-                        Label("Make all \(shorts.count) clips", systemImage: "film.stack")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .help("Creates every clip in the list, one after another.")
-                    .disabled(model.shortProgress != nil)
-                }
-            }.padding(10)
-        }
-    }
 }
 
 /// Colours and words for how long a Short is: orange too short, green ideal, red long.

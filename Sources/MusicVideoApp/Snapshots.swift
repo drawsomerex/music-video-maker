@@ -69,8 +69,8 @@ enum Snapshots {
             model.waveform = peaks
             model.selectLines(c.id, 3, 8)
             model.beats = stride(from: 0.4, to: p.songDuration, by: 0.55).map { $0 }
-            save("shorts", CGSize(width: 1180, height: 1500), ShortEditor(clip: model.currentShort!, snapshot: true))
-            if let last = p.lines.last { model.update(c.id) { $0.start = last.start - 14; $0.end = last.end + 6 }; save("shorts-end", CGSize(width: 1180, height: 1500), ShortEditor(clip: model.currentShort!, snapshot: true)) }
+            save("shorts", CGSize(width: 1440, height: 780), ShortEditor(clip: model.currentShort!, snapshot: true))
+            if let last = p.lines.last { model.update(c.id) { $0.start = last.start - 14; $0.end = last.end + 6 }; save("shorts-end", CGSize(width: 1440, height: 780), ShortEditor(clip: model.currentShort!, snapshot: true, edge: .end)); save("shorts-end-small", CGSize(width: 1040, height: 700), ShortEditor(clip: model.currentShort!, snapshot: true, edge: .end)) }
         }
         save("update-strip", CGSize(width: 1120, height: 70), UpdateStrip())
         save("update-sheet", CGSize(width: 520, height: 420), UpdateSheet())

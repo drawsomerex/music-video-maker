@@ -18,6 +18,8 @@ public struct ShortStyle {
     public var pulse: Double              // beat-pulse strength (zoom fraction), 0 = off
     public var shake: Bool
 
+    /// The colour choices as (name, red, green, blue) for drawing swatches in the app.
+    public static var swatches: [(name: String, r: Double, g: Double, b: Double)] { palette.map { ($0.0, Double($0.1), Double($0.2), Double($0.3)) } }
     public static let paletteNames = ["Hot pink", "Sun yellow", "Electric cyan", "Lime", "Tangerine", "Violet"]
     static let palette: [(String, CGFloat, CGFloat, CGFloat)] = [
         ("Sun yellow", 1.00, 0.84, 0.04), ("Hot pink", 1.00, 0.23, 0.55), ("Electric cyan", 0.24, 0.86, 1.0),

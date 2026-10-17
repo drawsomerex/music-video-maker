@@ -1,124 +1,171 @@
-// The Shorts editor. One idea: you SEE the song with its words, you HEAR it, and you set where the Short starts and ends.
-//   • The song map (top) shows the whole song; the bright box is your Short.
-//   • The word timeline (middle) shows the waveform and every word at a readable size; drag the green and red markers, or click a word.
-//   • Big buttons play it, mark "start here / end here" at the moment you hear, and nudge each edge earlier or later (you hear every change).
+// The Shorts editor: one screen, no scrolling.
+//   Left:  the clip's name and length, the whole-song map, ONE close-up of the end you are working on (Start / End switch),
+//          the nudge buttons, how it finishes, and the play buttons.
+//   Right: the vertical preview, the look, and "Make this clip".
 import SwiftUI
 import MVCore
+
+enum ShortEdge: String { case start = "Start", end = "End" }
 
 struct ShortEditor: View {
     @EnvironmentObject var model: AppModel
     let clip: ShortClip
     @State private var previewT = 1.0
-    @State private var cursor: Double?               // the spot you last clicked on the timeline
+    @State private var cursor: Double?
+    @State private var edge: ShortEdge = .start
     @State private var showMore = false
+    @State private var showWords = false
     var snapshot = false                      // layout pictures only
+    init(clip: ShortClip, snapshot: Bool = false, edge: ShortEdge = .start) { self.clip = clip; self.snapshot = snapshot; _edge = State(initialValue: edge) }
 
     var plan: Plan { model.plan! }
     var c: ShortClip { model.currentShort ?? clip }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Group { if snapshot { editorColumn } else { ScrollView { editorColumn } } }
-            Divider()
-            previewPane.frame(minWidth: 230, idealWidth: 290, maxWidth: 330)
+        GeometryReader { geo in
+            HStack(alignment: .top, spacing: 0) {
+                Group {
+                    if snapshot { mainColumn.frame(width: geo.size.width - 400) }
+                    else { ScrollView { mainColumn.frame(minHeight: geo.size.height - 4, alignment: .top) } }
+                }
+                Divider()
+                sideColumn.frame(minWidth: 300, idealWidth: 380, maxWidth: 420)
+            }
         }
         .onChange(of: c.start) { model.refreshPreview(at: previewT) }
         .onChange(of: c.end) { model.refreshPreview(at: previewT) }
         .onAppear { model.refreshPreview(at: previewT) }
         .onDisappear { model.stopPlayback() }
         .sheet(isPresented: $showMore) { ShortMoreOptions(clipID: clip.id).environmentObject(model) }
-    }
-
-    var editorColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
-            SongMap(clip: clip, cursor: $cursor)
-            WordTimeline(clip: clip, cursor: $cursor, snapshot: snapshot)
-            snapRow
-            playRow
-            EdgeCard(clip: clip, isStart: true)
-            EdgeCard(clip: clip, isStart: false)
-            lookBox
-            makeRow
-        }.padding(18)
-    }
-
-    // MARK: how things stick to words and beats
-    var snapRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                Text("Markers stick to:").font(.callout.weight(.semibold))
-                Picker("", selection: $model.snapMode) { ForEach(AppModel.SnapMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).labelsHidden().frame(width: 280)
-                    .help("Smart: sticks to word edges while words are being sung, and to the beat in the music-only parts. Beats: only the beat. Words: only word edges. Off: stays exactly where you put it. Holding Shift while dragging also turns it off.")
-            }
-            Text({ switch model.snapMode {
-                case .smart: return "Smart: near words the marker sticks to the edge of a word; in music-only parts it sticks to the beat."
-                case .beats: return "Beats: the marker always sticks to the nearest beat of the music."
-                case .words: return "Words: the marker sticks to the nearest edge of a word."
-                case .off: return "Off: the marker stays exactly where you put it." } }()).font(.callout).foregroundStyle(.secondary)
+        .sheet(isPresented: $showWords) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack { Text("All the words of the song").font(.title2.bold()); Spacer(); Button("Done") { showWords = false }.keyboardShortcut(.defaultAction) }
+                WordTimeline(clip: clip, cursor: $cursor)
+            }.padding(20).frame(minWidth: 760, idealWidth: 900)
         }
     }
 
-    // MARK: play
-    var playRow: some View {
-        HStack(spacing: 10) {
-            Button { playShort() } label: { Label(model.playhead == nil ? "Play the Short" : "Stop", systemImage: model.playhead == nil ? "play.fill" : "stop.fill").frame(minWidth: 120) }
-                .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.space, modifiers: [])
-                .help("Plays the Short from its start to its end. The space bar does the same; press it again to stop.")
-            Button { model.toggleLoop(c.start, c.end) } label: { Label(model.looping ? "Stop repeating" : "Play again and again", systemImage: "repeat") }
-                .controlSize(.large).keyboardShortcut("l", modifiers: [])
-                .help("Plays the Short over and over, starting half a second early, so you can hear whether the ends sound right. Keyboard: L.")
+    // MARK: left
+    var mainColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            SongMap(clip: clip, cursor: $cursor)
+            edgePanel
+            transport
+        }.padding(.horizontal, 20).padding(.vertical, 16)
+    }
+
+    var header: some View {
+        HStack(spacing: 12) {
+            TextField("Name", text: Binding(get: { c.name }, set: { n in model.update(clip.id) { $0.name = n } }))
+                .textFieldStyle(.roundedBorder).font(.title3.bold()).frame(maxWidth: 240).help("A name for this clip. It becomes the file name.")
+            LengthBadge(duration: c.duration)
+            Text(ShortLength.message(c.duration)).font(.callout.weight(.medium)).foregroundStyle(ShortLength.color(c.duration)).lineLimit(1)
             Spacer(minLength: 6)
-            Button { model.extendSelection(clip.id, seconds: 30) } label: { Label("Make it about 30 seconds", systemImage: "arrow.left.and.right") }
-                .controlSize(.large).help("Keeps where it starts and adds lyric lines until the Short is about 30 seconds long.")
+            Text("\(clock(c.start)) → \(clock(c.end))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The Start / End switch and the close-up of the chosen end.
+    var edgePanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ForEach([ShortEdge.start, ShortEdge.end], id: \.self) { e in
+                    let on = edge == e
+                    Button { edge = e } label: {
+                        HStack(spacing: 8) {
+                            Circle().fill(e == .start ? Color.green : Color.red).frame(width: 10, height: 10)
+                            Text(e == .start ? "Where it starts" : "Where it ends").font(.callout.weight(on ? .bold : .regular))
+                            Text(clock(e == .start ? c.start : c.end)).font(.callout.monospacedDigit().weight(.bold))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 9).fill(on ? Color.primary.opacity(0.10) : Color.clear))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(on ? (e == .start ? Color.green : Color.red) : Color.secondary.opacity(0.3), lineWidth: on ? 2 : 1))
+                    }.buttonStyle(.plain).help(e == .start ? "Work on where the Short starts." : "Work on where the Short ends, including an instrumental ending.")
+                }
+                Spacer()
+            }
+            EdgeCard(clip: clip, isStart: edge == .start)
+        }
+    }
+
+    var transport: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) { playButtons; Spacer(minLength: 6); snapChoice }
+            VStack(alignment: .leading, spacing: 8) { HStack(spacing: 10) { playButtons }; snapChoice }
+        }
+    }
+    @ViewBuilder var playButtons: some View {
+        Button { playShort() } label: { Label(model.playhead == nil ? "Play the Short" : "Stop", systemImage: model.playhead == nil ? "play.fill" : "stop.fill").frame(minWidth: 110) }
+            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.space, modifiers: [])
+            .help("Plays the Short from its start to its end. The space bar does the same; press it again to stop.")
+        Button { model.toggleLoop(c.start, c.end) } label: { Label(model.looping ? "Stop repeating" : "Repeat", systemImage: "repeat") }
+            .controlSize(.large).keyboardShortcut("l", modifiers: [])
+            .help("Plays the Short over and over, starting half a second early, so you can hear whether the ends sound right. Keyboard: L.")
+        Button { showWords = true } label: { Label("Browse the words", systemImage: "text.word.spacing") }.controlSize(.large)
+            .help("Shows every word of the song along a timeline. Click a word to hear the song from there and start or end the Short at it.")
+        Button { model.extendSelection(clip.id, seconds: 30) } label: { Label("Make it ~30 s", systemImage: "arrow.left.and.right") }.controlSize(.large)
+            .help("Keeps where it starts and adds lyric lines until the Short is about 30 seconds long.")
+    }
+    var snapChoice: some View {
+        HStack(spacing: 8) {
+            Text("Sticks to").font(.callout.weight(.semibold))
+            Picker("", selection: $model.snapMode) { ForEach(AppModel.SnapMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 250)
+                .help("Smart: sticks to a word edge while words are sung and to the beat in music-only parts. Beats: only the beat. Words: only word edges. Off: stays exactly where you put it. Holding Shift while dragging also turns it off.")
         }
     }
     func playShort() { if model.playhead != nil { model.stopPlayback() } else { model.playRange(c.start, c.end) } }
 
-    // MARK: top: name, length, advice
-    var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                TextField("Name", text: Binding(get: { c.name }, set: { n in model.update(clip.id) { $0.name = n } }))
-                    .textFieldStyle(.roundedBorder).font(.title3.bold()).help("A name for this clip. It becomes the file name.")
-                LengthBadge(duration: c.duration)
-            }
-            Text("\(clock(c.start)) → \(clock(c.end))  ·  " + ShortLength.message(c.duration)).font(.callout.weight(.medium)).foregroundStyle(ShortLength.color(c.duration)).monospacedDigit()
-        }
+    // MARK: right
+    var sideColumn: some View {
+        VStack(spacing: 10) {
+            HStack { Text("Preview").font(.callout.weight(.semibold)).foregroundStyle(.secondary); Spacer(); if model.live.preparing { ProgressView().controlSize(.mini) } }
+            LivePreviewPane(live: model.live, defaultCaption: 0.20) { v in model.setCaptionY(v, shortID: clip.id) }
+            CaptionTimingBar().environmentObject(model).frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            lookBox
+            Spacer(minLength: 4)
+            makeRow
+        }.padding(16)
     }
 
-    // MARK: look (the few choices that matter; the rest is under "More options")
     var lookBox: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Choose the look").font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
+                Text("Look").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
                 choice("Lively", on: c.dynamic, help: "Adds an opening title, a highlight that follows each word, and smooth picture changes.") { set { $0.dynamic = true } }
                 choice("Simple", on: !c.dynamic, help: "Plain pictures with the words at the bottom. No opening title.") { set { $0.dynamic = false } }
+                Spacer()
+                Button { showMore = true } label: { Label("More", systemImage: "slider.horizontal.3") }
+                    .help("Calm or punchy motion, beat pulse, closing text, a new random look and three versions.")
             }
             if c.dynamic {
                 HStack(spacing: 8) {
-                    Text("Opening title").frame(width: 100, alignment: .leading).help("The big words shown during the first two seconds. Leave empty to use your song title.")
-                    TextField("blank = the song title (\(plan.title))", text: Binding(get: { c.hook }, set: { v in set { $0.hook = v } })).textFieldStyle(.roundedBorder)
-                    Button { model.writeHook(clip.id) } label: { Label("Suggest one", systemImage: "sparkles") }.disabled(model.hookBusy || model.busy)
-                        .help("The AI reads this clip's words and suggests a short, catchy opening title.")
+                    Text("Title").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
+                    TextField("blank = \(plan.title)", text: Binding(get: { c.hook }, set: { v in set { $0.hook = v } })).textFieldStyle(.roundedBorder)
+                        .help("The big words shown during the first two seconds. Leave empty to use your song title.")
+                    Button { model.writeHook(clip.id) } label: { Image(systemName: "sparkles") }.disabled(model.hookBusy || model.busy)
+                        .help("Suggest one: the AI reads this clip's words and suggests a short, catchy opening title.")
                 }
-                HStack(spacing: 8) {
-                    Text("The words").frame(width: 100, alignment: .leading)
-                    ForEach([("pill", "Pill"), ("pop", "Pop"), ("stack", "Big"), ("sweep", "Sweep"), ("auto", "Surprise me")], id: \.0) { k in
+                HStack(spacing: 6) {
+                    Text("Words").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
+                    ForEach([("pill", "Pill"), ("pop", "Pop"), ("stack", "Big"), ("sweep", "Sweep"), ("auto", "Surprise")], id: \.0) { k in
                         choice(k.1, on: c.textStyle == k.0, help: wordsHelp(k.0)) { set { $0.textStyle = k.0 } }
                     }
                 }
                 HStack(spacing: 8) {
-                    Text("Colour").frame(width: 100, alignment: .leading)
-                    ForEach(ShortStyle.paletteNames + ["Auto"], id: \.self) { n in choice(n, on: c.accent == n, help: "The highlight colour for the words.") { set { $0.accent = n } } }
+                    Text("Colour").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
+                    ForEach(ShortStyle.swatches, id: \.name) { s in
+                        Button { set { $0.accent = s.name } } label: {
+                            Circle().fill(Color(red: s.r, green: s.g, blue: s.b)).frame(width: 22, height: 22)
+                                .overlay(Circle().strokeBorder(c.accent == s.name ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: c.accent == s.name ? 3 : 1))
+                        }.buttonStyle(.plain).help(s.name)
+                    }
+                    choice("Auto", on: c.accent == "Auto", help: "The app picks a colour for you.") { set { $0.accent = "Auto" } }
                 }
-                HStack { Spacer(); Button { showMore = true } label: { Label("More options…", systemImage: "slider.horizontal.3") }
-                    .help("Calm or punchy motion, beat pulse, looping end, closing text, and a new random look.") }
             }
-        }
-        .font(.callout)
-        .padding(14).background(RoundedRectangle(cornerRadius: 12).fill(.quaternary.opacity(0.35)))
+        }.font(.callout)
     }
     func set(_ f: @escaping (inout ShortClip) -> Void) { model.update(clip.id, f); model.refreshPreview(at: previewT) }
     func wordsHelp(_ k: String) -> String {
@@ -137,35 +184,23 @@ struct ShortEditor: View {
             .help(help)
     }
 
-    // MARK: make it
     var makeRow: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 8) {
             if let p = model.shortProgress {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(model.shortPhase.isEmpty ? "Making the clip" : model.shortPhase) (\(Int(p * 100))%)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                    ProgressView(value: p).frame(minWidth: 120, maxWidth: 260)
+                    HStack { ProgressView(value: p); Button("Cancel") { model.cancelShortRender() }.buttonStyle(.bordered).help("Stops making this clip.") }
                 }
-                Button("Cancel") { model.cancelShortRender() }.buttonStyle(.bordered).help("Stops making this clip.")
             } else if let out = model.shortOutput {
-                Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }.help("Opens the folder with this clip.")
-                ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }.help("Send the clip by Messages, Mail or AirDrop.")
+                HStack {
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }.help("Opens the folder with this clip.")
+                    ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }.help("Send the clip by Messages, Mail or AirDrop.")
+                    Spacer()
+                }
             }
-            Spacer(minLength: 8)
-            Button { model.renderShort(clip.id) } label: { Label("Make this clip", systemImage: "film").font(.headline).padding(.horizontal, 8).padding(.vertical, 3) }
+            Button { model.renderShort(clip.id) } label: { Label("Make this clip", systemImage: "film").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 5) }
                 .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.shortProgress != nil)
                 .help("Creates the finished vertical video for this clip.")
-        }
-    }
-
-    // MARK: preview
-    var previewPane: some View {
-        VStack(spacing: 8) {
-            HStack { Text("Preview").font(.callout.weight(.semibold)).foregroundStyle(.secondary); Spacer()
-                if model.live.preparing { ProgressView().controlSize(.mini) } }.padding(.top, 14).padding(.horizontal, 20)
-            LivePreviewPane(live: model.live, defaultCaption: 0.20) { v in model.setCaptionY(v, shortID: clip.id) }
-                .padding(.horizontal, 20)
-            CaptionTimingBar().environmentObject(model).padding(.horizontal, 14).scaleEffect(0.92)
-            Spacer()
         }
     }
 }

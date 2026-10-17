@@ -15,23 +15,20 @@ struct EdgeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Circle().fill(color).frame(width: 12, height: 12)
-                Text(isStart ? "Where it starts" : "Where it ends").font(.headline)
-                Text(clock(t)).font(.title2.monospacedDigit().weight(.bold))
-                Spacer()
+            HStack(alignment: .top, spacing: 12) {
+                Text(info).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
                 Button { hear() } label: { Label(isStart ? "Hear the start" : "Hear the ending", systemImage: "speaker.wave.2.fill") }
                     .buttonStyle(.borderedProminent).controlSize(.large)
                     .help(isStart ? "Plays the first few seconds of the Short." : "Plays the last few seconds of the Short, up to where it stops.")
             }
-            Text(info).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             EdgeStrip(clip: clip, isStart: isStart, span: $span, onSet: { v in set(v); hear() })
             nudges
             if !isStart { ending }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary.opacity(0.30)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(color.opacity(0.45), lineWidth: 1.5))
+        .background(RoundedRectangle(cornerRadius: 12).fill(.background.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(color.opacity(0.5), lineWidth: 1.5))
     }
 
     /// What is at this end right now, in plain words.
@@ -183,7 +180,7 @@ struct EdgeStrip: View {
                         model.update(clip.id) { if isStart { $0.start = min(v, $0.end - 2) } else { $0.end = max(v, $0.start + 2) } }
                     }
                     .onEnded { _ in onSet(t) })
-            }.frame(height: 150)
+            }.frame(minHeight: 150, idealHeight: 190, maxHeight: 260)
         }
     }
 }
