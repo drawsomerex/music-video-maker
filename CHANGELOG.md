@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-16
+
 ### Added
 - **Picture costs always on screen.** A green strip across the top of every screen shows what you have spent on picture generation for this song (and how many pictures), **what drawing all the blank pictures would cost** (about the usual price per picture × the blank ones; it updates as pictures are added or made), what you have spent across **all your songs**, and your OpenRouter credit left (turns orange when it wouldn't cover the blank pictures). Each figure has a tooltip.
 
