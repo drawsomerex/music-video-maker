@@ -44,8 +44,11 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var fullFile: String? = nil
     /// A video clip used instead of a still picture (relative to the work dir). `fullFile`/`thumbFile` then hold a still frame from it.
     public var videoFile: String? = nil
+    public var videoLength: Double? = nil      // length of the whole clip in seconds
+    public var videoStart: Double = 0          // where in the clip it begins playing (seconds)
+    public var videoEnd: Double? = nil         // where it stops (nil = the end of the clip)
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -68,6 +71,9 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         camEndX = try c.decodeIfPresent(Double.self, forKey: .camEndX); camEndY = try c.decodeIfPresent(Double.self, forKey: .camEndY)
         camZoom = try c.decodeIfPresent(Int.self, forKey: .camZoom) ?? 0
         videoFile = try c.decodeIfPresent(String.self, forKey: .videoFile)
+        videoLength = try c.decodeIfPresent(Double.self, forKey: .videoLength)
+        videoStart = try c.decodeIfPresent(Double.self, forKey: .videoStart) ?? 0
+        videoEnd = try c.decodeIfPresent(Double.self, forKey: .videoEnd)
     }
 
     public init(id: String, provider: String, thumbURL: String, fullURL: String, pageURL: String,
