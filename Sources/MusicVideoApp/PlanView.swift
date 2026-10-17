@@ -132,8 +132,8 @@ struct PlanView: View {
                                              : "Draws the pictures for you. First add your OpenRouter key with the “Picture maker key” button.")
                 Button { chooseFolder() } label: { Label("Add pictures from a folder", systemImage: "folder").frame(maxWidth: .infinity) }
                     .help("Choose a folder of pictures named 00.png, 01.png, 02.png and so on. 00 is the title card. Each picture goes to the matching part of the song.")
-                Button { showDescriptionSheet = true } label: { Label("Song description", systemImage: "text.alignleft").frame(maxWidth: .infinity) }
-                    .help("Read or change what the app thinks the song is about. Every picture idea is built from it.")
+                Button { showDescriptionSheet = true } label: { Label("Setting & description", systemImage: "text.alignleft").frame(maxWidth: .infinity) }
+                    .help("Set the place and theme every picture follows, and read or change what the app thinks the song is about. Every picture idea is built from them.")
                 Button { showStyleSheet = true } label: { Label("Art style", systemImage: "paintpalette").frame(maxWidth: .infinity) }
                     .help("Choose how all the pictures should look, such as oil painting, watercolor or anime.")
                 Button { model.showOpenRouterKeySheet = true } label: { Label(model.hasOpenRouterKey ? "Picture maker key & credit" : "Add picture maker key", systemImage: "key.fill").frame(maxWidth: .infinity) }

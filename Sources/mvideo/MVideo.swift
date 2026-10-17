@@ -49,6 +49,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(name: .shortAndLong, help: "Output folder (default: next to the audio)") var out: String?
         @Option(help: "Roughly one image every N seconds (bigger = fewer images to make)") var every: Double = 15
         @Option(help: "Visual style preset or custom style string (e.g. oil, acrylic, vector, realistic, watercolor, anime, comic, neon)") var style: String = ""
+        @Option(help: "Setting and theme every picture must follow, e.g. \"Brightly lit colonial Philadelphia\"") var setting: String = ""
         @Option(help: "oMLX speech model (default parakeet-ultra-mlx)") var sttModel: String?
         @Option(help: "oMLX language model that writes the prompts") var llmModel: String?
 
@@ -62,7 +63,7 @@ struct MVideo: AsyncParsableCommand {
             var cfg = Config.load(); if let m = sttModel { cfg.sttModel = m }; if let m = llmModel { cfg.llmModel = m }
             let work = Pipeline.workDir(output: outDir, title: title)
             let resolvedStyle = StylePreset.all.first(where: { $0.id == style.lowercased() || $0.name.lowercased() == style.lowercased() })?.prompt ?? style
-            let plan = try await Pipeline.plan(audioPath: audioURL.path, title: title, subject: subject, lyrics: text, work: work, imageInterval: every, preferredStyle: resolvedStyle, config: cfg, progress: progressPrinter)
+            let plan = try await Pipeline.plan(audioPath: audioURL.path, title: title, subject: subject, lyrics: text, work: work, imageInterval: every, preferredStyle: resolvedStyle, setting: setting, config: cfg, progress: progressPrinter)
 
             print(String(format: "\nLyrics matched to the audio: %.0f%%   Images needed: %d (title card + %d sections)   Auto-Shorts queued: %d\n", plan.alignmentCoverage * 100, plan.sections.count + 1, plan.sections.count, plan.shorts.count))
             if plan.alignmentCoverage < 0.5 { print("⚠️  Low match — sync may drift. Check that the lyrics are what's actually sung.\n") }

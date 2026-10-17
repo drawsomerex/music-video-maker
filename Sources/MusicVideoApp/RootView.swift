@@ -144,6 +144,8 @@ struct SetupView: View {
                           help: "The name of your song. It appears on the opening title card and names the folder where everything is saved.")
                     field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject,
                           help: "Optional. A short line shown under the title on the opening card. You can leave it empty.")
+                    field("Setting and theme for every picture (optional)", "e.g. Brightly lit colonial Philadelphia", text: $model.settingTheme,
+                          help: "Describe the place, time and mood once and every picture follows it. The words are put into every picture idea, and the pictures still change from part to part (time of day, weather, camera view). Leave empty to let the app decide from your lyrics.")
 
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Look of the pictures").font(.subheadline.weight(.medium))

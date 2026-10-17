@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published var audioDuration: Double = 0
     @Published var title = ""
     @Published var subject = ""
+    @Published var settingTheme = ""        // “Brightly lit colonial Philadelphia”: every picture prompt follows it
     @Published var lyrics = ""
     @Published var imageInterval = 15.0
     @Published var quality = 1080
@@ -251,7 +252,7 @@ final class AppModel: ObservableObject {
     // MARK: Moving between Song · Pictures · Video
 
     /// What the Song screen showed when it was opened from an existing project; used to tell whether you changed anything.
-    @Published var projectBaseline: (title: String, subject: String, lyrics: String, audioName: String)?
+    @Published var projectBaseline: (title: String, subject: String, lyrics: String, audioName: String, setting: String)?
     var hasProject: Bool { plan != nil && workDir != nil }
     /// Where the finished video of the open project is, if it exists.
     var videoFile: URL? {
@@ -261,7 +262,7 @@ final class AppModel: ObservableObject {
     }
     var setupChanged: Bool {
         guard let b = projectBaseline else { return true }
-        return title != b.title || subject != b.subject || lyrics != b.lyrics || (audioURL?.lastPathComponent ?? "") != b.audioName
+        return title != b.title || subject != b.subject || settingTheme != b.setting || lyrics != b.lyrics || (audioURL?.lastPathComponent ?? "") != b.audioName
     }
     func canGoToStep(_ n: Int) -> Bool {
         if busy || stage == .working || stage == .rendering { return false }
@@ -273,10 +274,10 @@ final class AppModel: ObservableObject {
         switch n {
         case 1:
             if let p = plan, let w = workDir {
-                title = p.title; subject = p.subject; lyrics = AppModel.lyricsText(of: p)
+                title = p.title; subject = p.subject; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
                 let audio = w.appendingPathComponent(p.audioFile.isEmpty ? "audio.mp3" : p.audioFile)
                 if FileManager.default.fileExists(atPath: audio.path) { audioURL = audio; audioDuration = p.songDuration }
-                projectBaseline = (title, subject, lyrics, audioURL?.lastPathComponent ?? "")
+                projectBaseline = (title, subject, lyrics, audioURL?.lastPathComponent ?? "", settingTheme)
             }
             stage = .setup
         case 2: stage = .plan
@@ -300,7 +301,7 @@ final class AppModel: ObservableObject {
     /// Forgets the open project (it stays saved on disk) so the Song screen starts empty.
     func detachProject() {
         stopPlayback(); plan = nil; workDir = nil; outputURL = nil; renderedShorts = []; waveform = []; projectBaseline = nil
-        title = ""; subject = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
+        title = ""; subject = ""; settingTheme = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
     }
 
     private var handler: ProgressHandler {
@@ -471,7 +472,7 @@ final class AppModel: ObservableObject {
         guard let audio = audioURL else { return }
         config = Config.load()
         stage = .working; phase = "Starting…"; progress = 0
-        let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = imageInterval
+        let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = imageInterval, theme = settingTheme
         let presetPrompt = StylePreset.all.first(where: { $0.name == selectedStylePreset })?.prompt ?? ""
         mainTask?.cancel()
         mainTask = Task {
@@ -483,7 +484,7 @@ final class AppModel: ObservableObject {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let work = Pipeline.workDir(output: folder, title: t)
                 workDir = work
-                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, config: config, progress: handler)
+                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, config: config, progress: handler)
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
             } catch is CancellationError {
@@ -609,6 +610,7 @@ final class AppModel: ObservableObject {
     }
 
     func setStyle(_ text: String) { plan?.style = text; persist() }
+    func setSetting(_ text: String) { plan?.setting = text; persist() }
     func setDescription(_ text: String) { plan?.description = text; persist() }
 
     func applyStylePreset(_ name: String) {
@@ -854,7 +856,7 @@ final class AppModel: ObservableObject {
                 p.shorts = Pipeline.autoShorts(plan: p)
                 try? Pipeline.savePlan(p, folder)
             }
-            plan = p; workDir = folder; title = p.title; subject = p.subject; lyrics = AppModel.lyricsText(of: p)
+            plan = p; workDir = folder; title = p.title; subject = p.subject; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
             projectBaseline = nil; outputURL = nil; renderedShorts = []
             stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true)
         } catch { errorMessage = "Couldn't open that project: \(error.localizedDescription)" }

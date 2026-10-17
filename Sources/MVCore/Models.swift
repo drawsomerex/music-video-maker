@@ -136,11 +136,13 @@ public struct Plan: Codable {
     public var captionShift: Double = Plan.defaultCaptionShift
     /// Lyric-line numbers where the user's own parts start (empty = the app divided the song itself). Drives pictures and Shorts.
     public var partStarts: [Int] = []
+    /// A setting/theme you typed (e.g. “Brightly lit colonial Philadelphia”). Every prompt follows it and states it explicitly.
+    public var setting: String = ""
     public static let defaultCaptionShift = -0.06
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -165,6 +167,7 @@ public struct Plan: Codable {
         lastImageCostUSD = try c.decodeIfPresent(Double.self, forKey: .lastImageCostUSD)
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
         partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []
+        setting = try c.decodeIfPresent(String.self, forKey: .setting) ?? ""
     }
     public init(title: String, subject: String, audioPath: String, audioFile: String, songDuration: Double, lines: [LyricLine], intro: PhotoSection, sections: [PhotoSection],
                 description: String, style: String, introDuration: Double, audioOffset: Double, alignmentCoverage: Double) {

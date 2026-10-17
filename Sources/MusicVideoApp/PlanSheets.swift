@@ -7,9 +7,16 @@ struct DescriptionSheet: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) { Image(systemName: "text.alignleft").font(.title).foregroundStyle(.tint); Text("What the song is about").font(.title2.bold()) }
+            HStack(spacing: 10) { Image(systemName: "text.alignleft").font(.title).foregroundStyle(.tint); Text("Setting and song description").font(.title2.bold()) }
             Text("The app wrote this from your lyrics. Every picture idea is built from it, so if you change it, press “Make new picture ideas” afterwards.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Setting and theme for every picture").font(.subheadline.weight(.medium))
+                TextField("e.g. Brightly lit colonial Philadelphia (optional)", text: Binding(get: { model.plan?.setting ?? "" }, set: { model.setSetting($0) }))
+                    .textFieldStyle(.roundedBorder).controlSize(.large)
+                    .help("Every picture idea states this setting and follows it. After changing it, press “Make new picture ideas”.")
+            }
+            Text("What the song is about").font(.subheadline.weight(.medium))
             TextEditor(text: Binding(get: { model.plan?.description ?? "" }, set: { model.setDescription($0) }))
                 .font(.body).scrollContentBackground(.hidden).padding(8)
                 .frame(height: 170).background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))

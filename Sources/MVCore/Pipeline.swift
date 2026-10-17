@@ -52,7 +52,7 @@ public enum Pipeline {
 
     /// Transcribes (Parakeet via oMLX), syncs your lyrics, splits the song into image sections and writes a prompt for each.
     public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
-                            preferredStyle: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
+                            preferredStyle: String = "", setting: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
         let duration = try await audioDuration(path: audioPath)
         guard duration > 5 else { throw MVError("Couldn't read the audio file (or it's shorter than 5 seconds).") }
 
@@ -138,10 +138,11 @@ public enum Pipeline {
         // Description of the song (from the lyrics), then prompts driven by it
         let writer = PromptWriter(omlx: omlx)
         progress?("Local AI is reading the lyrics", 0.62)
-        let description = try await writer.describe(title: title, lyrics: lines.map(\.text), hint: subject)
+        let settingNote = setting.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = try await writer.describe(title: title, lyrics: lines.map(\.text), hint: ([subject, settingNote.isEmpty ? "" : "The video is set in: \(settingNote)"].filter { !$0.isEmpty }).joined(separator: ". "))
         try Task.checkCancellation()
         progress?("Local AI is writing the image prompts", 0.75)
-        let written = try await writer.write(sections: [intro] + sections, lines: lines, title: title, subject: description, preferredStyle: preferredStyle) { phase, f in
+        let written = try await writer.write(sections: [intro] + sections, lines: lines, title: title, subject: description, preferredStyle: preferredStyle, setting: settingNote) { phase, f in
             progress?(phase, 0.75 + 0.22 * f)
         }
         try Task.checkCancellation()
@@ -153,6 +154,7 @@ public enum Pipeline {
                         alignmentCoverage: aligned.coverage)
         plan.timing = timing
         plan.partStarts = parsed.partBreaks.sorted()
+        plan.setting = settingNote
         plan.shorts = autoShorts(plan: plan)
         try savePlan(plan, work)
         progress?("Done", 1)
@@ -225,12 +227,15 @@ public enum Pipeline {
     public static func fullPrompt(_ plan: Plan, section index: Int) -> String {
         let s = index < 0 ? plan.intro : plan.sections[index]
         let style = plan.style.isEmpty ? "" : " Style: \(plan.style)"
-        return "\(s.prompt)\(style) Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+        let setting = plan.setting.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stated = setting.isEmpty || s.prompt.lowercased().contains(setting.lowercased())
+        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(style) Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
     }
 
     public static func promptsMarkdown(_ plan: Plan) -> String {
         func t(_ x: Double) -> String { String(format: "%d:%02d", Int(x) / 60, Int(x) % 60) }
         var md = "# \(plan.title) — image prompts\n\n"
+        if !plan.setting.isEmpty { md += "**Setting and theme (in every prompt):** \(plan.setting)\n\n" }
         if !plan.description.isEmpty { md += "**Song description (written from the lyrics):** \(plan.description)\n\n" }
         md += "**Shared style (used in every prompt):** \(plan.style)\n\n"
         md += "Generate each picture at 16:9 (1920×1080 or larger is best), then load it into the matching slot. File names that start with the number (`00.png`, `01.png`, …) are matched automatically.\n\n---\n\n"
@@ -251,7 +256,8 @@ public enum Pipeline {
         progress?("Connecting to AI engine", 0.05)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         progress?("Reading lyrics & rewriting song description", 0.25)
-        plan.description = try await PromptWriter(omlx: omlx).describe(title: plan.title, lyrics: plan.lines.map(\.text), hint: hint)
+        let withSetting = ([hint, plan.setting.isEmpty ? "" : "The video is set in: \(plan.setting)"].filter { !$0.isEmpty }).joined(separator: ". ")
+        plan.description = try await PromptWriter(omlx: omlx).describe(title: plan.title, lyrics: plan.lines.map(\.text), hint: withSetting)
         progress?("Done", 1.0)
     }
 
@@ -260,7 +266,7 @@ public enum Pipeline {
         progress?("Connecting to AI engine", 0.05)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         progress?("Writing image prompts for \(plan.sections.count + 1) sections", 0.20)
-        let w = try await PromptWriter(omlx: omlx).write(sections: [plan.intro] + plan.sections, lines: plan.lines, title: plan.title, subject: plan.description, preferredStyle: keepStyle ? plan.style : "") { p, f in
+        let w = try await PromptWriter(omlx: omlx).write(sections: [plan.intro] + plan.sections, lines: plan.lines, title: plan.title, subject: plan.description, preferredStyle: keepStyle ? plan.style : "", setting: plan.setting) { p, f in
             progress?(p, 0.25 + 0.70 * f)
         }
         if !keepStyle || plan.style.isEmpty { plan.style = w.style }
@@ -285,7 +291,7 @@ public enum Pipeline {
         for i in plan.sections.indices { plan.sections[i].id += 1; if let r = plan.sections[i].repeatOf { plan.sections[i].repeatOf = r + 1 } }
         progress?("Writing a picture idea for the music before the words", 0.4)
         let others = [plan.intro.prompt] + plan.sections.map(\.prompt)
-        intro.prompt = try await PromptWriter(omlx: omlx).rewriteDistinct(section: intro, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: "", others: others)
+        intro.prompt = try await PromptWriter(omlx: omlx).rewriteDistinct(section: intro, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: "", others: others, setting: plan.setting)
         plan.sections.insert(intro, at: 0)
         progress?("Done", 1.0)
     }
@@ -296,7 +302,7 @@ public enum Pipeline {
         let s = index < 0 ? plan.intro : plan.sections[index]
         progress?("Writing a fresh take for \(index < 0 ? "Title card" : "Section \(index + 1)")", 0.35)
         let others = ([plan.intro.prompt] + plan.sections.map(\.prompt)).filter { $0 != s.prompt }
-        let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2)
+        let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2, setting: plan.setting)
         if index < 0 { plan.intro.prompt = p } else { plan.sections[index].prompt = p }
         progress?("Done", 1.0)
     }
