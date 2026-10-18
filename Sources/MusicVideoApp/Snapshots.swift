@@ -1,5 +1,6 @@
 // Developer aid: `MV_SNAPSHOT_DIR=/some/folder` renders the main screens to PNG files and quits (used to check layouts without a display).
 import SwiftUI
+import AVFoundation
 import AppKit
 import MVCore
 
@@ -41,6 +42,23 @@ enum Snapshots {
                 model.selectLines(id, 3, 6); model.extendSelection(id, seconds: 30); rep("extend to ~30 s -> \(String(format: "%.1f", model.currentShort!.duration)) s")
                 model.selectLines(id, 3, 6)
             }
+        }
+        if ProcessInfo.processInfo.environment["MV_STRUCT_TEST"] != nil, let p = model.plan {
+            func rep(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
+            let secs = Planner.structure(lines: p.lines, stanzaBreaks: [], partBreaks: [], songDuration: p.songDuration)
+            rep("structure (no marks): \(secs.count) pictures: " + secs.map { String(format: "%@%.0f-%.0f", $0.lineIDs.isEmpty ? "♪" : "L", $0.start, $0.end) }.joined(separator: " "))
+            let sb = Set(p.lines.indices.filter { $0 > 0 && $0 % 4 == 0 })
+            let secs2 = Planner.structure(lines: p.lines, stanzaBreaks: sb, partBreaks: [], songDuration: p.songDuration)
+            rep("structure (marks every 4 lines): \(secs2.count): " + secs2.map { String(format: "%@%.0f-%.0f", $0.lineIDs.isEmpty ? "♪" : "L", $0.start, $0.end) }.joined(separator: " "))
+            rep("clean: [" + ["[Chorus] Hello (ooh yeah) world {x} <y>", "(backing)", "plain line", "broken [tag"].map { LyricText.clean($0) }.joined(separator: "|") + "]")
+            let gaps = zip(p.lines, p.lines.dropFirst()).map { $1.start - $0.end }.filter { $0 > 4 }
+            rep("music gaps >4s: \(gaps.map { String(format: "%.0f", $0) }) ; first line at \(p.lines.first?.start ?? 0), last ends \(p.lines.last?.end ?? 0) of \(p.songDuration)")
+            model.lyrics = p.lines.indices.map { ($0 > 0 && $0 % 4 == 0 ? "\n" : "") + p.lines[$0].text }.joined(separator: "\n")
+            let shotUpdater = Updater()
+            let r = ImageRenderer(content: LyricDividerView(scrollable: false).padding().environmentObject(model).environmentObject(shotUpdater).frame(width: 640, height: 1700).background(Color(nsColor: .windowBackgroundColor)))
+            r.scale = 1.5
+            if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]), let dir = directory { try? png.write(to: dir.appendingPathComponent("divide-timeline.png")) }
+            NSApplication.shared.terminate(nil); return
         }
         let updater = Updater()
         updater.available = Updater.Release(version: "9.9.9", notes: "• Easier screens\n• Captions now follow the singing more closely\n• Bug fixes", zip: URL(string: "https://example.com/x.zip")!, sha256: nil, page: nil)
@@ -87,6 +105,84 @@ enum Snapshots {
                 save("video-trim-wide", CGSize(width: 1000, height: 430), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
                 save("video-trim-mid", CGSize(width: 640, height: 520), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
                 save("video-trim-narrow", CGSize(width: 440, height: 680), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
+            }
+        }
+        if let gdir = ProcessInfo.processInfo.environment["MV_GALLERY"].map({ URL(fileURLWithPath: $0) }) {
+            do {
+            // "Real" screenshots: each screen is hosted in an offscreen window and drawn by AppKit, so lists, scroll views and menus appear as on screen.
+            try? FileManager.default.createDirectory(at: gdir, withIntermediateDirectories: true)
+            func shot(_ name: String, _ size: CGSize, _ view: some View, wait: Double = 0.8) {
+                let root = view.environmentObject(model).environmentObject(updater).frame(width: size.width, height: size.height).background(Color(nsColor: .windowBackgroundColor))
+                let host = NSHostingView(rootView: root)
+                let win = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+                win.contentView = host; win.isReleasedWhenClosed = false
+                win.setFrameOrigin(NSPoint(x: -30000, y: -30000)); win.orderFront(nil)      // shown far off screen so the views run their start-up work (previews, strips)
+                host.frame = NSRect(origin: .zero, size: size)
+                host.layoutSubtreeIfNeeded()
+                RunLoop.current.run(until: Date().addingTimeInterval(wait))
+                host.layoutSubtreeIfNeeded()
+                guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+                host.cacheDisplay(in: host.bounds, to: rep)
+                if let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: gdir.appendingPathComponent("\(name).png")) }
+                win.close()
+            }
+            func sz(_ w: CGFloat, _ h: CGFloat) -> CGSize { CGSize(width: w, height: h) }
+            model.selectedSection = 0
+            let vi = model.plan?.sections.firstIndex(where: { $0.selectedCandidate?.videoFile != nil }) ?? 4
+            model.stage = .setup
+            shot("01-song-screen", sz(1120, 760), SetupView())
+            shot("02-song-screen-small-window", sz(860, 560), SetupView())
+            shot("03-lyrics-divide-into-parts", sz(560, 700), LyricDividerView(scrollable: false).padding())
+            shot("04-first-time-download-models", sz(760, 640), NativeSetupView())
+            model.stage = .working
+            shot("05-planning-progress", sz(1000, 640), ProgressStage())
+            model.stage = .plan
+            shot("06-pictures-title-card", sz(1280, 800), PlanView(), wait: 1.5)
+            model.selectedSection = 2
+            shot("07-pictures-part-without-picture", sz(1280, 800), PlanView(), wait: 1.5)
+            if let c0 = model.plan?.sections[vi].selectedCandidate, let vf = c0.videoFile, let w = model.workDir {
+                let g = AVAssetImageGenerator(asset: AVURLAsset(url: w.appendingPathComponent(vf))); g.appliesPreferredTrackTransform = true; g.maximumSize = CGSize(width: 480, height: 480)
+                let len = c0.videoLength ?? 8
+                let imgs = (0..<14).compactMap { i in (try? g.copyCGImage(at: CMTime(seconds: len * (Double(i) + 0.5) / 14, preferredTimescale: 600), actualTime: nil)).map { NSImage(cgImage: $0, size: .zero) } }
+                VideoTrimView.preload = (imgs, imgs.first)
+            }
+            model.selectedSection = vi
+            shot("08-pictures-video-clip-trim-controls", sz(1280, 2000), PlanView(snapshot: true), wait: 6)
+            model.selectedSection = 1
+            shot("09-pictures-small-window", sz(860, 560), PlanView(), wait: 1.5)
+            shot("10-pictures-large-window", sz(1900, 1100), PlanView(), wait: 1.5)
+            shot("11-art-style-picker", sz(640, 700), StyleSheet(inProject: true))
+            shot("12-setting-and-description", sz(640, 520), DescriptionSheet())
+            shot("13-setting-ideas", sz(560, 380), SettingIdeasSheet(applyToProject: false))
+            shot("14-picture-maker-key-and-credit", sz(520, 420), OpenRouterKeySheet())
+            if let c = model.currentShort, let p = model.plan, let w = model.workDir {
+                var vs = VideoSettings(height: 960); vs.width = 540
+                let comp = FrameComposer(plan: p, work: w, settings: vs, short: c)
+                model.live.setStill(NSImage(cgImage: comp.still(at: 4), size: .zero), vertical: true)
+                shot("15-shorts-start-of-clip", sz(1440, 860), ShortsView(), wait: 15)
+                shot("16-shorts-end-of-clip", sz(1440, 860), ShortEditor(clip: c, edge: .end), wait: 6)
+                shot("17-shorts-small-window", sz(1040, 700), ShortEditor(clip: c, edge: .end), wait: 6)
+                shot("18-shorts-more-options", sz(640, 620), ShortMoreOptions(clipID: c.id))
+            }
+            shot("19-help-ask-a-question", sz(720, 620), HelpCenterView(tab: 0))
+            shot("20-help-read-the-guide", sz(820, 620), HelpCenterView(tab: 1))
+            shot("21-quick-start-guide", sz(600, 560), QuickGuideView())
+            shot("22-report-a-problem", sz(640, 520), ReportSheet(center: model.reportCenter, tab: 0))
+            model.reportCenter.reports = [
+                SentReport(number: 12, title: "The Make button did nothing", date: Date().addingTimeInterval(-86400 * 3), state: "closed", inProgress: false, reply: "Fixed in version 1.5.4 — thank you!", notified: true),
+                SentReport(number: 15, title: "Preview is a square instead of widescreen", date: Date().addingTimeInterval(-3600 * 5), state: "open", inProgress: true, reply: "", notified: false),
+                SentReport(number: 16, title: "Words are slightly late in the second verse", date: Date().addingTimeInterval(-600), state: "open", inProgress: false, reply: "", notified: false)]
+            shot("23-report-a-problem-my-reports", sz(640, 520), ReportSheet(center: model.reportCenter, tab: 1))
+            shot("24-settings", sz(660, 620), SettingsView())
+            shot("25-update-available-banner", sz(1120, 70), UpdateStrip())
+            shot("26-update-available-window", sz(520, 420), UpdateSheet())
+            shot("27-fix-recording-permission", sz(760, 440), RecordingFixSheet())
+            shot("28-picture-cost-bar", sz(1000, 40), CostBar())
+            model.stage = .rendering
+            shot("29-making-the-video-progress", sz(1000, 640), ProgressStage())
+            model.stage = .done
+            model.outputURL = URL(fileURLWithPath: "/tmp/First Strike on the Caney River.mp4")
+            shot("30-finished-video", sz(1000, 700), DoneView(), wait: 2)
             }
         }
         NSApplication.shared.terminate(nil)

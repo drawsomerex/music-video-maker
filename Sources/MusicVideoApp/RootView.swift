@@ -237,10 +237,9 @@ struct SetupView: View {
 
     func intervalControl(compact: Bool) -> some View {
         HStack(spacing: 8) {
-            Text(compact ? "A picture every" : "One picture about every").font(.callout).lineLimit(1).fixedSize()
-            Stepper(value: $model.imageInterval, in: 8...40, step: 1) { Text("\(Int(model.imageInterval)) s").monospacedDigit().frame(width: 40, alignment: .trailing) }
-                .help("How often the picture changes, in seconds. A smaller number means more pictures to make and a busier video; a bigger number means fewer, longer pictures.")
-            if model.estimatedImages > 0 && !compact { Text("≈ \(model.estimatedImages) pictures").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize() }
+            Image(systemName: "photo.stack").foregroundStyle(.secondary)
+            Text(model.estimatedImages > 0 ? "≈ \(model.estimatedImages) pictures" : "One picture per verse").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                .help("The app makes one picture for every verse and for every music break. Open “Divide into parts” to see them and to add or remove pictures.")
         }
     }
 

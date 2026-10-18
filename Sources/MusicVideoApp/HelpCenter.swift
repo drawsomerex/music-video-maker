@@ -24,6 +24,7 @@ struct HelpCenterView: View {
     @State private var openSection: String = HelpGuide.sections[0].id
     @State private var search = ""
     @FocusState private var focused: Bool
+    init(tab: Int = 0) { _tab = State(initialValue: tab) }
 
     var suggestions: [String] {
         let s = model.helpScreen.lowercased()

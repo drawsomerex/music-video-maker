@@ -77,6 +77,72 @@ public enum Planner {
         return out
     }
 
+    /// Music-only stretches shorter than this are not given a picture of their own.
+    public static let shortestBreak = 4.0, longBreak = 40.0, longestPicture = 30.0
+
+    /// One picture per verse and one per music break (the default). A music break longer than `longBreak` is split into equal pictures of at most `longestPicture`;
+    /// breaks under `shortestBreak` belong to the verse next to them. `partBreaks` (your own cuts) decide where verses start; otherwise your verse marks do;
+    /// with neither, every run of lyrics between two music breaks is a verse, and a run longer than 45 s is cut at its longest pauses.
+    public static func structure(lines: [LyricLine], stanzaBreaks: Set<Int>, partBreaks: Set<Int> = [], songDuration: Double) -> [PhotoSection] {
+        func make(_ s: Double, _ e: Double, _ ids: [Int], _ n: Int) -> PhotoSection {
+            PhotoSection(id: n, start: s, end: e, lineIDs: ids, queries: [], candidates: [], selected: -1, seed: UInt64(n) &* 0x9E3779B97F4A7C15 &+ 7)
+        }
+        guard !lines.isEmpty else { return evenSections(0, songDuration, opts: .init(imageInterval: longestPicture * 0.8), startID: 0) }
+        let gapBefore = lines.indices.map { $0 == 0 ? 0 : lines[$0].start - lines[$0 - 1].end }
+        let isBreak: (Int) -> Bool = { $0 > 0 && gapBefore[$0] >= shortestBreak }
+        let explicit = !partBreaks.isEmpty
+        let marks = explicit ? partBreaks : stanzaBreaks
+        let useMarks = explicit || (stanzaBreaks.count + 1 <= max(2, Int(songDuration / 6)) && !stanzaBreaks.isEmpty)
+        // verse units: lines grouped by marks and by music breaks
+        var units: [[Int]] = []; var cur: [Int] = []
+        for i in lines.indices {
+            if !cur.isEmpty && ((useMarks && marks.contains(i)) || isBreak(i)) { units.append(cur); cur = [] }
+            cur.append(i)
+        }
+        if !cur.isEmpty { units.append(cur) }
+        // no marks of any kind: cut a very long run at its longest pauses
+        if !useMarks {
+            var out: [[Int]] = []
+            for u in units {
+                let span = lines[u.last!].end - lines[u.first!].start
+                guard span > 45, u.count > 3 else { out.append(u); continue }
+                let k = Int((span / 25).rounded())
+                let s0 = lines[u.first!].start
+                var cutAt = Set<Int>()
+                for j in 1..<max(2, k) {                              // near each equal-length point, cut at the longest pause around it
+                    let target = s0 + span * Double(j) / Double(k), reach = span / Double(k) * 0.3
+                    let near = u.dropFirst().filter { abs(lines[$0].start - target) <= reach && !cutAt.contains($0) }
+                    if let best = near.max(by: { (lines[$0].start - lines[$0 - 1].end) < (lines[$1].start - lines[$1 - 1].end) })
+                        ?? u.dropFirst().min(by: { abs(lines[$0].start - target) < abs(lines[$1].start - target) }) { cutAt.insert(best) }
+                }
+                var piece: [Int] = []
+                for i in u { if cutAt.contains(i) && !piece.isEmpty { out.append(piece); piece = [] }; piece.append(i) }
+                if !piece.isEmpty { out.append(piece) }
+            }
+            units = out
+        }
+        // items in time order: verses and music breaks
+        struct Item { var lines: [Int]; var s: Double; var e: Double }
+        var items: [Item] = []
+        let first = lines[0].start
+        if first >= 3.3, first - min(6.0, first - 0.6) >= 3.0 { items.append(Item(lines: [], s: 0, e: first)) }    // music before the words (after the title card)
+        for (k, u) in units.enumerated() {
+            if k > 0, let prev = units[k - 1].last, let f = u.first, lines[f].start - lines[prev].end >= shortestBreak { items.append(Item(lines: [], s: lines[prev].end, e: lines[f].start)) }
+            items.append(Item(lines: u, s: lines[u.first!].start, e: lines[u.last!].end))
+        }
+        if let l = lines.last, songDuration - l.end >= shortestBreak { items.append(Item(lines: [], s: l.end, e: songDuration)) }
+        var out: [PhotoSection] = []
+        for (i, it) in items.enumerated() {
+            let start = i == 0 ? 0 : (items[i - 1].e + it.s) / 2
+            let end = i == items.count - 1 ? songDuration : (it.e + items[i + 1].s) / 2
+            if it.lines.isEmpty && end - start > longBreak {                         // a very long music break: equal pictures of up to 30 s
+                let k = Int(ceil((end - start) / longestPicture))
+                for j in 0..<k { out.append(make(start + (end - start) * Double(j) / Double(k), start + (end - start) * Double(j + 1) / Double(k), [], out.count)) }
+            } else { out.append(make(start, end, it.lines, out.count)) }
+        }
+        return out
+    }
+
     static func evenSections(_ a: Double, _ b: Double, opts: Options, startID: Int) -> [PhotoSection] {
         let k = max(1, Int(((b - a) / opts.target).rounded()))
         return (0..<k).map { i in

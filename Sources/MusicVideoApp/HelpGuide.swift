@@ -28,27 +28,30 @@ enum HelpGuide {
         - Subtitle on the title card (optional): a short line under the title.
         - Setting and theme for every picture (optional): see the section "Setting and theme".
         - Look of the pictures: press the button to choose a picture style. See "Picture styles".
-        - Lyrics: paste or type them on the right. The words on screen in the video are exactly the words you put here. The app only listens to the song to find the timing. A blank line between verses and tags like [Chorus] mark verse breaks (tags are never shown on screen).
+        - Lyrics: paste or type them on the right. The words on screen in the video are exactly the words you put here. The app only listens to the song to find the timing. A blank line between verses and tags like [Chorus] mark verse breaks (anything in [ ], { }, < > or ( ) is never shown on screen).
         - "Paste from clipboard" replaces the lyrics with whatever you last copied.
         - "More tools" (when a song is loaded): "Listen to the song and write the lyrics for me" and "Cut the silence at the start and end".
-        - "A picture every N s": how often the picture changes, between 8 and 40 seconds. A smaller number means more pictures to make. This is used when the app divides the lyrics itself.
         - "Saving to": the folder where all your songs, pictures and videos are saved (default Movies/Music Videos). Press it to choose another folder.
         - "Open earlier project": go back to a video you made before.
         - "Plan my video" is turned off until you have chosen a song, typed a title and added lyrics. Pressing Command and Return also presses it.
         """),
-        HelpSection(id: "parts", title: "Dividing the lyrics into parts (pictures)", keywords: "divide cut split verses parts sections scissors lyrics pictures how many pictures verse chorus dividers", body: """
-        Each part of the lyrics gets exactly one picture. By default the app cuts the lyrics where you left blank lines between verses (and at tags such as [Chorus]), so each verse is one picture.
-        If your lyrics have no blank lines, or the breaks would make pictures shorter than about 6 seconds, the app divides the song itself using the "A picture every N s" setting.
-        To choose the parts yourself, press "Divide into parts" above the lyrics box:
-        - Each part is a coloured bar such as "Picture 2 · 3 lines".
-        - Between every two lines there is a "cut here" line. Click it to start a new picture at that point.
-        - Click a coloured bar (except the first) to join that picture with the picture above it.
-        - "Keep my verse cuts" turns your verse breaks into cuts you can change one by one.
-        - "N equal pictures" and "Divide": cuts the lyrics into the number of pictures you choose, each about the same length.
-        - "Start over": removes your own cuts, so the lyrics are cut at your verse breaks again.
+        HelpSection(id: "parts", title: "Dividing the song into parts (pictures)", keywords: "divide cut split verses parts sections scissors lyrics pictures how many pictures verse chorus music break instrumental timeline listen subdivide join dividers", body: """
+        By default the app makes one picture for every verse and one for every music break (music with no singing, 4 seconds or longer). A verse is never split by default. A music break longer than 40 seconds is split into equal pictures of no more than 30 seconds. A break shorter than 4 seconds belongs to the verse next to it.
+        Where verses start: your own cuts first, then your verse marks (blank lines, `---`, tags such as [Chorus]); with neither, every run of singing between two music breaks is a verse, and a run longer than 45 seconds is cut at its longest pauses.
+        To see and change this, press "Divide into parts" above the lyrics box. The first time, press "Listen to the song first (about a minute)": the app finds when every line is sung and where the music-only breaks are (it does not write picture ideas and nothing is spent). "Plan my video" afterwards reuses that listening. If you change the song or the words, listen again.
+        The timeline then shows the song from top to bottom:
+        - Each lyric line has its time (for example 1:12) and a play button to hear it.
+        - A purple "♪ Music — no singing" block with its time range and length is a music break. It has its own picture and a play button.
+        - Each picture is a coloured bar such as "Picture 4 · 0:33–0:55 · 22 s · 4 lines". At the top you see how many pictures there are and about what they cost to draw.
+        - Between two lines there is a "cut here" line. Click it to start a new picture at that point.
+        - "Split in two" on a picture's bar cuts that picture into two pictures of about the same length, between two lines. Press it again to split further.
+        - "Join with above" on a picture's bar removes its cut, so the lines share the picture above.
+        - "Split long verses" splits every verse longer than 30 seconds into pictures of about 20 to 30 seconds.
+        - "Start over" removes your own cuts, so the pictures follow your verse marks and the music breaks again.
+        - Once the video is planned, a thin blue bar on the right shows which lines each Short covers ("Short 2"). Fine-tune a Short on the Shorts page.
         In the text, a cut is a line containing three dashes (---).
+        Anything written in brackets, [like this], {this}, <this> or (this), is never used: it is not shown in the captions and not used for the picture ideas. A tag on a line of its own, such as [Chorus], still marks the start of a verse.
         YouTube Shorts made automatically also start and end between parts, never in the middle of one (a part much longer than a Short is split at its pauses).
-        Music with no singing before the first words, or long instrumental breaks, gets its own part and picture automatically.
         """),
         HelpSection(id: "setting", title: "Setting and theme for every picture", keywords: "setting theme scene place era location mood suggest ideas colonial consistent same look", body: """
         The "Setting and theme" field (first screen, and Setting & description on the Pictures screen) is one phrase such as "Brightly lit colonial Philadelphia". Every picture idea is written to take place there, and the setting is written out in full at the front of every picture idea, so it is also in the prompts you copy or send to the picture maker.
@@ -84,8 +87,7 @@ enum HelpGuide {
         - "Camera": see the section "Camera movement".
         Parts that are only music have names like "Music before the words", "Music break" and "Music after the words" and get their own picture idea.
         The first item, "Title card", is the opening picture behind the song title.
-        The bar above the pictures shows what to do next and these buttons: "Make all missing pictures", "Add pictures from a folder", "Setting & description", "Art style", "Picture maker key & credit" and "Copy all picture ideas".
-        "Add pictures from a folder": choose a folder of pictures named 00.png (title card), 01.png, 02.png and so on; each goes to the matching part.
+        The bar above the pictures shows what to do next and these buttons: "Make all missing pictures", "Setting & description", "Art style", "Picture maker key & credit" and "Copy all picture ideas".
         "Show folder" opens the song's folder in Finder. "Close" closes the song (it stays saved).
         """),
         HelpSection(id: "descriptionsheet", title: "Setting and description window", keywords: "description song about write again new picture ideas regenerate all prompts", body: """

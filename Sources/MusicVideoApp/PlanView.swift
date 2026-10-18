@@ -18,7 +18,23 @@ struct PlanView: View {
         return plan.sections[idx]
     }
 
+    var snapshot = false
+    init(snapshot: Bool = false) { self.snapshot = snapshot }
+
+    /// For screenshots only: the Pictures screen with a plain side-by-side list and detail (the real one uses a split view that cannot be drawn offscreen).
+    var snapshotLayout: some View {
+        VStack(spacing: 0) {
+            modeBar; Divider(); styleBar; Divider()
+            HStack(spacing: 0) { sidebar.frame(width: 300); Divider(); detail }
+            Divider(); footer
+        }
+    }
+
     var body: some View {
+        if snapshot { snapshotLayout } else { mainBody }
+    }
+
+    @ViewBuilder var mainBody: some View {
         VStack(spacing: 0) {
             modeBar
             Divider()
@@ -131,8 +147,6 @@ struct PlanView: View {
                 .buttonStyle(.borderedProminent).disabled(model.missing.isEmpty || model.busy)
                 .help(model.hasOpenRouterKey ? "Draws a picture for every part that has none (about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total). You can watch the progress and cancel at any time."
                                              : "Draws the pictures for you. First add your OpenRouter key with the “Picture maker key” button.")
-                Button { chooseFolder() } label: { Label("Add pictures from a folder", systemImage: "folder").frame(maxWidth: .infinity) }
-                    .help("Choose a folder of pictures named 00.png, 01.png, 02.png and so on. 00 is the title card. Each picture goes to the matching part of the song.")
                 Button { showDescriptionSheet = true } label: { Label("Setting & description", systemImage: "text.alignleft").frame(maxWidth: .infinity) }
                     .help("Set the place and theme every picture follows, and read or change what the app thinks the song is about. Every picture idea is built from them.")
                 Button { showStyleSheet = true } label: { Label("Art style", systemImage: "paintpalette").frame(maxWidth: .infinity) }
@@ -177,6 +191,26 @@ struct PlanView: View {
     }
 
     // MARK: detail
+    func lineHead(_ lineIdx: Int, _ line: LyricLine) -> some View {
+        HStack(spacing: 6) {
+            Button { model.playRange(max(0, line.start - 0.15), line.end + 0.25) } label: { Image(systemName: "play.fill").font(.caption2) }
+                .buttonStyle(.bordered).help("Listen to this line of the song.")
+            Text(String(format: "%d:%04.1f", Int(line.start) / 60, line.start.truncatingRemainder(dividingBy: 60)))
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+            Text("♪ " + line.text).font(.body).lineLimit(1)
+        }
+    }
+    func lineNudges(_ lineIdx: Int) -> some View {
+        HStack(spacing: 2) {
+            Button("−0.5s") { model.nudgeLine(lineIdx, delta: -0.5) }
+            Button("−0.1s") { model.nudgeLine(lineIdx, delta: -0.1) }
+            Button("+0.1s") { model.nudgeLine(lineIdx, delta: 0.1) }
+            Button("+0.5s") { model.nudgeLine(lineIdx, delta: 0.5) }
+        }
+        .buttonStyle(.bordered).controlSize(.small).font(.caption.monospacedDigit()).fixedSize()
+        .help("Moves just this line earlier (−) or later (+) in the video. 0.1 s is a tiny nudge; 0.5 s is half a second.")
+    }
+
     var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -195,34 +229,13 @@ struct PlanView: View {
                         HStack {
                             Text("Words in this part").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                             Spacer()
-                            Text("▶ plays a line. If a line shows too early or late, use the small − and + buttons.").font(.callout).foregroundStyle(.tertiary)
+                            Text("▶ plays a line. If a line shows too early or late, use the small − and + buttons.").font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
                         }
                         ForEach(section.lineIDs, id: \.self) { lineIdx in
                             let line = plan.lines[lineIdx]
-                            HStack(spacing: 6) {
-                                Button {
-                                    model.playRange(max(0, line.start - 0.15), line.end + 0.25)
-                                } label: {
-                                    Image(systemName: "play.fill").font(.caption2)
-                                }
-                                .buttonStyle(.bordered).help("Listen to this line of the song.")
-
-                                Text(String(format: "%d:%04.1f", Int(line.start) / 60, line.start.truncatingRemainder(dividingBy: 60)))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 44, alignment: .trailing)
-
-                                Text("♪ " + line.text).font(.body).lineLimit(1)
-                                Spacer(minLength: 4)
-
-                                HStack(spacing: 2) {
-                                    Button("−0.5s") { model.nudgeLine(lineIdx, delta: -0.5) }
-                                    Button("−0.1s") { model.nudgeLine(lineIdx, delta: -0.1) }
-                                    Button("+0.1s") { model.nudgeLine(lineIdx, delta: 0.1) }
-                                    Button("+0.5s") { model.nudgeLine(lineIdx, delta: 0.5) }
-                                }
-                                .buttonStyle(.bordered).controlSize(.small).font(.caption.monospacedDigit())
-                                .help("Moves just this line earlier (−) or later (+) in the video. 0.1 s is a tiny nudge; 0.5 s is half a second.")
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 4); lineNudges(lineIdx) }
+                                VStack(alignment: .leading, spacing: 4) { HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 0) }; HStack { Spacer().frame(width: 52); lineNudges(lineIdx) } }
                             }
                         }
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
@@ -236,6 +249,7 @@ struct PlanView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
+                    ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
                         Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
                         if model.busy { ProgressView().controlSize(.small) }
@@ -256,6 +270,28 @@ struct PlanView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(model.busy)
                         .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
+                    }
+                    HStack(spacing: 8) {
+                        Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
+                        if model.busy { ProgressView().controlSize(.small) }
+                        Button { model.rewritePrompt(section: selection) } label: { Label("Another idea", systemImage: "arrow.clockwise") }.disabled(model.busy)
+                            .help("Has the AI write a different picture idea for this part.")
+                        Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
+                            .help("Copies this picture idea (with the art style) so you can paste it into another image maker.")
+                        Button {
+                            model.generateImage(section: selection)
+                        } label: {
+                            Label(
+                                section.hasImage
+                                    ? "Try another picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))"
+                                    : "Make this picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))",
+                                systemImage: section.hasImage ? "dice.fill" : "sparkles"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.busy)
+                        .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
+                    }.labelStyle(.iconOnly)
                     }
                     TextEditor(text: Binding(get: { section.prompt }, set: { model.setPrompt($0, section: selection) }))
                         .font(.callout).scrollContentBackground(.hidden).padding(8).frame(minHeight: 86)
