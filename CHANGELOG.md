@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-18
+
 ### Added
 - **The song on a timeline (first screen ▸ Divide into parts).** Press *Listen to the song first* (about a minute; no pictures are made, nothing is spent) and the lyrics appear in song order with the time each line is sung, and every music-only break as a purple **♪ Music** block with its time and length. Cut between lines to add pictures; each picture's bar has **Split in two** and **Join with above**; **Split long verses** splits every verse over 30 s into pictures of 20–30 s. *Plan my video* reuses the listening. Once planned, thin bars on the right show which lines each Short covers.
 - **Brackets are never shown.** Everything in [ ], { }, < > or ( ) — Suno tags, stage directions, backing vocals — is removed from the lyrics everywhere (captions, Shorts, picture ideas, the timeline). A tag on its own line still marks a new verse.
