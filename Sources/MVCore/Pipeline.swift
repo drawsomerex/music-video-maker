@@ -67,8 +67,11 @@ public enum Pipeline {
     // MARK: Step 1 — plan
 
     /// Transcribes (Parakeet via oMLX), syncs your lyrics, splits the song into image sections and writes a prompt for each.
-    public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
-                            preferredStyle: String = "", setting: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
+    /// What listening to the song gives: the lyric lines with the time each is sung, how well they matched, and the song's length.
+    public struct Heard { public var lines: [LyricLine]; public var coverage: Double; public var timing: String; public var duration: Double; public var parsed: LyricAligner.Parsed; public var omlx: OMLX; public var savedAudioPath: String }
+
+    /// Step 1a — listen to the song and match the lyrics to it (no picture ideas yet). Used by "Listen to the song first" and by `plan`.
+    public static func listen(audioPath: String, title: String = "", lyrics: String, work: URL, config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Heard {
         let duration = try await audioDuration(path: audioPath)
         guard duration > 5 else { throw MVError("Couldn't read the audio file (or it's shorter than 5 seconds).") }
 
@@ -132,13 +135,22 @@ public enum Pipeline {
         let savedAudioPath = FileManager.default.fileExists(atPath: ownAudio.path) ? ownAudio.path : audioPath
         _ = try? await Transcriber.waveform(audioPath: savedAudioPath, work: work)
         _ = await BeatDetector.beats(audioPath: savedAudioPath, start: 0, end: duration, work: work)
+        return Heard(lines: lines, coverage: aligned.coverage, timing: timing, duration: duration, parsed: parsed, omlx: omlx, savedAudioPath: savedAudioPath)
+    }
 
+    public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
+                            preferredStyle: String = "", setting: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
+        let heard = try await listen(audioPath: audioPath, title: title, lyrics: lyrics, work: work, config: config, progress: progress)
+        let duration = heard.duration, parsed = heard.parsed, omlx = heard.omlx, lines = heard.lines, timing = heard.timing
+        let ownAudio = work.appendingPathComponent("audio." + (URL(fileURLWithPath: audioPath).pathExtension.isEmpty ? "mp3" : URL(fileURLWithPath: audioPath).pathExtension.lowercased()))
+        let audioName = ownAudio.lastPathComponent
+        let aligned = (lines: lines, coverage: heard.coverage)
         // Sections
         // Your own parts (`---`) win; otherwise your verse marks (blank lines, [Chorus] tags) cut the lyrics, unless that would make absurdly short pictures.
         let explicitParts = !parsed.partBreaks.isEmpty
         let verseOK = parsed.stanzaBreaks.count + 1 <= max(2, Int(duration / 6))
         let cuts = explicitParts ? parsed.partBreaks : (verseOK ? parsed.stanzaBreaks : [])
-        var sections = Planner.plan(lines: lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: cuts, songDuration: duration, opts: .init(imageInterval: imageInterval))
+        var sections = Planner.structure(lines: lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: duration)
         let first = lines.first?.start ?? duration
         // Title card plays over the song's instrumental intro when there's room; otherwise a short silent pre-roll.
         let introDur = first >= 3.3 ? min(6.0, first - 0.6) : 4.5

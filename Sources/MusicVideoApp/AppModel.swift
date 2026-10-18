@@ -211,7 +211,7 @@ final class AppModel: ObservableObject {
     }
 
     var canStart: Bool { !isRecording && !busy && audioURL != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    var estimatedImages: Int { audioDuration > 0 ? max(2, Int((audioDuration / imageInterval).rounded()) + 1) : 0 }
+    var estimatedImages: Int { previewSections.map { $0.count + 1 } ?? (audioDuration > 0 ? max(2, Int((audioDuration / 30).rounded()) + 1) : 0) }
     var missing: [Int] { plan.map(Pipeline.missing) ?? [] }
     var loadedCount: Int { plan.map { $0.sections.count + 1 - Pipeline.missing($0).count } ?? 0 }
     var totalImages: Int { plan.map { $0.sections.count + 1 } ?? 0 }
@@ -298,6 +298,77 @@ final class AppModel: ObservableObject {
         for (i, t) in texts.enumerated() { if set.contains(i) { out.append("") }; out.append(t) }
         return out.joined(separator: "\n")
     }
+    // MARK: the song on a timeline (words with their times, music breaks) and the pictures it will get
+    struct SongAnalysis { var lines: [LyricLine]; var duration: Double; var key: String }
+    @Published var analysis: SongAnalysis?
+    @Published var listening = false
+    @Published var listenPhase = ""
+    @Published var listenFraction = 0.0
+
+    /// Changes whenever the song or the words themselves change (but not when you only add or remove cuts).
+    var analysisKey: String { (audioURL?.path ?? "") + "|" + LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text).joined(separator: "\n") }
+    /// The lyric lines with their times: from "Listen to the song first", or from the planned project when it is the same words.
+    var timelineLines: (lines: [LyricLine], duration: Double)? {
+        if let a = analysis, a.key == analysisKey { return (a.lines, a.duration) }
+        if let p = plan, p.lines.map(\.text) == LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text) { return (p.lines, p.songDuration) }
+        return nil
+    }
+    /// The pictures the song would get right now (one per verse and per music break), or nil until the song has been listened to.
+    var previewSections: [PhotoSection]? {
+        guard let t = timelineLines else { return nil }
+        let parsed = LyricAligner.parse(lyrics)
+        return Planner.structure(lines: t.lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: t.duration)
+    }
+    var listenFolder: URL {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo/listen")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Listens to the song and matches the words to it (about a minute), without writing any picture ideas yet.
+    func listenToSong() {
+        guard let audio = audioURL, !listening, !LyricText.rows(lyrics).isEmpty else { return }
+        config = Config.load()
+        listening = true; listenPhase = "Starting…"; listenFraction = 0
+        let key = analysisKey, l = lyrics, folder = listenFolder
+        Task {
+            do {
+                let h = try await Pipeline.listen(audioPath: audio.path, title: title, lyrics: l, work: folder, config: config) { ph, f in
+                    Task { @MainActor in self.listenPhase = ph; self.listenFraction = f }
+                }
+                analysis = SongAnalysis(lines: h.lines, duration: h.duration, key: key)
+            } catch is CancellationError {
+            } catch { errorMessage = error.localizedDescription }
+            listening = false
+        }
+    }
+
+    /// Splits the picture that starts at lyric line `first` into `parts` pictures of about equal length, cutting between lines.
+    func subdivide(section: PhotoSection, into parts: Int) {
+        guard let t = timelineLines, parts >= 2, section.lineIDs.count >= parts else { return }
+        let ids = section.lineIDs.sorted(), s0 = t.lines[ids.first!].start, span = t.lines[ids.last!].end - s0
+        var cuts = Set<Int>()
+        for j in 1..<parts {
+            let target = s0 + span * Double(j) / Double(parts)
+            if let best = ids.dropFirst().min(by: { abs(t.lines[$0].start - target) < abs(t.lines[$1].start - target) }) { cuts.insert(best) }
+        }
+        lyrics = LyricText.adding(cuts: cuts, to: lyrics)
+    }
+    /// Splits every verse longer than 30 s into pictures of about 20–30 s.
+    func splitLongVerses() {
+        guard let secs = previewSections, let t = timelineLines else { return }
+        var cuts = Set<Int>()
+        for s in secs where s.lineIDs.count >= 2 && s.duration > Planner.longestPicture {
+            let ids = s.lineIDs.sorted(), s0 = t.lines[ids.first!].start, span = t.lines[ids.last!].end - s0
+            let k = max(2, Int((span / 25).rounded()))
+            for j in 1..<min(k, ids.count) {
+                let target = s0 + span * Double(j) / Double(k)
+                if let best = ids.dropFirst().min(by: { abs(t.lines[$0].start - target) < abs(t.lines[$1].start - target) }) { cuts.insert(best) }
+            }
+        }
+        if !cuts.isEmpty { lyrics = LyricText.adding(cuts: cuts, to: lyrics) }
+    }
+
     func toggleDivider(before i: Int) { lyrics = LyricText.toggleDivider(lyrics, before: i) }
     func clearDividers() { lyrics = LyricText.clearDividers(lyrics) }
     func divideEvenly(_ n: Int) { lyrics = LyricText.divideEvenly(lyrics, parts: n) }
@@ -477,7 +548,7 @@ final class AppModel: ObservableObject {
         guard let audio = audioURL else { return }
         config = Config.load()
         stage = .working; phase = "Starting…"; progress = 0
-        let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = imageInterval, theme = settingTheme
+        let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = 30.0, theme = settingTheme
         let presetPrompt = StylePreset.all.first(where: { $0.id == selectedStylePreset })?.prompt ?? ""
         mainTask?.cancel()
         mainTask = Task {
@@ -489,6 +560,9 @@ final class AppModel: ObservableObject {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let work = Pipeline.workDir(output: folder, title: t)
                 workDir = work
+                // the listening done earlier (words and their times) is reused, so the song is not heard twice
+                let cached = listenFolder.appendingPathComponent("transcript_words.json")
+                if FileManager.default.fileExists(atPath: cached.path) { try? FileManager.default.copyItem(at: cached, to: work.appendingPathComponent("transcript_words.json")) }
                 plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, config: config, progress: handler)
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
@@ -928,7 +1002,7 @@ final class AppModel: ObservableObject {
     func revealProject() { if let w = workDir { NSWorkspace.shared.activateFileViewerSelecting([w]) } }
 
     // MARK: Shorts
-    var audioFileURL: URL? { plan.flatMap { p in workDir.map { Pipeline.audioURL(p, work: $0) } } }
+    var audioFileURL: URL? { plan.flatMap { p in workDir.map { Pipeline.audioURL(p, work: $0) } } ?? audioURL }
 
     func loadWaveform() {
         guard let u = audioFileURL else { return }

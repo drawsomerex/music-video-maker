@@ -16,13 +16,13 @@ public enum LyricAligner {
             let t = l.trimmingCharacters(in: .whitespaces)
             if t.isEmpty { pendingBreak = true; continue }
             if LyricText.isDivider(t) { pendingBreak = true; pendingPart = true; continue }
-            if (t.hasPrefix("[") && t.hasSuffix("]")) || (t.hasPrefix("(") && t.hasSuffix(")") && t.split(separator: " ").count <= 3) {
-                pendingBreak = true; continue
-            }
+            if LyricText.isTag(t) { pendingBreak = true; continue }
+            let c = LyricText.clean(t)                       // tags and anything in brackets are never part of the words
+            if c.isEmpty { pendingBreak = true; continue }
             if pendingBreak && !lines.isEmpty { breaks.insert(lines.count) }
             if pendingPart && !lines.isEmpty { parts.insert(lines.count) }
             pendingBreak = false; pendingPart = false
-            lines.append(t)
+            lines.append(c)
         }
         return Parsed(lines: lines, stanzaBreaks: breaks, partBreaks: parts)
     }

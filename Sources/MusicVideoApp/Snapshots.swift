@@ -43,6 +43,23 @@ enum Snapshots {
                 model.selectLines(id, 3, 6)
             }
         }
+        if ProcessInfo.processInfo.environment["MV_STRUCT_TEST"] != nil, let p = model.plan {
+            func rep(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
+            let secs = Planner.structure(lines: p.lines, stanzaBreaks: [], partBreaks: [], songDuration: p.songDuration)
+            rep("structure (no marks): \(secs.count) pictures: " + secs.map { String(format: "%@%.0f-%.0f", $0.lineIDs.isEmpty ? "♪" : "L", $0.start, $0.end) }.joined(separator: " "))
+            let sb = Set(p.lines.indices.filter { $0 > 0 && $0 % 4 == 0 })
+            let secs2 = Planner.structure(lines: p.lines, stanzaBreaks: sb, partBreaks: [], songDuration: p.songDuration)
+            rep("structure (marks every 4 lines): \(secs2.count): " + secs2.map { String(format: "%@%.0f-%.0f", $0.lineIDs.isEmpty ? "♪" : "L", $0.start, $0.end) }.joined(separator: " "))
+            rep("clean: [" + ["[Chorus] Hello (ooh yeah) world {x} <y>", "(backing)", "plain line", "broken [tag"].map { LyricText.clean($0) }.joined(separator: "|") + "]")
+            let gaps = zip(p.lines, p.lines.dropFirst()).map { $1.start - $0.end }.filter { $0 > 4 }
+            rep("music gaps >4s: \(gaps.map { String(format: "%.0f", $0) }) ; first line at \(p.lines.first?.start ?? 0), last ends \(p.lines.last?.end ?? 0) of \(p.songDuration)")
+            model.lyrics = p.lines.indices.map { ($0 > 0 && $0 % 4 == 0 ? "\n" : "") + p.lines[$0].text }.joined(separator: "\n")
+            let shotUpdater = Updater()
+            let r = ImageRenderer(content: LyricDividerView(scrollable: false).padding().environmentObject(model).environmentObject(shotUpdater).frame(width: 640, height: 1700).background(Color(nsColor: .windowBackgroundColor)))
+            r.scale = 1.5
+            if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]), let dir = directory { try? png.write(to: dir.appendingPathComponent("divide-timeline.png")) }
+            NSApplication.shared.terminate(nil); return
+        }
         let updater = Updater()
         updater.available = Updater.Release(version: "9.9.9", notes: "• Easier screens\n• Captions now follow the singing more closely\n• Bug fixes", zip: URL(string: "https://example.com/x.zip")!, sha256: nil, page: nil)
         func save(_ name: String, _ size: CGSize, _ view: some View) {

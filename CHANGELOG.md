@@ -5,6 +5,14 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **The song on a timeline (first screen ▸ Divide into parts).** Press *Listen to the song first* (about a minute; no pictures are made, nothing is spent) and the lyrics appear in song order with the time each line is sung, and every music-only break as a purple **♪ Music** block with its time and length. Cut between lines to add pictures; each picture's bar has **Split in two** and **Join with above**; **Split long verses** splits every verse over 30 s into pictures of 20–30 s. *Plan my video* reuses the listening. Once planned, thin bars on the right show which lines each Short covers.
+- **Brackets are never shown.** Everything in [ ], { }, < > or ( ) — Suno tags, stage directions, backing vocals — is removed from the lyrics everywhere (captions, Shorts, picture ideas, the timeline). A tag on its own line still marks a new verse.
+
+### Changed
+- **One picture per verse and one per music break** is the new default (instead of "a picture every 15 s"). A music break over 40 s is split into equal pictures of up to 30 s; breaks under 4 s join the neighbouring verse; with no verse marks, each run of singing between two music breaks is a verse. The *A picture every N s* stepper is gone.
+- Removed the *Add pictures from a folder* button (drag a picture into a part, or use *Make all missing pictures*).
+
 ### Fixed
 - **The start/end markers on the video-clip strip now follow the mouse.** Before, pressing on a marker made it run away to the end; now it moves exactly with the pointer and stops where you let go.
 - **Video clips that repeat now loop smoothly.** The end of the clip dissolves into its beginning (up to 0.8 s) and playback carries on from there — no more hard cut back to the start.

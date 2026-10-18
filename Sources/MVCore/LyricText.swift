@@ -14,7 +14,20 @@ public enum LyricText {
         let s = t.trimmingCharacters(in: .whitespaces)
         return s.count >= 3 && (s.allSatisfy { $0 == "-" } || s.allSatisfy { $0 == "=" })
     }
-    static func isTag(_ t: String) -> Bool { (t.hasPrefix("[") && t.hasSuffix("]")) || (t.hasPrefix("(") && t.hasSuffix(")") && t.split(separator: " ").count <= 3) }
+    /// A line that is only a tag, such as `[Chorus]`, `{Guitar solo}`, `<Intro>` or `(ooh yeah)`: it is never shown, but it marks a verse break.
+    static func isTag(_ t: String) -> Bool {
+        let s = t.trimmingCharacters(in: .whitespaces)
+        return clean(s).isEmpty && !s.isEmpty && !isDivider(s)
+    }
+
+    /// Removes anything in [square], {curly}, <angle> or (round) brackets, brackets included (Suno tags, stage directions, backing vocals), and tidies the spaces.
+    public static func clean(_ line: String) -> String {
+        var s = line
+        for pattern in [#"\[[^\]]*\]"#, #"\{[^}]*\}"#, #"<[^>]*>"#, #"\([^)]*\)"#] { s = s.replacingOccurrences(of: pattern, with: " ", options: .regularExpression) }
+        // a stray, unclosed bracket and everything after it on the line
+        if let r = s.range(of: #"[\[{<(].*$"#, options: .regularExpression) { s.removeSubrange(r) }
+        return s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+    }
 
     /// The lyric lines of `raw` with where parts start.
     public static func rows(_ raw: String) -> [Row] {
@@ -23,7 +36,8 @@ public enum LyricText {
             let t = l.trimmingCharacters(in: .whitespaces)
             if t.isEmpty || isTag(t) { blank = true; continue }
             if isDivider(t) { part = true; blank = true; continue }
-            out.append(Row(index: out.count, text: t, startsPart: part, blankBefore: blank && !out.isEmpty)); part = false; blank = false
+            let c = clean(t); if c.isEmpty { blank = true; continue }
+            out.append(Row(index: out.count, text: c, startsPart: part, blankBefore: blank && !out.isEmpty)); part = false; blank = false
         }
         return out
     }
@@ -58,6 +72,17 @@ public enum LyricText {
     public static func dividersFromVerses(_ raw: String) -> String {
         let rs = rows(clearDividers(raw))
         return text(lines: rs.map(\.text), partStarts: rs.filter(\.blankBefore).map(\.index))
+    }
+
+    /// Where the pictures start now: your `---` cuts if there are any, otherwise your verse breaks (blank lines, tags). Line numbers, 0 not included.
+    public static func cutIndices(_ raw: String) -> Set<Int> {
+        let rs = rows(raw)
+        return hasDividers(raw) ? Set(rs.filter { $0.startsPart && $0.index > 0 }.map(\.index)) : Set(rs.filter { $0.blankBefore }.map(\.index))
+    }
+    /// The same lyrics with extra cuts before the given line numbers (the current cuts are kept).
+    public static func adding(cuts: Set<Int>, to raw: String) -> String {
+        let keep = cutIndices(raw).union(cuts)
+        return text(lines: rows(clearDividers(raw)).map(\.text), partStarts: Array(keep))
     }
 
     /// Lyrics text from line texts, with `---` before each line index in `partStarts` (index 0 ignored).
