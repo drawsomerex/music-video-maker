@@ -89,6 +89,7 @@ final class ReportCenter: ObservableObject {
 struct ReportSheet: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var center: ReportCenter
+    init(center: ReportCenter, tab: Int = 0) { self.center = center; _tab = State(initialValue: tab) }
     @Environment(\.dismiss) var dismiss
     @State private var tab = 0
     @State private var text = ""

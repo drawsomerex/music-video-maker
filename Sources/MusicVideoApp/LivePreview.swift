@@ -64,6 +64,8 @@ final class LivePreview: ObservableObject {
     }
 
     func invalidate() { key = "" }
+    /// Screenshots only: show a ready-made picture instead of building the preview.
+    func setStill(_ img: NSImage, vertical v: Bool) { image = img; vertical = v; preparing = false }
 
     // MARK: frames
     func render(at t: Double) {

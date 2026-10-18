@@ -54,34 +54,61 @@ struct EdgeCard: View {
     func move(by d: Double) { set(t + d); hear() }
     func beat(_ forward: Bool) { if let b = forward ? model.nextBeat(after: t) : model.previousBeat(before: t) { set(b); hear() } }
 
-    var nudges: some View {
+    var earlier: some View {
         HStack(spacing: 6) {
-            Text("Earlier").font(.callout.weight(.semibold)).frame(width: 52, alignment: .leading)
             nb("◀ beat", "Moves this end back to the previous beat of the music.") { beat(false) }
             nb("−1 s", "Moves this end one second earlier.") { move(by: -1) }
             nb("−0.25 s", "Moves this end a quarter of a second earlier.") { move(by: -0.25) }
             nb("−0.05 s", "Moves this end a very small step earlier (5 hundredths of a second).") { move(by: -0.05) }
-            Divider().frame(height: 18)
+        }
+    }
+    var later: some View {
+        HStack(spacing: 6) {
             nb("+0.05 s", "Moves this end a very small step later (5 hundredths of a second).") { move(by: 0.05) }
             nb("+0.25 s", "Moves this end a quarter of a second later.") { move(by: 0.25) }
             nb("+1 s", "Moves this end one second later.") { move(by: 1) }
             nb("beat ▶", "Moves this end forward to the next beat of the music.") { beat(true) }
-            Text("Later").font(.callout.weight(.semibold))
+        }
+    }
+    /// One row when there is room; otherwise "Earlier" and "Later" on two rows, so no button is ever squeezed.
+    var nudges: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                Text("Earlier").font(.callout.weight(.semibold)).frame(width: 52, alignment: .leading)
+                earlier; Divider().frame(height: 18); later
+                Text("Later").font(.callout.weight(.semibold))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) { Text("Earlier").font(.callout.weight(.semibold)).frame(width: 52, alignment: .leading); earlier }
+                HStack(spacing: 6) { Text("Later").font(.callout.weight(.semibold)).frame(width: 52, alignment: .leading); later }
+            }
         }
     }
     func nb(_ title: String, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(title).font(.callout.monospacedDigit()).lineLimit(1) }.buttonStyle(.bordered).help(help + " You hear the result straight away.")
+        Button(action: action) { Text(title).font(.callout.monospacedDigit()).lineLimit(1) }.buttonStyle(.bordered).fixedSize().help(help + " You hear the result straight away.")
     }
 
     /// How the Short finishes: loop back to the start, fade out, or stop sharply.
     var ending: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("How it finishes").font(.subheadline.weight(.semibold))
-            HStack(spacing: 8) {
-                endChoice("Quick fade", on: !c.loop && c.fadeOut == 0.5, "The picture and music fade out over half a second.") { set(loop: false, fade: 0.5) }
-                endChoice("Slow fade", on: !c.loop && c.fadeOut == 2.0, "The picture and music fade out slowly over 2 seconds. Good for an instrumental ending.") { set(loop: false, fade: 2.0) }
-                endChoice("Stop sharply", on: !c.loop && c.fadeOut == 0.05, "The music and picture stop right at the end with no fade.") { set(loop: false, fade: 0.05) }
-                endChoice("Loop back to the start", on: c.loop, "The last moment blends back into the first, so the Short repeats smoothly on phones.") { set(loop: true, fade: nil) }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    endChoice("Quick fade", on: !c.loop && c.fadeOut == 0.5, "The picture and music fade out over half a second.") { set(loop: false, fade: 0.5) }
+                    endChoice("Slow fade", on: !c.loop && c.fadeOut == 2.0, "The picture and music fade out slowly over 2 seconds. Good for an instrumental ending.") { set(loop: false, fade: 2.0) }
+                    endChoice("Stop sharply", on: !c.loop && c.fadeOut == 0.05, "The music and picture stop right at the end with no fade.") { set(loop: false, fade: 0.05) }
+                    endChoice("Loop back to the start", on: c.loop, "The last moment blends back into the first, so the Short repeats smoothly on phones.") { set(loop: true, fade: nil) }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        endChoice("Quick fade", on: !c.loop && c.fadeOut == 0.5, "The picture and music fade out over half a second.") { set(loop: false, fade: 0.5) }
+                        endChoice("Slow fade", on: !c.loop && c.fadeOut == 2.0, "The picture and music fade out slowly over 2 seconds. Good for an instrumental ending.") { set(loop: false, fade: 2.0) }
+                    }
+                    HStack(spacing: 8) {
+                        endChoice("Stop sharply", on: !c.loop && c.fadeOut == 0.05, "The music and picture stop right at the end with no fade.") { set(loop: false, fade: 0.05) }
+                        endChoice("Loop back to the start", on: c.loop, "The last moment blends back into the first, so the Short repeats smoothly on phones.") { set(loop: true, fade: nil) }
+                    }
+                }
             }
         }
     }

@@ -22,8 +22,9 @@ struct VideoTrimView: View {
     @State private var start = 0.0
     @State private var end = 0.0
     @State private var look = 0.0                  // the moment shown in the preview (and marked on the strip)
-    @State private var strip: [NSImage] = []
-    @State private var shown: NSImage?
+    static var preload: (strip: [NSImage], frame: NSImage?)? = nil         // screenshots only
+    @State private var strip: [NSImage] = VideoTrimView.preload?.strip ?? []
+    @State private var shown: NSImage? = VideoTrimView.preload?.frame
     @State private var playing = false
     @State private var playTask: Task<Void, Never>?
     @State private var grab: CGFloat?              // where the handle was when this drag began
