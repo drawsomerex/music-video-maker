@@ -19,6 +19,18 @@ extension AppModel {
     func ensureDraftKey() {
         if draftKey != analysisKey { draftSections = nil; draftShorts = []; draftKey = analysisKey; editUndo = []; editRedo = [] }
     }
+    /// Your picture cuts are kept on disk next to the listening for this song, so they survive listening again or restarting the app.
+    private var draftFile: URL { listenFolder.appendingPathComponent("pictures_draft.json") }
+    private struct SavedDraft: Codable { var key: String; var sections: [PhotoSection] }
+    func saveDraft() {
+        guard let s = draftSections, draftKey == analysisKey else { return }
+        if let d = try? JSONEncoder().encode(SavedDraft(key: analysisKey, sections: s)) { try? d.write(to: draftFile, options: .atomic) }
+    }
+    /// Brings back saved cuts when they belong to exactly this song and these words.
+    func loadDraft() {
+        guard draftSections == nil, let d = try? Data(contentsOf: draftFile), let saved = try? JSONDecoder().decode(SavedDraft.self, from: d), saved.key == analysisKey, !saved.sections.isEmpty else { return }
+        draftSections = saved.sections; draftKey = saved.key
+    }
     func clearTimelineSession() {
         skipNextPlanHistory = true; checkpointRevision = nil
         draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
@@ -69,7 +81,7 @@ extension AppModel {
         ensureDraftKey()
         if var p = plan, timelineLines?.lines.map(\.text) == p.lines.map(\.text) {
             p.sections = sections; p.pictureBoundaries = TimelineEditor.boundaries(sections); plan = p; draftSections = nil; persist()
-        } else { draftSections = sections; planRevision += 1; checkpointRevision = nil }
+        } else { draftSections = sections; planRevision += 1; checkpointRevision = nil; saveDraft() }
         selectedSection = min(selectedSection, sections.count - 1)
         live.invalidate()
     }
@@ -78,6 +90,11 @@ extension AppModel {
         let v = snappedTimelineTime(time, start: true)
         let result = TimelineEditor.split(sections, at: v, lines: t.lines)
         guard result.count > sections.count else { snapDescription = "Choose a point at least half a second inside a picture."; return }
+        // A split may only ADD this one cut. Anything else would lose your other pictures, so it is refused.
+        let expected = (TimelineEditor.boundaries(sections) + [v]).sorted(), got = TimelineEditor.boundaries(result)
+        guard result.count == sections.count + 1, got.count == expected.count, zip(got, expected).allSatisfy({ abs($0 - $1) < 0.001 }) else {
+            snapDescription = "That change would have lost other pictures, so nothing was changed."; return
+        }
         ensureDraftKey(); checkpoint("Split picture"); commitPictures(result)
         snapDescription = "New picture starts at \(preciseClock(v)). Audio and Shorts stay unchanged."
     }

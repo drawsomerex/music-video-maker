@@ -14,6 +14,56 @@ enum EditorChecks {
         guard let root = Updater.env["MV_TEST_ROOT"], root.hasPrefix("/tmp/"), let p = model.plan, let work = model.workDir, work.path.hasPrefix(root), Updater.env["MV_TEST_PREFS"] != nil else {
             FileHandle.standardError.write(Data("FAIL scratch project and isolated preferences required\n".utf8)); return
         }
+        if Updater.env["MV_REAL_SPLIT"] != nil {
+            // The real flow on a real song's lines: listen only (no plan), many automatic pictures, then split inside one of them.
+            let real = p
+            model.plan = nil; model.stage = .setup; model.analysis = nil; model.clearTimelineSession()
+            model.lyrics = real.lines.indices.map { ($0 > 0 && $0 % 4 == 0 ? "\n" : "") + real.lines[$0].text }.joined(separator: "\n")
+            model.analysis = AppModel.SongAnalysis(lines: real.lines, duration: real.songDuration, key: model.analysisKey)
+            let before = model.previewSections ?? []
+            let cuts = TimelineEditor.boundaries(before)
+            check(before.count >= 8, "many automatic pictures before the split")
+            let target = before[min(3, before.count - 1)], ids = target.lineIDs.sorted()
+            let t = real.lines[ids[min(1, ids.count - 1)]].start
+            model.splitPicture(at: t)
+            let after = model.previewSections ?? []
+            check(after.count == before.count + 1, "split adds exactly one picture")
+            check(TimelineEditor.boundaries(after) == (cuts + [t]).sorted(), "every automatic cut is still there")
+            check(after.first(where: { $0.start == t })?.prompt == target.prompt, "new bottom picture starts with the same idea and artwork")
+            model.splitPicture(at: t + 0.1)
+            check((model.previewSections ?? []).count == after.count, "a split too close to an existing cut is refused")
+            // cuts survive listening again (draft saved on disk)
+            let keep = TimelineEditor.boundaries(model.previewSections ?? [])
+            model.draftSections = nil; model.draftKey = ""
+            model.loadDraft()
+            check(TimelineEditor.boundaries(model.previewSections ?? []) == keep, "saved cuts come back after listening again")
+            model.undoEdit()
+            check(TimelineEditor.boundaries(model.previewSections ?? []) == cuts, "undo returns exactly to the automatic pictures")
+            FileHandle.standardError.write(Data("REAL SPLIT CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
+        if Updater.env["MV_BOUNDARY_SELFTEST"] != nil {
+            model.plan = nil; model.stage = .setup; model.analysis = nil; model.clearTimelineSession()
+            model.lyrics = "First line\nSecond line\n\nThird line\nFourth line\n\nFifth line\nSixth line"
+            let starts: [Double] = [5, 10, 25, 30, 45, 50]
+            let lines = LyricText.rows(model.lyrics).enumerated().map { i, row in
+                LyricLine(id: i, text: row.text, words: [TimedWord(text: row.text, start: starts[i], end: starts[i] + 3)])
+            }
+            model.analysis = AppModel.SongAnalysis(lines: lines, duration: 60, key: model.analysisKey)
+            model.timelineSnap = false
+            let automatic = model.previewSections ?? []
+            let cuts = TimelineEditor.boundaries(automatic)
+            FileHandle.standardError.write(Data("AUTOMATIC CUTS: \(cuts)\n".utf8))
+            check(cuts.count >= 3, "fixture has multiple automatic cuts")
+            model.splitPicture(at: lines[1].start)
+            let after = TimelineEditor.boundaries(model.previewSections ?? [])
+            FileHandle.standardError.write(Data("AFTER LINE SPLIT: \(after)\n".utf8))
+            check(after == (cuts + [lines[1].start]).sorted(), "line split adds one cut without removing automatic cuts")
+            model.splitPicture(at: lines[3].start)
+            check(TimelineEditor.boundaries(model.previewSections ?? []) == (cuts + [lines[1].start, lines[3].start]).sorted(), "second line split preserves all previous cuts")
+            model.undoEdit()
+            check(TimelineEditor.boundaries(model.previewSections ?? []) == after, "undo split preserves automatic cuts and earlier manual cut")
+            FileHandle.standardError.write(Data("BOUNDARY CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
         model.goToStep(1)
         check(model.timelineLines != nil, "first page has timed lyrics")
         let original = model.previewSections ?? []

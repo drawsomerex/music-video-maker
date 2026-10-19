@@ -371,6 +371,7 @@ final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 guard key == analysisKey else { listening = false; return }
                 analysis = SongAnalysis(lines: h.lines, duration: h.duration, key: key)
+                loadDraft()                 // cuts you made before come back
                 ensureDraftKey()
                 waveform = (try? await Transcriber.waveform(audioPath: audio.path, work: folder)) ?? []
             } catch is CancellationError {
