@@ -53,9 +53,11 @@ enum Snapshots {
             rep("clean: [" + ["[Chorus] Hello (ooh yeah) world {x} <y>", "(backing)", "plain line", "broken [tag"].map { LyricText.clean($0) }.joined(separator: "|") + "]")
             let gaps = zip(p.lines, p.lines.dropFirst()).map { $1.start - $0.end }.filter { $0 > 4 }
             rep("music gaps >4s: \(gaps.map { String(format: "%.0f", $0) }) ; first line at \(p.lines.first?.start ?? 0), last ends \(p.lines.last?.end ?? 0) of \(p.songDuration)")
+            model.plan = nil; model.stage = .setup
             model.lyrics = p.lines.indices.map { ($0 > 0 && $0 % 4 == 0 ? "\n" : "") + p.lines[$0].text }.joined(separator: "\n")
+            model.analysis = AppModel.SongAnalysis(lines: p.lines, duration: p.songDuration, key: model.analysisKey)
             let shotUpdater = Updater()
-            let r = ImageRenderer(content: LyricDividerView(scrollable: false).padding().environmentObject(model).environmentObject(shotUpdater).frame(width: 640, height: 1700).background(Color(nsColor: .windowBackgroundColor)))
+            let r = ImageRenderer(content: LyricDividerView(scrollable: false).padding().environmentObject(model).environmentObject(shotUpdater).frame(width: 700, height: 1500).background(Color(nsColor: .windowBackgroundColor)))
             r.scale = 1.5
             if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]), let dir = directory { try? png.write(to: dir.appendingPathComponent("divide-timeline.png")) }
             NSApplication.shared.terminate(nil); return

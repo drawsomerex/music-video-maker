@@ -42,7 +42,8 @@ enum HelpGuide {
         To join two music sections: first go to the Song page, open "Pictures & Shorts", and select its "Pictures" tab. Find the second of the two sections and press its "Join with previous" button, then confirm "Join pictures". Do not select two rows.
         Pictures tab inside the Song page timeline:
         - "Split picture at point" starts a new picture at the chosen time, after showing the exact time. "Hear this change" plays around that point; use the split button again to commit after listening.
-        - "Start new picture before this line" shows the precise time and splits before that lyric line.
+        - Every lyric line of the song is always visible in the list, with its time and a play button, grouped under its picture. Between two lines there is a "start a new picture here (time)" line: click it, then press "Start new picture at (time)". Only that one picture is divided; every other picture stays exactly as it was, and the new bottom picture starts with the same artwork. A bar below the list says what changed and has an "Undo" button.
+        - Your picture divisions are saved as you make them, so they are still there if you listen to the song again or restart the app.
         - "Split in two" makes two equal picture sections. Both initially reuse the same artwork.
         - "Join with previous" removes only that boundary. Any neighbors can join, including music-only sections and singing. The first artwork is used and the other artwork is kept under "Choose saved artwork".
         - "Split long sections" divides sections over 30 seconds evenly.

@@ -54,8 +54,11 @@ struct SongTimelineEditor: View {
     var sections: [PhotoSection] { model.previewSections ?? [] }
     var duration: Double { model.timelineLines?.duration ?? 1 }
     var body: some View {
-        Group { if scrollable { ScrollView { content } } else { content } }
-            .disabled(model.busy || model.shortProgress != nil || model.stage == .rendering)
+        ScrollViewReader { proxy in
+            Group { if scrollable { ScrollView { content } } else { content } }
+                .disabled(model.busy || model.shortProgress != nil || model.stage == .rendering)
+                .onChange(of: picture) { _, new in withAnimation { proxy.scrollTo("pic\(new)", anchor: .top) } }
+        }
     }
     var content: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -81,7 +84,12 @@ struct SongTimelineEditor: View {
             Picker("Edit", selection: $tab) { Text("Pictures (\(sections.count))").tag(0); Text("Shorts (\(model.timelineShorts.count))").tag(1) }
                 .pickerStyle(.segmented).help("Picture divisions and Shorts have independent controls.")
             editList
-            if !model.snapDescription.isEmpty { Text(model.snapDescription).font(.callout).fixedSize(horizontal: false, vertical: true) }
+            if !model.snapDescription.isEmpty {
+                HStack(spacing: 10) {
+                    Text(model.snapDescription).font(.callout).fixedSize(horizontal: false, vertical: true)
+                    if !model.editUndo.isEmpty { Button("Undo") { model.undoEdit() }.buttonStyle(.borderedProminent).help("Put the pictures back exactly as they were before this change.") }
+                }.padding(8).background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            }
             if !model.saveStatus.isEmpty {
                 HStack { Text(model.saveStatus).font(.callout); if model.saveStatus != "Saved" { Button("Try saving again") { model.persist() }.help("Try to save the current project again.") } }
             }
@@ -90,11 +98,11 @@ struct SongTimelineEditor: View {
             Button("Restore picture divisions") { model.restoreAutomaticPictures() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Your artwork is kept. Shorts are unchanged. You can Undo this action.") }
-        .confirmationDialog("Start a new picture at \(preciseClock(pendingSplit ?? 0))?", isPresented: Binding(get: { pendingSplit != nil }, set: { if !$0 { pendingSplit = nil } }), titleVisibility: .visible) {
-            Button("Start new picture here") { if let t = pendingSplit { model.splitPicture(at: t) }; pendingSplit = nil }
-            Button("Hear this change") { if let t = pendingSplit { model.playRange(max(0, t - 2), min(duration, t + 3)) }; pendingSplit = nil }
-            Button("Cancel", role: .cancel) { pendingSplit = nil }
-        } message: { Text("Only the picture changes. The song and Shorts stay unchanged.") }
+        .confirmationDialog("Start a new picture here?", isPresented: Binding(get: { pendingSplit != nil }, set: { if !$0 { pendingSplit = nil } }), titleVisibility: .visible, presenting: pendingSplit) { t in
+            Button("Start new picture at \(preciseClock(t))") { model.splitPicture(at: t) }
+            Button("Hear this change") { model.playRange(max(0, t - 2), min(duration, t + 3)) }
+            Button("Cancel", role: .cancel) {}
+        } message: { t in Text("A new picture starts at \(preciseClock(t)). Every other picture, the song and the Shorts stay as they are. You can Undo.") }
         .confirmationDialog("Join these two pictures?", isPresented: Binding(get: { pendingJoin != nil }, set: { if !$0 { pendingJoin = nil } }), titleVisibility: .visible) {
             Button("Join pictures") { if let i = pendingJoin { model.joinPicture(before: i); picture = max(0, i - 1) }; pendingJoin = nil }
             Button("Cancel", role: .cancel) { pendingJoin = nil }
@@ -184,27 +192,41 @@ struct SongTimelineEditor: View {
         }
     }
     func pictureRow(_ i: Int, _ s: PhotoSection) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let lines = model.timelineLines?.lines ?? []
+        let ids = s.lineIDs.filter { lines.indices.contains($0) }.sorted()
+        return VStack(alignment: .leading, spacing: 6) {
             Button { picture = i; model.timelineCursor = s.start } label: {
-                HStack { Label("Picture \(i + 1)\(s.lineIDs.isEmpty ? " — music only" : "")", systemImage: s.lineIDs.isEmpty ? "music.note" : "photo").font(.headline); Spacer(); Text("\(preciseClock(s.start))–\(preciseClock(s.end))").font(.callout.monospacedDigit()) }
-            }.buttonStyle(.plain).help("Select this picture section and place the listening point at its start.")
+                HStack { Label("Picture \(i + 1)\(s.lineIDs.isEmpty ? " — music only" : "")", systemImage: s.lineIDs.isEmpty ? "music.note" : "photo").font(.headline); Spacer(); Text("\(preciseClock(s.start))–\(preciseClock(s.end)) · \(Int(s.duration.rounded())) s").font(.callout.monospacedDigit()).foregroundStyle(.secondary) }
+            }.buttonStyle(.plain).help("Select this picture and place the listening point at its start.")
             ViewThatFits(in: .horizontal) {
                 HStack { pictureActions(i, s) }
                 VStack(alignment: .leading, spacing: 6) { pictureActions(i, s) }
             }
-            if picture == i, let lines = model.timelineLines?.lines {
-                ForEach(s.lineIDs.filter { lines.indices.contains($0) }, id: \.self) { line in
-                    VStack(alignment: .leading, spacing: 4) {
-                        if lines[line].start >= s.start + 0.5 && lines[line].start <= s.end - 0.5 {
-                            Button("Start new picture before this line (\(preciseClock(lines[line].start)))") { pendingSplit = lines[line].start }
-                                .font(.callout).frame(minHeight: 30).help("Split only this picture before the line below. The song and Shorts stay unchanged.")
-                        }
-                        Button { model.timelineCursor = lines[line].start; model.playRange(lines[line].start, lines[line].end) } label: { Text(lines[line].text).font(.system(size: 16)).frame(maxWidth: .infinity, alignment: .leading) }
-                            .buttonStyle(.plain).help("Listen to this lyric line without changing anything.")
+            if ids.isEmpty {
+                Label("♪ Music — no singing", systemImage: "music.note").font(.callout.weight(.semibold)).foregroundStyle(.purple)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10).padding(.horizontal, 8)
+                    .background(Color.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            }
+            // every lyric line of this picture, always visible, with a cut line between lines
+            ForEach(ids, id: \.self) { line in
+                VStack(alignment: .leading, spacing: 2) {
+                    if line != ids.first, lines[line].start >= s.start + 0.5, lines[line].start <= s.end - 0.5 {
+                        Button { pendingSplit = lines[line].start } label: {
+                            HStack(spacing: 6) { Image(systemName: "scissors").font(.caption2); VStack { Divider() }; Text("start a new picture here (\(preciseClock(lines[line].start)))").font(.caption); VStack { Divider() } }
+                                .foregroundStyle(.secondary).frame(minHeight: 24).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help("Starts a new picture before the line below. Every other picture stays as it is, and you can Undo.")
+                    }
+                    HStack(spacing: 8) {
+                        Text(preciseClock(lines[line].start)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
+                        Text(lines[line].text).font(.system(size: 16)).frame(maxWidth: .infinity, alignment: .leading)
+                        Button { model.timelineCursor = lines[line].start; model.playRange(lines[line].start, lines[line].end) } label: { Image(systemName: "play.fill").font(.caption2) }
+                            .buttonStyle(.borderless).help("Listen to this line. Nothing is changed.")
                     }
                 }
             }
-        }.padding(12).background(picture == i ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .id("pic\(i)")
+        .padding(12).background(picture == i ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
     }
     @ViewBuilder func pictureActions(_ i: Int, _ s: PhotoSection) -> some View {
         Button("Listen") { model.playRange(s.start, s.end) }.help("Listen to this entire picture section.")

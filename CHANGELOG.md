@@ -5,6 +5,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **All the lyrics are visible again on the Song page timeline.** Every line of the song shows in order under its picture, with its time and a play button; music-only pictures show a purple "♪ Music" block. Clicking a number on the strip scrolls the list to that picture.
+- **"Start new picture here" can no longer wipe your other pictures.** A split may only add the one new cut; if it would change anything else it is refused with a message. The new picture's artwork starts as a copy of the picture it was split from, an **Undo** button appears right after the change, and your picture divisions are saved on disk as you make them (they come back after listening again or restarting the app). The confirmation now uses the exact time you chose.
+
 ## [1.6.1] - 2026-10-19
 
 - Bug reports now send only the report text you can review and optional technical details; status checks keep the right report when a new report is added during refresh.
