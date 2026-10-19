@@ -16,7 +16,7 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 - Fixed stale preview builds and incomplete preview cache keys; corrected audio synchronization during silent title-card pre-roll and serialized caption updates with frame rendering.
 - Isolated song-listening caches, fixed stale copied audio, kept raw lyric formatting during boundary edits, and sanitized nested/unfinished stage directions and older saved captions.
 - Hardened the undeployed bug-report relay with bounded request parsing, required rate-limit configuration, and quoted report text.
-- Fixed the Shorts Start control moving the opposite end at the three-minute limit.
+- Fixed both Shorts editors moving the opposite end at the three-minute limit, and rebuilt restored previews when undoing style changes.
 - Hardened short-video trims, section indexing, and saved-artwork file cleanup. Updated the guide to describe the new controls.
 
 ## [1.6.0] - 2026-10-18

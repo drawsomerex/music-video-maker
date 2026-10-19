@@ -50,10 +50,16 @@ public enum Pipeline {
         let legacy = work.appendingPathComponent("plan.json")
         let url = FileManager.default.fileExists(atPath: planURL(work).path) ? planURL(work) : legacy
         var plan = try JSONDecoder().decode(Plan.self, from: Data(contentsOf: url))
-        for i in plan.lines.indices {
-            plan.lines[i].text = LyricText.clean(plan.lines[i].text)
-            plan.lines[i].words = LyricText.cleanWords(plan.lines[i].words)
+        var cleanLines: [LyricLine] = [], lineMap: [Int: Int] = [:]
+        for (oldIndex, line) in plan.lines.enumerated() {
+            let text = LyricText.clean(line.text)
+            guard !text.isEmpty else { continue }
+            lineMap[oldIndex] = cleanLines.count
+            cleanLines.append(LyricLine(id: cleanLines.count, text: text, words: LyricText.cleanWords(line.words)))
         }
+        plan.lines = cleanLines
+        plan.partStarts = plan.partStarts.compactMap { lineMap[$0] }
+        for i in plan.sections.indices { plan.sections[i].lineIDs = plan.sections[i].lineIDs.compactMap { lineMap[$0] } }
         guard plan.songDuration.isFinite, plan.songDuration > 0 else { throw MVError("This project has an invalid song length.") }
         for i in plan.sections.indices { plan.sections[i].lineIDs = plan.sections[i].lineIDs.filter { plan.lines.indices.contains($0) } }
         // Make older projects self-contained: copy the song in.

@@ -55,7 +55,10 @@ extension AppModel {
             restored = target
         }
         plan = restored; draftSections = state.sections; draftShorts = state.shorts; draftKey = state.key; selectedShort = state.selected
-        lastEditAt = .distantPast; stopPlayback(); live.invalidate(); persist()
+        lastEditAt = .distantPast; stopPlayback(); previewTask?.cancel(); live.pause(); live.invalidate(); persist()
+        selectedSection = min(selectedSection, (plan?.sections.count ?? 0) - 1)
+        if showFullPreview { openFullPreview() }
+        else if stage == .plan, currentShort != nil { refreshPreview(at: 0) }
     }
     func undoEdit() { guard historyAvailable, let state = editUndo.popLast() else { return }; editRedo.append(snapshot(state.name)); restore(state) }
     func redoEdit() { guard historyAvailable, let state = editRedo.popLast() else { return }; editUndo.append(snapshot(state.name)); restore(state) }
@@ -129,13 +132,9 @@ extension AppModel {
         checkpoint("Edit Short", coalesce: true)
         let old = shorts[i]
         change(&shorts[i])
-        if shorts[i].start != old.start && shorts[i].end == old.end {
-            shorts[i].start = min(old.end - 0.5, max(max(0, old.end - ShortClip.maxDuration), shorts[i].start))
-            if shorts[i].start != old.start && shorts[i].start == old.end - ShortClip.maxDuration { snapDescription = "The start cannot move earlier without making this Short longer than 3 minutes. The end stays fixed." }
-        } else {
-            shorts[i].start = max(0, min(shorts[i].start, t.duration - 0.5))
-            shorts[i].end = min(t.duration, max(shorts[i].start + 0.5, min(shorts[i].end, shorts[i].start + ShortClip.maxDuration)))
-        }
+        let requested = shorts[i]
+        shorts[i] = TimelineEditor.adjustedShort(requested, from: old, duration: t.duration)
+        if shorts[i].start != requested.start { snapDescription = "The start cannot move earlier without making this Short longer than 3 minutes. The end stays fixed." }
         setTimelineShorts(shorts)
     }
     func splitTimelineShort(_ id: UUID) {

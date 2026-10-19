@@ -96,6 +96,41 @@ final class TimelineEditorTests: XCTestCase {
         for file in files { XCTAssertTrue(FileManager.default.fileExists(atPath: work.appendingPathComponent(file).path)) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: work.appendingPathComponent("full/section_unused.png").path))
     }
+    func testOnlyTheMovedShortBoundaryIsClamped() {
+        let original = ShortClip(name: "Long", start: 100, end: 280)
+        var earlier = original; earlier.start = 90
+        let adjusted = TimelineEditor.adjustedShort(earlier, from: original, duration: 300)
+        XCTAssertEqual(adjusted.start, 100); XCTAssertEqual(adjusted.end, 280)
+        var later = original; later.end = 290
+        let end = TimelineEditor.adjustedShort(later, from: original, duration: 300)
+        XCTAssertEqual(end.start, 100); XCTAssertEqual(end.end, 280)
+        var move = original; move.start = 110; move.end = 290
+        let shifted = TimelineEditor.adjustedShort(move, from: original, duration: 300)
+        XCTAssertEqual(shifted.start, 110); XCTAssertEqual(shifted.end, 290)
+    }
+    func testLegacyTagOnlyLinesAreRemovedAndSectionIndicesRemapped() throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("mv-legacy-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let lines = [LyricLine(id: 0, text: "[Chorus]", words: []), line(1, 2, 8), line(2, 12, 18)]
+        var p = Plan(title: "Legacy", subject: "", audioPath: "", audioFile: "", songDuration: 20, lines: lines, intro: section(-1, 0, 4), sections: [section(0, 0, 20, [0, 1, 2])], description: "", style: "", introDuration: 4, audioOffset: 4, alignmentCoverage: 1)
+        p.partStarts = [2]
+        try Pipeline.savePlan(p, work)
+        let loaded = try Pipeline.loadPlan(work)
+        XCTAssertEqual(loaded.lines.map(\.id), [0, 1]); XCTAssertEqual(loaded.sections[0].lineIDs, [0, 1]); XCTAssertEqual(loaded.partStarts, [1])
+    }
+    func testJoiningKeepsDifferentTrimsOfSameVideo() {
+        var left = section(0, 0, 10), right = section(1, 10, 20)
+        var c = ImageCandidate(id: "same-video", provider: "local", thumbURL: "", fullURL: "", pageURL: "", width: 100, height: 100, credit: "", query: "", rank: 0)
+        c.videoFile = "full/clip.mp4"; c.videoEnd = 2
+        left.candidates = [c]; left.selected = 0
+        c.videoStart = 2; c.videoEnd = 4
+        right.candidates = [c]; right.selected = 0
+        let joined = TimelineEditor.join([left, right], before: 1)
+        XCTAssertEqual(joined[0].candidates.count, 2)
+        XCTAssertNotEqual(joined[0].candidates[0].id, joined[0].candidates[1].id)
+        XCTAssertEqual(joined[0].selectedCandidate?.videoEnd, 2)
+    }
     func testInvalidSplitsAreNoOps() {
         let sections = [section(0, 0, 5)]
         for t in [Double.nan, Double.infinity, -1, 0, 0.1, 4.9, 5, 6] { XCTAssertEqual(TimelineEditor.split(sections, at: t, lines: []).count, 1) }

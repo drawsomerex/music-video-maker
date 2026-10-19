@@ -18,9 +18,16 @@ public enum TimelineEditor {
         out[index - 1].end = out[index].end
         out[index - 1].lineIDs = Array(Set(out[index - 1].lineIDs + out[index].lineIDs)).sorted()
         let selected = out[index - 1].selectedCandidate?.id
-        for c in out[index].candidates where !out[index - 1].candidates.contains(where: { $0.id == c.id }) { out[index - 1].candidates.append(c) }
+        let rightSelected = out[index].selectedCandidate
+        var rightChoice = rightSelected.flatMap { candidate in out[index - 1].candidates.firstIndex(of: candidate) }
+        for candidate in out[index].candidates where !out[index - 1].candidates.contains(candidate) {
+            var c = candidate
+            if out[index - 1].candidates.contains(where: { $0.id == c.id }) { c.id += ":" + UUID().uuidString }
+            out[index - 1].candidates.append(c)
+            if candidate == rightSelected { rightChoice = out[index - 1].candidates.count - 1 }
+        }
         if let selected { out[index - 1].selected = out[index - 1].candidates.firstIndex { $0.id == selected } ?? -1 }
-        else if let candidate = out[index].selectedCandidate { out[index - 1].selected = out[index - 1].candidates.firstIndex { $0.id == candidate.id } ?? -1 }
+        else if let rightChoice { out[index - 1].selected = rightChoice }
         out.remove(at: index)
         return numbered(out)
     }
@@ -43,6 +50,19 @@ public enum TimelineEditor {
         out = assignLines(out, lines: lines)
         for t in Set(boundaries.filter { $0.isFinite }).sorted() { out = split(out, at: t, lines: lines) }
         return out
+    }
+    /// A start-only edit clamps the start itself; it never silently moves the opposite edge.
+    public static func adjustedShort(_ edited: ShortClip, from original: ShortClip, duration: Double) -> ShortClip {
+        guard duration.isFinite, duration >= minimumSection, edited.start.isFinite, edited.end.isFinite else { return original }
+        var c = edited
+        if edited.start != original.start && edited.end == original.end {
+            c.end = min(duration, original.end)
+            c.start = min(c.end - minimumSection, max(max(0, c.end - ShortClip.maxDuration), edited.start))
+        } else {
+            c.start = max(0, min(c.start, duration - minimumSection))
+            c.end = min(duration, max(c.start + minimumSection, min(c.end, c.start + ShortClip.maxDuration)))
+        }
+        return c
     }
     public static func splitShort(_ clip: ShortClip, at time: Double) throws -> [ShortClip] {
         guard time.isFinite, time >= clip.start + minimumSection, time <= clip.end - minimumSection else { throw MVError("Choose a split at least half a second from either end of the Short.") }

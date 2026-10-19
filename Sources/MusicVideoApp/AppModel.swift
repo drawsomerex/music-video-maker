@@ -1161,9 +1161,11 @@ final class AppModel: ObservableObject {
     func update(_ id: UUID, _ change: (inout ShortClip) -> Void) {
         guard var p = plan, let i = p.shorts.firstIndex(where: { $0.id == id }) else { return }
         checkpoint("Edit Short", coalesce: true)
-        var c = p.shorts[i]; change(&c)
-        c.start = max(0, min(c.start, p.songDuration - 0.5)); c.end = min(p.songDuration, max(c.end, c.start + 0.5))
-        if c.duration > ShortClip.maxDuration { c.end = c.start + ShortClip.maxDuration; capped = true }   // hard 3:00 limit
+        let old = p.shorts[i]
+        var c = old; change(&c)
+        let requested = c
+        c = TimelineEditor.adjustedShort(c, from: old, duration: p.songDuration)
+        if c.start != requested.start || c.end != requested.end { capped = true; snapDescription = "This Short must stay within the song and the 3-minute limit. The opposite edge is kept fixed." }
         p.shorts[i] = c; plan = p; persist()
     }
 

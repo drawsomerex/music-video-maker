@@ -78,7 +78,19 @@ enum EditorChecks {
             longPlan.shorts = [long]; model.plan = longPlan
             model.editTimelineShort(long.id) { $0.start = 90 }
             check(model.timelineShorts.first?.start == 100 && model.timelineShorts.first?.end == 280, "moving start preserves end at three-minute cap")
+            model.update(long.id) { $0.start = 90 }
+            check(model.plan?.shorts.first?.start == 100 && model.plan?.shorts.first?.end == 280, "detailed editor preserves end at duration cap")
             model.restore(real)
+        }
+        if let clip = model.plan?.shorts.first {
+            model.selectedShort = clip.id; model.stage = .plan
+            model.shuffleLook(clip.id)
+            let obsolete = model.previewTask
+            model.undoEdit()
+            check(obsolete?.isCancelled == true && model.currentShort?.styleSeed == clip.styleSeed, "undo cancels pending style preview and restores seed")
+            await model.previewTask?.value
+            check(model.live.duration == clip.duration && !model.live.preparing, "undo rebuilds restored Short preview")
+            model.stage = .setup
         }
         updater.holdCurrent(); check(!updater.dueForAutoCheck && !updater.heldVersion.isEmpty, "stay on installed version")
         updater.skip("9.9.9"); check(updater.skippedVersions.contains("9.9.9"), "skip persists")
@@ -107,6 +119,12 @@ enum EditorChecks {
                 let frame = try await g.image(at: CMTime(seconds: 1, preferredTimescale: 600))
                 check(frame.image.width == 202 && frame.image.height == 360, "vertical clip crops to requested dimensions")
             } catch { check(false, "vertical clip render") }
+        }
+        if let file = Updater.env["MV_HELP_TEST"], let questions = try? String(contentsOfFile: file, encoding: .utf8) {
+            for q in questions.components(separatedBy: .newlines).filter({ !$0.isEmpty }) {
+                let answer = await HelpAssistant.answer(question: q, status: model.helpStatus(screen: "Song timeline"), config: model.config)
+                FileHandle.standardError.write(Data("HELP Q: \(q)\nHELP A: \(answer.text)\nHELP SOURCES: \(answer.sources.joined(separator: ", ")) ai=\(answer.fromAI)\n".utf8))
+            }
         }
         FileHandle.standardError.write(Data("EDITOR CHECKS: \(checks) checks, \(failures) failures\n".utf8))
     }
