@@ -16,7 +16,7 @@ struct MusicVideoApp: App {
         if Updater.env["MV_REPORT_TEST"] != nil {          // developer test: send one report, check its status, print what happened
             Task { @MainActor in
                 let c = ReportCenter()
-                let ok = await c.send(text: "Test report: the Make button did nothing.\nSecond line", screen: "Test screen", errorShown: "", includeTechnical: true)
+                let ok = await c.send(text: "Test report: the Make button did nothing.\nSecond line", screen: "Test screen", includeTechnical: true)
                 let done = await c.refresh()
                 FileHandle.standardError.write(Data("report sent=\(ok) error=\(c.error ?? "-") saved=\(c.reports.map { "\($0.number):\($0.state)" }) done=\(done.count)\n".utf8))
                 NSApplication.shared.terminate(nil)
@@ -74,7 +74,7 @@ struct MusicVideoApp: App {
                 .frame(minWidth: 860, minHeight: 560)
                 .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
                     Button("OK", role: .cancel) {}
-                    Button("Report this problem") { model.reportPrefill = "I saw this message: " + (model.errorMessage ?? "") + "\n\nI was trying to: "; model.reportErrorShown = model.errorMessage ?? ""; model.showReport = true }
+                    Button("Report this problem") { model.reportPrefill = "I saw this message: " + (model.errorMessage ?? "") + "\n\nI was trying to: "; model.showReport = true }
                 } message: { Text(model.errorMessage ?? "") }
         }
         .commands {

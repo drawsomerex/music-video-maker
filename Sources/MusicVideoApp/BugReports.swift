@@ -44,11 +44,11 @@ final class ReportCenter: ObservableObject {
     }
 
     /// Sends a report. Returns true when it was filed.
-    func send(text: String, screen: String, errorShown: String, includeTechnical: Bool) async -> Bool {
+    func send(text: String, screen: String, includeTechnical: Bool) async -> Bool {
         guard let url = Self.endpoint else { return false }
         sending = true; error = nil; defer { sending = false }
-        var body: [String: String] = ["text": text, "screen": screen, "error": errorShown]
-        if includeTechnical { body.merge(Self.technical()) { a, _ in a } }
+        var body: [String: String] = ["text": text]
+        if includeTechnical { body.merge(Self.technical()) { a, _ in a }; body["screen"] = screen }
         var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 25
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -65,21 +65,26 @@ final class ReportCenter: ObservableObject {
     /// Asks GitHub (public data, no login) how each report is doing. Returns the reports that were just completed.
     @discardableResult
     func refresh() async -> [SentReport] {
-        guard !reports.isEmpty else { return [] }
+        guard !checking, !reports.isEmpty else { return [] }
         checking = true; defer { checking = false }
         var done: [SentReport] = []
-        for i in reports.indices where !(reports[i].state == "closed" && reports[i].notified) {
-            let n = reports[i].number, base = "https://api.github.com/repos/\(Self.repo)/issues/\(n)"
+        for original in reports where !(original.state == "closed" && original.notified) {
+            var report = original
+            let n = report.number, base = "https://api.github.com/repos/\(Self.repo)/issues/\(n)"
             guard let u = URL(string: base), let (d, r) = try? await URLSession.shared.data(from: u), (r as? HTTPURLResponse)?.statusCode == 200,
                   let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { continue }
-            reports[i].state = o["state"] as? String ?? "open"
-            reports[i].inProgress = ((o["labels"] as? [[String: Any]]) ?? []).contains { ($0["name"] as? String) == "in-progress" }
+            report.state = o["state"] as? String ?? "open"
+            report.inProgress = ((o["labels"] as? [[String: Any]]) ?? []).contains { ($0["name"] as? String) == "in-progress" }
             if let cu = URL(string: base + "/comments"), let (cd, _) = try? await URLSession.shared.data(from: cu),
                let arr = (try? JSONSerialization.jsonObject(with: cd)) as? [[String: Any]],
                let last = arr.last(where: { (($0["user"] as? [String: Any])?["login"] as? String)?.lowercased() == Self.repo.split(separator: "/").first?.lowercased() }) {
-                reports[i].reply = (last["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                report.reply = (last["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            if reports[i].state == "closed", !reports[i].notified { done.append(reports[i]) }
+            if let i = reports.firstIndex(where: { $0.number == n }) {
+                report.notified = reports[i].notified
+                reports[i] = report
+                if report.state == "closed", !report.notified { done.append(report) }
+            }
         }
         save(); return done
     }
@@ -142,7 +147,7 @@ struct ReportSheet: View {
                     }
                     Spacer()
                     if center.sending { ProgressView().controlSize(.small) }
-                    Button { Task { if hidden.isEmpty, await center.send(text: text, screen: model.screenName, errorShown: model.reportErrorShown, includeTechnical: includeTech) { sent = true; model.reportPrefill = ""; model.reportErrorShown = "" } } } label: { Label("Send report", systemImage: "paperplane.fill").padding(.horizontal, 8) }
+                    Button { Task { if hidden.isEmpty, await center.send(text: text, screen: model.screenName, includeTechnical: includeTech) { sent = true; model.reportPrefill = "" } } } label: { Label("Send report", systemImage: "paperplane.fill").padding(.horizontal, 8) }
                         .buttonStyle(.borderedProminent).controlSize(.large)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).count < 5 || center.sending || ReportCenter.endpoint == nil)
                         .help("Sends your report to the author. It takes a few seconds.")

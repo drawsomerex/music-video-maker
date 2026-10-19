@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+- Bug reports now send only the report text you can review and optional technical details; status checks keep the right report when a new report is added during refresh.
+
 - Rebuilt the first-page picture and Shorts timeline with a shared time ruler, readable labels, zoom, playback cursor, and an expandable editor.
 - Fixed stale timeline drafts overwriting newer artwork, camera and prompt edits; Undo now tracks later project edits, retains paid artwork and accounting, and cannot run during background tasks.
 - Fixed joins at automatic boundaries. Explicit picture splits and joins now work across music and singing, preserve every other boundary, and never alter Shorts or source audio.
