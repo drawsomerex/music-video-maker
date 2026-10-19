@@ -18,8 +18,9 @@ Open **Music Video Maker** from Launchpad/Spotlight. Optional: *Settings → Doc
 
 ## How to make a video
 1. **Plan** — pick the MP3, type the title, paste the lyrics, press *Plan my video*. The app syncs your lyrics to the audio, splits the song into sections, writes a song description and one picture prompt per section (progress is shown with percentage and time left).
-   Optional: in *Lyrics ▸ Divide into parts* you choose which lines belong together; each part becomes one picture and Shorts start and end between parts.
+   Optional: in *Lyrics ▸ Pictures & Shorts*, listen once and use separate picture and Shorts lanes. Split or join any picture sections, including music breaks; add, split, join and adjust Shorts independently.
 2. **Make your pictures** — generate them with any image tool (16:9, 1920×1080 or larger, same style), then drag each onto its section (or load a folder named `00.png`, `01.png`, …).
+   Picture rows can be dragged onto other rows: move into an empty section, or swap artwork with an occupied one. "Use in another section…" offers the same controls without dragging. Earlier artwork stays available under "Choose saved artwork"; Undo reverses editing actions.
 3. **Make the video** — press *Make my video* (use *Preview* first; if the words look early or late, *Show sooner / Show later* shifts them). The finished MP4 appears in your folder; *Show in Finder* / *Share* from the last screen.
 4. **Shorts** (optional) — open the *YouTube Shorts* tab, pick lyric lines, fine-tune against the waveform, render a 9:16 clip (3:00 max).
 
@@ -95,7 +96,7 @@ Open a project → **YouTube Shorts** tab → **New Short** (30 s by default). P
 CLI: `mvideo short "<project>" --list` · `--lines 13-18 --snap --seed 4242 --variants 3 --cta "Full song on YouTube ▶" --hook "The day oil changed everything"` · `--plain` for the old simple look.
 
 ## The two steps
-1. **Plan** — enter title, subject, lyrics and the MP3. Parakeet (via oMLX) syncs your lyrics, the song is split into sections (about one picture every N seconds — you choose N),
+1. **Plan** — enter title, subject, lyrics and the MP3. Parakeet (via oMLX) syncs your lyrics, the song is split into verse and music sections,
    and a local LLM writes **one shared style line + a prompt per picture** (title card = `00`). Repeated choruses are flagged so you can reuse a picture.
    Everything is saved to `prompts.md` in the work folder, and shown in the app with Copy buttons.
 2. **Load your pictures** — generate them anywhere (16:9, 1920×1080+), then drag each onto its section (or load a folder of `00.png`, `01.png`, …) and press **Render**.
@@ -110,7 +111,7 @@ CLI: `mvideo short "<project>" --list` · `--lines 13-18 --snap --seed 4242 --va
 
 ## CLI / headless
 ```
-./"Music Video.command" plan song.mp3 -t "Title" -s "subject" -l lyrics.txt -o outdir --every 15
+./"Music Video.command" plan song.mp3 -t "Title" -s "subject" -l lyrics.txt -o outdir
 ./"Music Video.command" render "outdir/Title – work" --images ./pictures        # add --allow-missing to gradient-fill gaps
 mvideo models      # check oMLX + which models are used
 mvideo settings --llm-model NAME --stt-model NAME
@@ -126,3 +127,9 @@ oMLX's API key is read from `~/.omlx/settings.json` automatically (override with
 
 ## Licence
 Source is public to read; all rights reserved by the owner (no licence granted to copy or redistribute). Third-party components keep their own licences (above).
+
+## Timeline editing and version choice
+
+On the first page choose **Pictures & Shorts** and **Listen and show the timeline**. A shared time ruler shows picture durations and independent Shorts. Clicking selects a listening point; editing requires an explicit split, join or boundary control. Music sections support the same split and join actions as singing sections. Picture edits leave Shorts and the source audio untouched. Shorts are added only with **Add a Short** or **Suggest Shorts**. Splitting a Short replaces it with two; joining includes the intervening song and stays within three minutes. Use **Expand timeline**, zoom, whole-word placement, and **Undo / Redo** for precise, reversible editing.
+
+**Settings → Updates → Versions & rollback…** lists available stable standalone releases with checksums and their release notes. Install a selected version, revert, **Stay on this version**, or skip/unskip releases. Reverting pauses automatic update prompts. The open project is backed up under its **Version Backups** folder before an app change. Older releases may lack these controls; use their **Check for Updates** to return.

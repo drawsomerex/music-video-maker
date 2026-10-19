@@ -28,7 +28,7 @@ struct VideoTrimView: View {
     @State private var playing = false
     @State private var playTask: Task<Void, Never>?
     @State private var grab: CGFloat?              // where the handle was when this drag began
-    private let minLen = 0.5
+    private var minLen: Double { min(0.5, max(0.001, length)) }
 
     private var url: URL? { candidate.videoFile.flatMap { model.workDir?.appendingPathComponent($0) } }
     private var playsFor: Double { max(0, end - start) }
@@ -235,7 +235,7 @@ struct VideoTrimView: View {
         let asset = AVURLAsset(url: u)
         var len = candidate.videoLength ?? 0
         if len <= 0, let d = try? await asset.load(.duration) { len = CMTimeGetSeconds(d) }
-        length = max(0.5, len)
+        length = max(0.001, len.isFinite ? len : 0.001)
         start = min(candidate.videoStart, length - minLen); end = min(candidate.videoEnd ?? length, length)
         if end <= start { end = length }
         showFrame(at: start)

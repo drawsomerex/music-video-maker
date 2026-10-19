@@ -10,6 +10,7 @@
 //   GITHUB_TOKEN  (secret)    a fine-grained token with ONLY "Issues: read & write" on the one repo
 //   REPO          (variable)  e.g. drawsomerex/music-video-maker
 const MAX_TEXT = 4000;
+const MAX_BODY = 16384;
 
 export default {
   async fetch(request, env) {
@@ -18,13 +19,30 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
     if (request.method !== "POST") return reply({ error: "POST only" }, 405);
 
+    if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return reply({ error: "JSON required" }, 415);
+    if (Number(request.headers.get("content-length")) > MAX_BODY) return reply({ error: "Report is too large" }, 413);
     let data;
-    try { data = await request.json(); } catch { return reply({ error: "Bad request" }, 400); }
+    try {
+      const reader = request.body?.getReader();
+      if (!reader) return reply({ error: "Bad request" }, 400);
+      const chunks = []; let size = 0;
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        size += value.byteLength;
+        if (size > MAX_BODY) { await reader.cancel(); return reply({ error: "Report is too large" }, 413); }
+        chunks.push(value);
+      }
+      const body = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+      data = JSON.parse(new TextDecoder().decode(body));
+      if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.text !== "string") return reply({ error: "Bad request" }, 400);
+    } catch { return reply({ error: "Bad request" }, 400); }
     const text = String(data.text || "").trim().slice(0, MAX_TEXT);
     if (text.length < 5) return reply({ error: "Please describe the problem." }, 400);
     if (data.website) return reply({ ok: true, number: 0 });                      // hidden field: bots fill it in, people do not
 
-    // Light rate limit per IP (needs a KV namespace bound as LIMITS; skipped if not configured).
+    // Best-effort per-IP limit. KV is eventually consistent; use Cloudflare rate limiting for strict quotas.
+    if (!env.LIMITS || !env.GITHUB_TOKEN || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.REPO || "")) return reply({ error: "Reporting is not configured yet." }, 503);
     if (env.LIMITS) {
       const ip = request.headers.get("cf-connecting-ip") || "unknown";
       const key = "rl:" + ip + ":" + new Date().toISOString().slice(0, 13);
@@ -33,10 +51,10 @@ export default {
       await env.LIMITS.put(key, String(n + 1), { expirationTtl: 3700 });
     }
 
-    const clean = (s, n) => String(s || "").replace(/[\r\n]+/g, " ").slice(0, n);
-    const first = text.split("\n")[0].slice(0, 70);
+    const clean = (s, n) => String(s || "").replace(/[\r\n]+/g, " ").replace(/@/g, "@\u200b").slice(0, n);
+    const first = clean(text.split("\n")[0], 70);
     const body = [
-      text,
+      text.replace(/@/g, "@\u200b").split("\n").map(line => "> " + line).join("\n"),
       "",
       "---",
       "Reported from the app. App version: " + clean(data.version, 20) + " · macOS: " + clean(data.macos, 30) + " · Mac: " + clean(data.mac, 40),

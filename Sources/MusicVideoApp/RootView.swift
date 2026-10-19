@@ -169,15 +169,15 @@ struct SetupView: View {
                 .frame(minWidth: 290, idealWidth: 350, maxWidth: 440)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("Lyrics").font(.title3.bold())
-                        Picker("", selection: $lyricMode) { Text("Type or paste").tag(0); Text("Divide into parts").tag(1) }
-                            .pickerStyle(.segmented).labelsHidden().frame(width: 270)
-                            .help("“Type or paste” is for entering the words. “Divide into parts” lets you choose which lines belong together; each part becomes one picture, and Shorts start and end between parts.")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Lyrics & timeline").font(.title3.bold())
+                        Picker("", selection: $lyricMode) { Text("Type or paste").tag(0); Text("Pictures & Shorts").tag(1) }
+                            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 330)
+                            .help("“Type or paste” edits your lyrics. “Pictures & Shorts” has separate controls for picture changes and independent Shorts.")
                         if model.liveTranscribing {
                             HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Writing the words as they play…").font(.callout).foregroundStyle(.orange) }
                         }
-                        Spacer()
+                        HStack(spacing: 8) {
                         Button { model.pasteOverLyrics() } label: { Label("Paste from clipboard", systemImage: "doc.on.clipboard") }
                             .buttonStyle(.bordered)
                             .help("Replaces the lyrics below with whatever you last copied (Command-C), for example from a lyrics web page.")
@@ -191,9 +191,10 @@ struct SetupView: View {
                             .menuStyle(.borderlessButton).fixedSize()
                             .help("Extra helpers: have the app type out the lyrics by listening to the song, or trim empty silence from the beginning and end of the recording.")
                         }
+                        }
                     }
                     if lyricMode == 0 {
-                    Text("Paste your lyrics below. Leave a blank line between verses. A line with --- starts a new picture (or use “Divide into parts”). Tags like [Chorus] are never shown on screen.")
+                    Text("Paste your lyrics below. Leave a blank line between verses. A line with --- starts a new picture (or use “Pictures & Shorts”). Tags like [Chorus] are never shown on screen.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     TextEditor(text: $model.lyrics)
                         .font(.system(size: 15, design: .rounded))
@@ -230,6 +231,7 @@ struct SetupView: View {
             .padding(.horizontal, 24).padding(.vertical, 12)
             .background(.regularMaterial)
         }
+        .onAppear { if model.hasProject { lyricMode = 1 } }
         .sheet(isPresented: $showStyles) { StyleSheet(inProject: false).environmentObject(model) }
         .sheet(isPresented: $showIdeas) { SettingIdeasSheet(applyToProject: false).environmentObject(model) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .mp3, .wav]) { if case .success(let u) = $0 { model.setAudio(u) } }
@@ -239,7 +241,7 @@ struct SetupView: View {
         HStack(spacing: 8) {
             Image(systemName: "photo.stack").foregroundStyle(.secondary)
             Text(model.estimatedImages > 0 ? "≈ \(model.estimatedImages) pictures" : "One picture per verse").font(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
-                .help("The app makes one picture for every verse and for every music break. Open “Divide into parts” to see them and to add or remove pictures.")
+                .help("The app makes one picture for every verse and for every music break. Open “Pictures & Shorts” to see them and to add or remove pictures.")
         }
     }
 

@@ -47,7 +47,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(name: .shortAndLong, help: "Optional: a note about the song, or a subtitle for the title card. The description is written from the lyrics automatically.") var subject: String = ""
         @Option(name: .shortAndLong, help: "Text file containing the lyrics, or - for stdin (blank line = new stanza)") var lyrics: String
         @Option(name: .shortAndLong, help: "Output folder (default: next to the audio)") var out: String?
-        @Option(help: "Roughly one image every N seconds (bigger = fewer images to make)") var every: Double = 15
+        @Option(help: "Legacy option (accepted for compatibility). Pictures now follow verse and music boundaries.") var every: Double = 15
         @Option(help: "Visual style preset or custom style string (e.g. oil, acrylic, vector, realistic, watercolor, anime, comic, neon)") var style: String = ""
         @Option(help: "Setting and theme every picture must follow, e.g. \"Brightly lit colonial Philadelphia\"") var setting: String = ""
         @Option(help: "oMLX speech model (default parakeet-ultra-mlx)") var sttModel: String?

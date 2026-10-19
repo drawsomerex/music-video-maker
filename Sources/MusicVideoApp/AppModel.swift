@@ -1,6 +1,7 @@
 // App state and actions shared by every screen (planning, pictures, rendering, Shorts, folders, Dock).
 import SwiftUI
 import AVFoundation
+import CryptoKit
 import MVCore
 #if NATIVE_MLX
 import MVNative
@@ -17,7 +18,6 @@ final class AppModel: ObservableObject {
     @Published var subject = ""
     @Published var settingTheme = ""        // “Brightly lit colonial Philadelphia”: every picture prompt follows it
     @Published var lyrics = ""
-    @Published var imageInterval = 15.0
     @Published var quality = 1080
     @Published var selectedStylePreset = StylePreset.autoID      // the id of the chosen picture style
 
@@ -26,11 +26,26 @@ final class AppModel: ObservableObject {
     @Published var plan: Plan?
     @Published var workDir: URL?
     @Published var outputURL: URL?
-    @Published var autoRenderShorts = true
+    @Published var autoRenderShorts = false
     @Published var renderedShorts: [URL] = []
     @Published var errorMessage: String?
     @Published var notice: String?
     @Published var config = Config.load()
+
+    @Published var draftSections: [PhotoSection]?
+    @Published var draftShorts: [ShortClip] = []
+    @Published var draftKey = ""
+    @Published var timelineCursor = 0.0
+    @Published var timelineZoom = 1.0
+    @Published var timelineSnap = true
+    @Published var snapDescription = ""
+    @Published var saveStatus = ""
+    @Published var editUndo: [TimelineSnapshot] = []
+    @Published var editRedo: [TimelineSnapshot] = []
+    var timelineDragging = false
+    var listenTask: Task<Void, Never>?
+    var lastEditAt = Date.distantPast
+    var lastEditName = ""
 
     // Background task progress banner (shown whenever any background task runs)
     @Published var busy = false
@@ -68,6 +83,7 @@ final class AppModel: ObservableObject {
         #endif
     }
     var needsNativeSetup: Bool {
+        if ProcessInfo.processInfo.environment["MV_EDITOR_SELFTEST"] != nil { return false }
         #if NATIVE_MLX
         return !NativeEngine.isInstalled
         #else
@@ -203,11 +219,12 @@ final class AppModel: ObservableObject {
         willQuit = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in OMLXServer.shared.shutdown() }
         // Test hooks: MV_DEMO_PLAN=<work folder> opens the plan screen; MV_DEMO_DONE=<mp4> opens the finished screen.
         let env = ProcessInfo.processInfo.environment
+        if let root = env["MV_TEST_ROOT"], env["MV_EDITOR_SELFTEST"] != nil { config = Config(); config.projectsFolder = root; showGuide = false }
         if let w = env["MV_DEMO_PLAN"], let p = try? Pipeline.loadPlan(URL(fileURLWithPath: w)) {
-            plan = p; workDir = URL(fileURLWithPath: w); title = p.title; stage = .plan
+            plan = p; workDir = URL(fileURLWithPath: w); title = p.title; lyrics = Self.lyricsText(of: p); audioURL = Pipeline.audioURL(p, work: URL(fileURLWithPath: w)); audioDuration = p.songDuration; stage = .plan
             if let m = env["MV_DEMO_DONE"] { outputURL = URL(fileURLWithPath: m); stage = .done }
         }
-        if hasOpenRouterKey { refreshOpenRouterCredits(silent: true) }
+        if hasOpenRouterKey && env["MV_EDITOR_SELFTEST"] == nil { refreshOpenRouterCredits(silent: true) }
     }
 
     var canStart: Bool { !isRecording && !busy && audioURL != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -243,6 +260,7 @@ final class AppModel: ObservableObject {
         } else if let prev = audioURL, plan == nil, AppModel.songKey(prev.lastPathComponent) != newKey, title == autoTitle || title.isEmpty {
             title = ""                                   // the old title came from the old file name
         }
+        if audioURL != url { clearTimelineSession(); analysis = nil; listenTask?.cancel(); listening = false }
         audioURL = url
         trimSummary = nil
         if title.isEmpty { title = AppModel.titleFromFile(url); autoTitle = title }
@@ -286,6 +304,7 @@ final class AppModel: ObservableObject {
     }
     /// The lyrics as typed text: your own parts as `---` dividers, otherwise a blank line between the picture sections.
     static func lyricsText(of p: Plan) -> String {
+        if let source = p.sourceLyrics, LyricText.rows(source).map(\.text) == p.lines.map(\.text) { return source }
         let texts = p.lines.map(\.text)
         if !p.partStarts.isEmpty && !p.partsFromVerses { return LyricText.text(lines: texts, partStarts: p.partStarts) }
         if p.partsFromVerses {
@@ -306,21 +325,23 @@ final class AppModel: ObservableObject {
     @Published var listenFraction = 0.0
 
     /// Changes whenever the song or the words themselves change (but not when you only add or remove cuts).
-    var analysisKey: String { (audioURL?.path ?? "") + "|" + LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text).joined(separator: "\n") }
+    var analysisKey: String { (audioURL.map { Transcriber.fileStamp($0.path) } ?? "") + "|" + LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text).joined(separator: "\n") }
     /// The lyric lines with their times: from "Listen to the song first", or from the planned project when it is the same words.
     var timelineLines: (lines: [LyricLine], duration: Double)? {
         if let a = analysis, a.key == analysisKey { return (a.lines, a.duration) }
-        if let p = plan, p.lines.map(\.text) == LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text) { return (p.lines, p.songDuration) }
+        if let p = plan, hasProject, p.lines.map(\.text) == LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text) { return (p.lines, p.songDuration) }
         return nil
     }
     /// The pictures the song would get right now (one per verse and per music break), or nil until the song has been listened to.
     var previewSections: [PhotoSection]? {
         guard let t = timelineLines else { return nil }
+        if draftKey == analysisKey, let sections = draftSections { return sections }
+        if let p = plan, p.lines.map(\.text) == t.lines.map(\.text) { return p.sections }
         let parsed = LyricAligner.parse(lyrics)
         return Planner.structure(lines: t.lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: t.duration)
     }
     var listenFolder: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo/listen")
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo/listen").appendingPathComponent(SHA256.hash(data: Data((audioURL.map { Transcriber.fileStamp($0.path) } ?? "none").utf8)).map { String(format: "%02x", $0) }.joined())
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -331,52 +352,48 @@ final class AppModel: ObservableObject {
         config = Config.load()
         listening = true; listenPhase = "Starting…"; listenFraction = 0
         let key = analysisKey, l = lyrics, folder = listenFolder
-        Task {
+        listenTask?.cancel()
+        listenTask = Task {
             do {
                 let h = try await Pipeline.listen(audioPath: audio.path, title: title, lyrics: l, work: folder, config: config) { ph, f in
                     Task { @MainActor in self.listenPhase = ph; self.listenFraction = f }
                 }
+                try Task.checkCancellation()
+                guard key == analysisKey else { listening = false; return }
                 analysis = SongAnalysis(lines: h.lines, duration: h.duration, key: key)
+                ensureDraftKey()
+                waveform = (try? await Transcriber.waveform(audioPath: audio.path, work: folder)) ?? []
             } catch is CancellationError {
             } catch { errorMessage = error.localizedDescription }
             listening = false
         }
     }
 
-    /// Splits the picture that starts at lyric line `first` into `parts` pictures of about equal length, cutting between lines.
     func subdivide(section: PhotoSection, into parts: Int) {
-        guard let t = timelineLines, parts >= 2, section.lineIDs.count >= parts else { return }
-        let ids = section.lineIDs.sorted(), s0 = t.lines[ids.first!].start, span = t.lines[ids.last!].end - s0
-        var cuts = Set<Int>()
-        for j in 1..<parts {
-            let target = s0 + span * Double(j) / Double(parts)
-            if let best = ids.dropFirst().min(by: { abs(t.lines[$0].start - target) < abs(t.lines[$1].start - target) }) { cuts.insert(best) }
-        }
-        lyrics = LyricText.adding(cuts: cuts, to: lyrics)
+        guard let t = timelineLines, parts >= 2 else { return }
+        checkpoint("Split picture")
+        var sections = previewSections ?? []
+        for j in 1..<parts { sections = TimelineEditor.split(sections, at: section.start + section.duration * Double(j) / Double(parts), lines: t.lines) }
+        commitPictures(sections)
     }
-    /// Splits every verse longer than 30 s into pictures of about 20–30 s.
     func splitLongVerses() {
-        guard let secs = previewSections, let t = timelineLines else { return }
-        var cuts = Set<Int>()
-        for s in secs where s.lineIDs.count >= 2 && s.duration > Planner.longestPicture {
-            let ids = s.lineIDs.sorted(), s0 = t.lines[ids.first!].start, span = t.lines[ids.last!].end - s0
-            let k = max(2, Int((span / 25).rounded()))
-            for j in 1..<min(k, ids.count) {
-                let target = s0 + span * Double(j) / Double(k)
-                if let best = ids.dropFirst().min(by: { abs(t.lines[$0].start - target) < abs(t.lines[$1].start - target) }) { cuts.insert(best) }
-            }
+        guard let t = timelineLines, let sections = previewSections else { return }
+        checkpoint("Split long sections")
+        var result = sections
+        for s in sections where s.duration > 30 {
+            let count = Int(ceil(s.duration / 30))
+            for j in 1..<count { result = TimelineEditor.split(result, at: s.start + s.duration * Double(j) / Double(count), lines: t.lines) }
         }
-        if !cuts.isEmpty { lyrics = LyricText.adding(cuts: cuts, to: lyrics) }
+        commitPictures(result)
     }
-
-    func toggleDivider(before i: Int) { lyrics = LyricText.toggleDivider(lyrics, before: i) }
-    func clearDividers() { lyrics = LyricText.clearDividers(lyrics) }
-    func divideEvenly(_ n: Int) { lyrics = LyricText.divideEvenly(lyrics, parts: n) }
-    func dividersFromVerses() { lyrics = LyricText.dividersFromVerses(lyrics) }
+    func toggleDivider(before i: Int) { if let t = timelineLines, t.lines.indices.contains(i) { splitPicture(at: t.lines[i].start) } }
+    func clearDividers() { restoreAutomaticPictures() }
+    func divideEvenly(_ n: Int) { if let t = timelineLines, n > 1 { checkpoint("Divide pictures"); commitPictures(TimelineEditor.applying((1..<n).map { t.duration * Double($0) / Double(n) }, to: previewSections ?? [], lines: t.lines, duration: t.duration)) } }
+    func dividersFromVerses() {} // retained for older snapshot hooks; boundaries now live independently of lyrics.
 
     /// Forgets the open project (it stays saved on disk) so the Song screen starts empty.
     func detachProject() {
-        stopPlayback(); plan = nil; workDir = nil; outputURL = nil; renderedShorts = []; waveform = []; projectBaseline = nil
+        clearTimelineSession(); stopPlayback(); plan = nil; workDir = nil; outputURL = nil; renderedShorts = []; waveform = []; projectBaseline = nil
         title = ""; subject = ""; settingTheme = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
     }
 
@@ -549,6 +566,8 @@ final class AppModel: ObservableObject {
         config = Config.load()
         stage = .working; phase = "Starting…"; progress = 0
         let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = 30.0, theme = settingTheme
+        let boundaries = draftKey == analysisKey ? draftSections.map(TimelineEditor.boundaries) : nil
+        let shorts = timelineShorts
         let presetPrompt = StylePreset.all.first(where: { $0.id == selectedStylePreset })?.prompt ?? ""
         mainTask?.cancel()
         mainTask = Task {
@@ -563,7 +582,8 @@ final class AppModel: ObservableObject {
                 // the listening done earlier (words and their times) is reused, so the song is not heard twice
                 let cached = listenFolder.appendingPathComponent("transcript_words.json")
                 if FileManager.default.fileExists(atPath: cached.path) { try? FileManager.default.copyItem(at: cached, to: work.appendingPathComponent("transcript_words.json")) }
-                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, config: config, progress: handler)
+                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
+                draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
             } catch is CancellationError {
@@ -577,7 +597,11 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: Step 2
-    func persist() { if let p = plan, let w = workDir { try? Pipeline.savePlan(p, w) } }
+    func persist() {
+        guard !timelineDragging, let p = plan, let w = workDir else { return }
+        do { try Pipeline.savePlan(p, w); saveStatus = "Saved" }
+        catch { saveStatus = "Not saved — try again"; errorMessage = "Your latest changes could not be saved. Keep this project open and try again. " + error.localizedDescription }
+    }
 
     // MARK: OpenRouter Image Generation & Credits
     func refreshOpenRouterCredits(silent: Bool = true) {
@@ -615,6 +639,7 @@ final class AppModel: ObservableObject {
             return
         }
         let label = section < 0 ? "Title Card" : String(format: "Picture %02d", section + 1)
+        guard section == -1 || plan?.sections.indices.contains(section) == true else { return }
         let isReroll = (section < 0 ? plan?.intro.hasImage : plan?.sections[section].hasImage) == true
         let actionWord = isReroll ? "Rerolling" : "Generating"
         runBackground(initialPhase: "\(actionWord) \(label) with \(OpenRouter.imageModel)…") { [weak self] in
@@ -683,7 +708,7 @@ final class AppModel: ObservableObject {
     }
 
     func setPrompt(_ text: String, section: Int) {
-        guard var p = plan else { return }
+        guard var p = plan, section == -1 || p.sections.indices.contains(section) else { return }
         if section < 0 { p.intro.prompt = text } else { p.sections[section].prompt = text }
         plan = p; persist()
     }
@@ -729,6 +754,7 @@ final class AppModel: ObservableObject {
 
     func load(_ url: URL, section: Int) {
         guard var p = plan, let w = workDir else { return }
+        checkpoint("Load artwork")
         do {
             if let warn = try Pipeline.attach(imageAt: url, section: section, plan: &p, work: w) { notice = warn }
             plan = p; live.invalidate()
@@ -752,15 +778,20 @@ final class AppModel: ObservableObject {
 
     func removeImage(section: Int) {
         guard var p = plan, let w = workDir else { return }
+        checkpoint("Remove artwork")
         Pipeline.removeImage(section: section, plan: &p, work: w); plan = p; live.invalidate()
     }
 
     /// Chooses which part of a video clip plays (seconds inside the clip); `end` nil = to the end of the clip.
     func setVideoTrim(section: Int, start: Double, end: Double?) {
         guard var p = plan else { return }
+        checkpoint("Trim video", coalesce: true)
         func apply(_ s: inout PhotoSection) {
             guard s.candidates.indices.contains(s.selected) else { return }
-            s.candidates[s.selected].videoStart = max(0, start); s.candidates[s.selected].videoEnd = end
+            let length = max(0.001, s.candidates[s.selected].videoLength ?? end ?? start + 0.5)
+            let from = min(max(0, start), max(0, length - min(0.5, length)))
+            s.candidates[s.selected].videoStart = from
+            s.candidates[s.selected].videoEnd = end.map { min(length, max(from + min(0.5, length - from), $0)) }
         }
         if section < 0 { apply(&p.intro) } else if p.sections.indices.contains(section) { apply(&p.sections[section]) }
         plan = p; persist(); live.invalidate()
@@ -810,6 +841,7 @@ final class AppModel: ObservableObject {
 
     func resetFocus(section: Int) {
         guard let p = plan, let w = workDir else { return }
+        guard section == -1 || p.sections.indices.contains(section) else { return }
         let sec = section < 0 ? p.intro : p.sections[section]
         guard let thumb = sec.selectedCandidate?.thumbFile,
               let a = ImageScorer.analyze(fileURL: w.appendingPathComponent(thumb)) else {
@@ -855,7 +887,7 @@ final class AppModel: ObservableObject {
     }
 
     func reuse(section: Int, from source: Int) {
-        guard let p = plan, let w = workDir, let f = p.sections[source].selectedCandidate?.fullFile else { return }
+        guard let p = plan, let w = workDir, p.sections.indices.contains(source), let f = p.sections[source].selectedCandidate?.fullFile else { return }
         load(w.appendingPathComponent(f), section: section)
     }
 
@@ -896,10 +928,7 @@ final class AppModel: ObservableObject {
         stage = .rendering; phase = "Preparing frames"; progress = 0; renderedShorts = []
         let q = quality
         let alsoShorts = autoRenderShorts
-        if alsoShorts && p.shorts.isEmpty {
-            p.shorts = Pipeline.autoShorts(plan: p)
-            plan = p; persist()
-        }
+
         mainTask?.cancel()
         mainTask = Task {
             do {
@@ -952,7 +981,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func reset() { stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = []; projectBaseline = nil }
+    func reset() { clearTimelineSession(); stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = []; projectBaseline = nil }
 
     // MARK: Projects
     func remember(_ folder: URL) {
@@ -961,14 +990,12 @@ final class AppModel: ObservableObject {
     }
 
     func openProject(_ folder: URL) {
+        clearTimelineSession()
         do {
             var p = try Pipeline.loadPlan(folder)
             // Heal pictures whose files were moved/deleted.
             for i in p.sections.indices { if let c = p.sections[i].selectedCandidate, let f = c.fullFile, !FileManager.default.fileExists(atPath: folder.appendingPathComponent(f).path) { p.sections[i].candidates = []; p.sections[i].selected = -1 } }
-            if p.shorts.isEmpty && !p.lines.isEmpty {
-                p.shorts = Pipeline.autoShorts(plan: p)
-                try? Pipeline.savePlan(p, folder)
-            }
+
             plan = p; workDir = folder; title = p.title; subject = p.subject; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
             projectBaseline = nil; outputURL = nil; renderedShorts = []
             stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true)
@@ -1008,8 +1035,14 @@ final class AppModel: ObservableObject {
         guard let u = audioFileURL else { return }
         let w = workDir
         let len = plan?.songDuration ?? 3600
-        Task { waveform = (try? await Transcriber.waveform(audioPath: u.path, work: w)) ?? [] }
-        Task { beats = await BeatDetector.beats(audioPath: u.path, start: 0, end: len, work: w) }
+        Task {
+            let result = (try? await Transcriber.waveform(audioPath: u.path, work: w)) ?? []
+            if audioFileURL == u { waveform = result }
+        }
+        Task {
+            let result = await BeatDetector.beats(audioPath: u.path, start: 0, end: len, work: w)
+            if audioFileURL == u { beats = result }
+        }
     }
 
     var currentShort: ShortClip? { plan?.shorts.first { $0.id == selectedShort } }
@@ -1017,8 +1050,9 @@ final class AppModel: ObservableObject {
     static let defaultShortLength = 30.0
 
     /// Automatically generates 4–7 ~30-second Shorts breaking at natural stanza and vocal pause boundaries.
-    func autoMakeShorts(replaceExisting: Bool = true) {
+    func autoMakeShorts(replaceExisting: Bool = false) {
         guard var p = plan else { return }
+        checkpoint("Suggest Shorts")
         let generated = Pipeline.autoShorts(plan: p)
         if replaceExisting {
             p.shorts = generated
@@ -1071,6 +1105,7 @@ final class AppModel: ObservableObject {
     /// A new Short: `leadIn` seconds of music, then the first lyric, running 30 s in total (end snapped to a quiet gap).
     func newShort() {
         guard var p = plan else { return }
+        checkpoint("Add Short")
         let firstIdx = p.lines.firstIndex(where: { $0.start > 0 }) ?? 0
         let start = Pipeline.clip(plan: p, lines: firstIdx, to: firstIdx, lead: leadIn, tail: 0).start
         let end = min(p.songDuration, Pipeline.snap(start + Self.defaultShortLength, plan: p, maxDistance: 1.5))
@@ -1099,6 +1134,7 @@ final class AppModel: ObservableObject {
     /// The whole song as Shorts: one video if it fits in 3:00, otherwise split into the fewest parts that each do.
     func newWholeSong() {
         guard var p = plan else { return }
+        checkpoint("Add whole song Shorts")
         let parts = Pipeline.wholeSongClips(plan: p)
         for c in parts where !p.shorts.contains(where: { $0.name == c.name }) { p.shorts.append(c) }
         plan = p; selectedShort = p.shorts.first(where: { $0.name == parts[0].name })?.id; persist(); refreshPreview(at: 1)
@@ -1106,13 +1142,15 @@ final class AppModel: ObservableObject {
     }
 
     func deleteShort(_ id: UUID) {
+        checkpoint("Delete Short")
         plan?.shorts.removeAll { $0.id == id }; if selectedShort == id { selectedShort = plan?.shorts.first?.id }; persist()
     }
 
     func update(_ id: UUID, _ change: (inout ShortClip) -> Void) {
         guard var p = plan, let i = p.shorts.firstIndex(where: { $0.id == id }) else { return }
+        checkpoint("Edit Short", coalesce: true)
         var c = p.shorts[i]; change(&c)
-        c.start = max(0, min(c.start, p.songDuration - 2)); c.end = min(p.songDuration, max(c.end, c.start + 2))
+        c.start = max(0, min(c.start, p.songDuration - 0.5)); c.end = min(p.songDuration, max(c.end, c.start + 0.5))
         if c.duration > ShortClip.maxDuration { c.end = c.start + ShortClip.maxDuration; capped = true }   // hard 3:00 limit
         p.shorts[i] = c; plan = p; persist()
     }
@@ -1141,8 +1179,13 @@ final class AppModel: ObservableObject {
 
     /// Moves a time to a nearby musical or spoken landmark, depending on the Snap choice. `near` is the reach in seconds.
     /// Smart: word edges while words are sung, beats in the music-only stretches. Beats / Words: only those. Off: exactly where you point.
-    func snap(_ t: Double, near: Double) -> Double {
+    func snap(_ t: Double, near: Double, edgeStart: Bool? = nil) -> Double {
         guard near > 0 else { return t }
+        if snapMode != .off, snapMode != .beats, let start = edgeStart,
+           let w = plan?.lines.flatMap(\.words).first(where: { t > $0.start && t < $0.end }) {
+            snapDescription = "Aligned to \(start ? "beginning" : "end") of “\(w.text)”."
+            return start ? w.start : w.end
+        }
         func nearest(_ xs: [Double], reach: Double) -> Double? { xs.min { abs($0 - t) < abs($1 - t) }.flatMap { abs($0 - t) <= reach ? $0 : nil } }
         var edges: [Double] = []; var inWords = false
         for l in plan?.lines ?? [] { for w in l.words { edges.append(w.start); edges.append(w.end); if t >= w.start - 0.25 && t <= w.end + 0.25 { inWords = true } } }
@@ -1209,7 +1252,7 @@ final class AppModel: ObservableObject {
 
     /// (Re)builds the live preview for the selected Short (debounced); `t` is the position to show afterwards.
     func refreshPreview(at t: Double) {
-        guard let p = plan, let w = workDir, let audio = audioFileURL, let c = currentShort else { return }
+        guard !timelineDragging, let p = plan, let w = workDir, let audio = audioFileURL, let c = currentShort else { return }
         previewTask?.cancel()
         previewTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)

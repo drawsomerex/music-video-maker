@@ -49,6 +49,7 @@ let package = Package(
     ],
     dependencies: dependencies,
     targets: [
+        .testTarget(name: "MVCoreTests", dependencies: ["MVCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(name: "MVCore", swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "mvideo", dependencies: ["MVCore", .product(name: "ArgumentParser", package: "swift-argument-parser")] + nativeDeps, swiftSettings: nativeDefines),
         .executableTarget(name: "MusicVideoApp", dependencies: ["MVCore"] + nativeDeps, swiftSettings: nativeDefines),

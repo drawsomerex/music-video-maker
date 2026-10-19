@@ -45,18 +45,19 @@ struct SongMap: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0)
+                .gesture(DragGesture(minimumDistance: 5)
                     .onChanged { g in
                         let t = Double(min(max(0, g.location.x), w) / w) * dur
                         if mode == nil {
                             let xs = x(c.start), xe = x(c.end), px = g.startLocation.x
                             if abs(px - xs) <= 12 { mode = .start } else if abs(px - xe) <= 12 { mode = .end }
-                            else if px > xs && px < xe { mode = .move(grab: Double(px / w) * dur - c.start) } else { mode = .move(grab: c.duration / 2) }
+                            else if px > xs && px < xe { mode = .move(grab: Double(px / w) * dur - c.start) } else { return }
                         }
+                        model.beginTimelineDrag()
                         // this map is coarse (a few pixels are several seconds), so it moves freely while you drag and settles on a word or beat when you let go
                         switch mode {
-                        case .start?: model.update(clip.id) { $0.start = min(t, $0.end - 2) }
-                        case .end?: model.update(clip.id) { $0.end = max(t, $0.start + 2) }
+                        case .start?: model.update(clip.id) { $0.start = min(t, $0.end - 0.5) }
+                        case .end?: model.update(clip.id) { $0.end = max(t, $0.start + 0.5) }
                         case .move(let grab)?:
                             let d = c.duration, s0 = min(max(0, t - grab), max(0, dur - d))
                             model.update(clip.id) { $0.start = s0; $0.end = s0 + d }
@@ -66,15 +67,16 @@ struct SongMap: View {
                     .onEnded { _ in
                         if !NSEvent.modifierFlags.contains(.shift), let m = mode {
                             switch m {
-                            case .start: let v = model.snap(c.start, near: 0.6); model.update(clip.id) { $0.start = min(v, $0.end - 2) }
-                            case .end: let v = model.snap(c.end, near: 0.6); model.update(clip.id) { $0.end = max(v, $0.start + 2) }
+                            case .start: let v = model.snap(c.start, near: 0.6); model.update(clip.id) { $0.start = min(v, $0.end - 0.5) }
+                            case .end: let v = model.snap(c.end, near: 0.6); model.update(clip.id) { $0.end = max(v, $0.start + 0.5) }
                             case .move:
                                 let d = c.duration, s1 = model.snap(c.start, near: 0.6), e1 = model.snap(c.end, near: 0.6)
                                 let s0 = max(0, abs(s1 - c.start) <= abs(e1 - c.end) ? s1 : e1 - d)
                                 model.update(clip.id) { $0.start = s0; $0.end = s0 + d }
                             }
                         }
-                        mode = nil })
+                        mode = nil; model.endTimelineDrag() })
+                .onTapGesture { point in cursor = min(dur, max(0, point.x / w * dur)); if let t = cursor { model.playRange(t, min(dur, t + 4)) } }
             }.frame(height: 56)
         }
     }
@@ -85,17 +87,17 @@ struct SongMap: View {
             ZStack(alignment: .topLeading) {
                 ForEach(Array((model.plan?.sections ?? []).enumerated()), id: \.offset) { i, sec in
                     let x0 = CGFloat(sec.start / dur) * w, x1 = CGFloat(sec.end / dur) * w, music = sec.lineIDs.isEmpty
-                    Button { model.selectSection(clip.id, index: i) } label: {
-                        Text(x1 - x0 > 50 ? (music ? "Music" : "Part \(i + (model.plan!.sections.first?.lineIDs.isEmpty == true ? 0 : 1))") : "")
-                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                            .frame(width: max(2, x1 - x0 - 2), height: 20)
+                    Button { cursor = sec.start; model.playRange(sec.start, sec.end) } label: {
+                        Text(x1 - x0 > 50 ? (music ? "Music" : "Picture \(i + 1)") : "")
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                            .frame(width: max(2, x1 - x0 - 2), height: 30)
                             .background(RoundedRectangle(cornerRadius: 4).fill(music ? Color.gray.opacity(0.55) : [Color.blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown][i % 8].opacity(0.75)))
                     }
                     .buttonStyle(.plain).offset(x: x0 + 1)
-                    .help(music ? "A part with only music. Press to use all of it as your Short." : "Part \(i + 1) of the song. Press to use all of it as your Short.")
+                    .help(music ? "A part with only music. Press to listen without changing the Short." : "Part \(i + 1) of the song. Press to listen without changing the Short.")
                 }
             }
-        }.frame(height: 20)
+        }.frame(height: 30)
     }
 }
 
@@ -164,7 +166,7 @@ struct WordTimeline: View {
                     Button { setEdge(start: false, at: cur) } label: { Text("End the Short here").font(.caption.weight(.semibold)) }.tint(.red)
                     Button { cursor = nil; model.stopPlayback() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("Close this card")
                 }
-                .buttonStyle(.bordered).controlSize(.small).padding(5)
+                .buttonStyle(.bordered).controlSize(.regular).padding(5)
                 .background(RoundedRectangle(cornerRadius: 8).fill(.regularMaterial)).shadow(radius: 3)
                 .offset(x: min(max(4, CGFloat(cur) * pps - 90), max(4, CGFloat(dur) * pps - 270)), y: topPad + waveH + 4)
             }
@@ -197,7 +199,7 @@ struct WordTimeline: View {
                 for s in 0..<Int(chunkSec) {                       // a tick every second, a label every 5 seconds
                     let px = CGFloat(s) * pps, abs = t0 + Double(s)
                     ctx.fill(Path(CGRect(x: px, y: 0, width: 1, height: abs.truncatingRemainder(dividingBy: 5) == 0 ? 10 : 5)), with: .color(.secondary.opacity(0.5)))
-                    if abs.truncatingRemainder(dividingBy: 5) == 0 { ctx.draw(Text(clock(abs)).font(.system(size: 9).monospacedDigit()).foregroundColor(.secondary), at: CGPoint(x: px + 3, y: 7), anchor: .leading) }
+                    if abs.truncatingRemainder(dividingBy: 5) == 0 { ctx.draw(Text(clock(abs)).font(.system(size: 13).monospacedDigit()).foregroundColor(.secondary), at: CGPoint(x: px + 3, y: 7), anchor: .leading) }
                 }
             }
             .frame(width: CGFloat(chunkSec) * pps, height: topPad + waveH)
@@ -221,19 +223,20 @@ struct WordTimeline: View {
     func handle(_ color: Color, _ label: String, t: Double, isStart: Bool) -> some View {
         ZStack(alignment: .top) {
             Rectangle().fill(color).frame(width: 3, height: height)
-            Text(label).font(.system(size: 9, weight: .heavy)).foregroundStyle(.white).fixedSize().padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(color)).offset(x: isStart ? 22 : -22, y: 2)
-            RoundedRectangle(cornerRadius: 4).fill(color).frame(width: 12, height: 30).overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.white, lineWidth: 1.5)).offset(y: topPad + 12)
+            Text(label).font(.system(size: 13, weight: .heavy)).foregroundStyle(.white).fixedSize().padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(color)).offset(x: isStart ? 22 : -22, y: 2)
+            RoundedRectangle(cornerRadius: 4).fill(color).frame(width: 24, height: 36).overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.white, lineWidth: 1.5)).offset(y: topPad + 12)
         }
         .frame(width: 26, height: height)
         .contentShape(Rectangle())
         .offset(x: CGFloat(t) * pps - 13)
         .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("tl"))
             .onChanged { g in
+                model.beginTimelineDrag()
                 let near = NSEvent.modifierFlags.contains(.shift) ? 0 : 10 / Double(pps)          // snapping reach: 10 pixels
-                let v = model.snap(min(max(0, Double(g.location.x / pps)), dur), near: near)
-                if isStart { model.update(clip.id) { $0.start = min(v, $0.end - 2) } } else { model.update(clip.id) { $0.end = max(v, $0.start + 2) } }
+                let v = model.snap(min(max(0, Double(g.location.x / pps)), dur), near: near, edgeStart: isStart)
+                if isStart { model.update(clip.id) { $0.start = min(v, $0.end - 0.5) } } else { model.update(clip.id) { $0.end = max(v, $0.start + 0.5) } }
             }
-            .onEnded { _ in model.playRange(isStart ? c.start : max(c.start, c.end - 3), isStart ? c.start + 3 : c.end) })
+            .onEnded { _ in model.endTimelineDrag(); model.playRange(isStart ? c.start : max(c.start, c.end - 3), isStart ? c.start + 3 : c.end) })
         .help(isStart ? "START: drag to change where the Short starts. It sticks to words and beats; hold Shift for free movement." : "END: drag to change where the Short ends. It sticks to words and beats; hold Shift for free movement.")
     }
 
@@ -250,8 +253,8 @@ struct WordTimeline: View {
 
     func pick(_ w: TimedWord) { cursor = w.start; model.playRange(w.start, dur) }
     func setEdge(start: Bool, at t: Double) {
-        let v = model.snap(t, near: 0.4)
-        model.update(clip.id) { if start { $0.start = min(v, $0.end - 2) } else { $0.end = max(v, $0.start + 2) } }
+        let v = model.snap(t, near: 0.4, edgeStart: start)
+        model.update(clip.id) { if start { $0.start = min(v, $0.end - 0.5) } else { $0.end = max(v, $0.start + 0.5) } }
         model.playRange(start ? v : max(c.start, v - 3), start ? v + 3 : v)
         cursor = nil
     }

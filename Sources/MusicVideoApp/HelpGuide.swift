@@ -36,22 +36,25 @@ enum HelpGuide {
         - "Plan my video" is turned off until you have chosen a song, typed a title and added lyrics. Pressing Command and Return also presses it.
         """),
         HelpSection(id: "parts", title: "Dividing the song into parts (pictures)", keywords: "divide cut split verses parts sections scissors lyrics pictures how many pictures verse chorus music break instrumental timeline listen subdivide join dividers", body: """
-        By default the app makes one picture for every verse and one for every music break (music with no singing, 4 seconds or longer). A verse is never split by default. A music break longer than 40 seconds is split into equal pictures of no more than 30 seconds. A break shorter than 4 seconds belongs to the verse next to it.
-        Where verses start: your own cuts first, then your verse marks (blank lines, `---`, tags such as [Chorus]); with neither, every run of singing between two music breaks is a verse, and a run longer than 45 seconds is cut at its longest pauses.
-        To see and change this, press "Divide into parts" above the lyrics box. The first time, press "Listen to the song first (about a minute)": the app finds when every line is sung and where the music-only breaks are (it does not write picture ideas and nothing is spent). "Plan my video" afterwards reuses that listening. If you change the song or the words, listen again.
-        The timeline then shows the song from top to bottom:
-        - Each lyric line has its time (for example 1:12) and a play button to hear it.
-        - A purple "♪ Music — no singing" block with its time range and length is a music break. It has its own picture and a play button.
-        - Each picture is a coloured bar such as "Picture 4 · 0:33–0:55 · 22 s · 4 lines". At the top you see how many pictures there are and about what they cost to draw.
-        - Between two lines there is a "cut here" line. Click it to start a new picture at that point.
-        - "Split in two" on a picture's bar cuts that picture into two pictures of about the same length, between two lines. Press it again to split further.
-        - "Join with above" on a picture's bar removes its cut, so the lines share the picture above.
-        - "Split long verses" splits every verse longer than 30 seconds into pictures of about 20 to 30 seconds.
-        - "Start over" removes your own cuts, so the pictures follow your verse marks and the music breaks again.
-        - Once the video is planned, a thin blue bar on the right shows which lines each Short covers ("Short 2"). Fine-tune a Short on the Shorts page.
-        In the text, a cut is a line containing three dashes (---).
-        Anything written in brackets, [like this], {this}, <this> or (this), is never used: it is not shown in the captions and not used for the picture ideas. A tag on a line of its own, such as [Chorus], still marks the start of a verse.
-        YouTube Shorts made automatically also start and end between parts, never in the middle of one (a part much longer than a Short is split at its pauses).
+        On the first Song page, select "Pictures & Shorts". Press "Listen and show the timeline" to find word timings once. No pictures are generated. Planning afterwards reuses this listening. Change the audio or lyrics and listen again for fresh timing.
+        The time ruler is shared by the picture and Shorts lanes. Picture widths represent their actual durations. Picture numbers match the Pictures page; the title card is separate. Music-only sections are marked with a music note. The listening point shows where a split will go. Clicking selects or listens; it does not move a Short.
+        Use "Expand timeline" for more room, or the timeline zoom buttons for precision. "Listen here" plays from the chosen point and "Stop" stops playback. Moving the listening-point slider edits nothing.
+        Pictures tab:
+        - "Split picture at point" starts a new picture at the chosen time, after showing the exact time. "Hear this change" plays around that point; use the split button again to commit after listening.
+        - "Start new picture before this line" shows the precise time and splits before that lyric line.
+        - "Split in two" makes two equal picture sections. Both initially reuse the same artwork.
+        - "Join with previous" removes only that boundary. Any neighbors can join, including music-only sections and singing. The first artwork is used and the other artwork is kept under "Choose saved artwork".
+        - "Split long sections" divides sections over 30 seconds evenly.
+        - "Restore automatic divisions" restores verse and music divisions after confirmation, while keeping artwork and Shorts. It can be undone.
+        Automatic divisions start with one picture per verse and music break of at least 4 seconds. Music breaks over 40 seconds divide into pictures of at most 30 seconds. Manual boundaries take precedence, even if all boundaries have been removed.
+        Splitting or joining pictures never changes audio, lyrics, or Shorts. Your raw lyrics are kept, including verse formatting. Bracketed stage directions are omitted from captions and picture ideas.
+        Shorts tab (also on the first page):
+        - "Add a Short" adds a 30-second clip at the listening point. "Suggest Shorts" adds suggestions based on lyric pauses. Shorts are created only on request and picture edits never create or rearrange them.
+        - Rename a Short, use its Start and End sliders, or press "Play Short". "Keep whole words when placing cuts" places starts before a word and ends after it; turn it off for exact placement.
+        - "Split at point" replaces one Short with two independently editable clips meeting at that point. Choose a point at least half a second inside the Short.
+        - "Join with next Short" includes every moment between the first start and the last end. It is unavailable if the result exceeds 3 minutes; the tooltip explains why.
+        - "Delete Short" removes only that Short.
+        "Undo" and "Redo" reverse timeline, Short and artwork edits. Command-Z undoes a timeline edit when a text editor does not have focus. A completed drag is one edit and saves once. "Not saved — try again" means you must retry saving before closing.
         """),
         HelpSection(id: "setting", title: "Setting and theme for every picture", keywords: "setting theme scene place era location mood suggest ideas colonial consistent same look", body: """
         The "Setting and theme" field (first screen, and Setting & description on the Pictures screen) is one phrase such as "Brightly lit colonial Philadelphia". Every picture idea is written to take place there, and the setting is written out in full at the front of every picture idea, so it is also in the prompts you copy or send to the picture maker.
@@ -82,6 +85,9 @@ enum HelpGuide {
         For the selected part you see:
         - "Words in this part": the lyric lines. The play button plays that line. The small −0.5s, −0.1s, +0.1s and +0.5s buttons move just that line earlier or later in the video.
         - "Picture idea": a description of the picture. You can edit it. "Another idea" asks the AI for a different one (it avoids the ideas already used). "Copy" copies the idea together with the style and setting so you can use it in another image maker.
+        - Drag a picture row onto another section in the sidebar. "Move here" means the target is empty; "Swap pictures" means both sections exchange their selected artwork. "Use in another section…" provides the same choices without dragging. Undo reverses either action.
+        - "Choose saved artwork" selects earlier pictures and videos, including alternatives kept after a join. Replacing or removing artwork keeps saved alternatives.
+        - "Edit timeline" returns to the first page for picture, music and independent Shorts editing.
         - "Picture for this part": drag a picture or a video clip (MP4 or MOV) into the box or click it to choose a file. Use widescreen pictures (16:9), 1920 by 1080 pixels or larger. Other shapes are cropped to fit and the app warns you.
         - "Make this picture for me" draws the picture with the picture maker (needs an OpenRouter key, costs a few cents). "Try another picture" draws a new one. "Choose a different file" and "Remove picture" are under the box.
         - "Camera": see the section "Camera movement".
@@ -130,7 +136,7 @@ enum HelpGuide {
         Shorts are saved in the same folder as the main video, named "<song title> – <clip name>.mp4". Next to each there is a text file with a suggested title, description and hashtags, and a .json file with the clip's start and end times and the exact times of its words.
         """),
         HelpSection(id: "shortsTimeline", title: "Shorts: finding the part of the song (the song map and Browse the words)", keywords: "shorts select choose find part timeline map box drag move edges words browse click card start here end here chorus verse whole part thirty seconds waveform scroll zoom", body: """
-        The whole song: the song's parts are coloured blocks. To use a whole part (for example a chorus) as your Short, press its block. Below the blocks is the whole song as a waveform. The bright box with the coloured outline is your Short; everything outside it is dimmed. Drag the box to move your Short, or drag its left or right edge to change where it starts or ends. This map is rough: it moves freely while you drag and settles on the nearest word or beat when you let go.
+        The whole song: picture sections are numbered blocks. Press a block to listen without changing the Short. Clicking outside the bright box also listens without moving it. Below the blocks is the whole song as a waveform. The bright box with the coloured outline is your Short; everything outside it is dimmed. Drag the box to move your Short, or drag its left or right edge to change where it starts or ends. This map is rough: it moves freely while you drag and settles on the nearest word or beat when you let go.
         "Browse the words" (under the close-up) opens a timeline of every word of the song in large type at the moment it is sung. Scroll it sideways and use the magnifier buttons to zoom. Click anywhere on it, or on a word, to hear the song from that spot; a small card appears there with "Start the Short here" and "End the Short here". You can also drag the green and red markers on it.
         "Make it ~30 s" keeps the start and adds lyric lines until the Short is about 30 seconds long.
         """),
@@ -201,7 +207,7 @@ enum HelpGuide {
         Open Settings with the gear button on the first screen or the Settings item in the app menu (Command and comma). It has these parts:
         - Where things are saved: the main folder and an optional separate folder for finished videos.
         - Picture maker (optional): your OpenRouter key and a "Check" button for your credit.
-        - Updates: your version, whether an update is waiting, and "Check for updates".
+        - Updates: your version, "Check for updates", "Versions & rollback…", "Stay on this version" and "Resume updates".
         - Shortcuts & help: "Add to Dock" or "Remove from Dock", "Fix recording permission…" and "Show Quick Guide".
         - On-device AI: the two models the app uses (Parakeet Ultra and the language model), whether each is downloaded, and a "Download again" button for each. The size picker (Small, Balanced, Best) chooses which language model is downloaded.
         """),
@@ -211,10 +217,13 @@ enum HelpGuide {
         If planning stops with an error about the language model, open Settings, find the language model and press "Download again".
         Sizes: Small (about 1 GB, fastest, plainer picture ideas), Balanced (about 3.6 GB, recommended), Best (about 6 GB, needs more memory).
         """),
-        HelpSection(id: "updates", title: "Updates", keywords: "update version new release install latest upgrade restart check", body: """
-        When a new version exists, a blue "Update available" strip appears across the top of the window. "What's new" shows the changes, "Update now" downloads and installs it and restarts the app, and "Later" hides the strip until you open the app again. Your songs, pictures and settings are kept.
-        You can also use Check for Updates in the app menu or the Help menu, or Settings ▸ Updates. The app checks by itself about once a day.
-        The app must be in the Applications folder to update itself.
+        HelpSection(id: "updates", title: "Updates", keywords: "update version new release install latest upgrade restart check rollback revert downgrade skip unskip stay pin hold versions backup", body: """
+        The app checks GitHub about once a day and offers a newer version; it never installs without your choice. "What's new" shows the notes. "Update now" verifies the checksum, installs and restarts. "Later" hides the strip until next launch. "Skip this version" stops automatic prompts for that release; later releases can still be offered.
+        In Settings, Updates, choose "Versions & rollback…" (or "Versions & Rollback…" in the app menu). Available stable standalone releases with checksums are listed with their notes. Choose "Install this version…" or "Revert to this version…", then confirm "Install and restart". Internet is required. Releases requiring newer macOS cannot be installed.
+        "Stay on this version" pauses automatic update prompts until "Resume updates" or "Resume update notifications". Skipped versions can be unskipped, individually or with "Clear skipped versions". Manual version selection remains available.
+        Reverting automatically selects staying on that older version. Apps released before these controls may not show a Versions screen; use their Check for Updates command to return to a newer release.
+        Finish or cancel listening, picture generation and video rendering before changing versions. The open project's save file is backed up under its "Version Backups" folder before installing. Pictures and audio stay in the project folder. Earlier apps may not understand newer editing fields; keep the backup if returning to a newer app. A checksum or validation failure leaves the current app in place. If the swap cannot finish, the installer restores the previous app.
+        Install the app in a writable Applications folder to let it replace itself.
         """),
         HelpSection(id: "recording", title: "Recording problems (macOS permission)", keywords: "record recording permission screen system audio microphone blocked cant record privacy security settings fix", body: """
         "Record it as it plays" with "System audio" needs the macOS permission "Screen & System Audio Recording". If recording says macOS is blocking it even though the switch in System Settings is on, open Settings ▸ "Fix recording permission…" (or follow the window that opens by itself): press "Fix it for me", switch Music Video Maker on in the list that opens, then press "Restart the app".
@@ -233,7 +242,7 @@ enum HelpGuide {
         """),
         HelpSection(id: "limits", title: "What the app cannot do", keywords: "cannot cant not possible impossible limit limitation unsupported support windows intel upload youtube edit timeline transitions font translate", body: """
         These things are not possible in this app:
-        - It does not edit video: no timeline and no cutting or joining. A video clip can be placed in a part instead of a picture, but it is used as it is (it repeats if it is shorter than the part, it is cropped to fill the frame, its own sound is not used).
+        - It does not edit video: it does not rearrange or cut the source audio. You can split and join picture sections and continuous Shorts. A video clip can be placed in a section instead of a picture and trimmed (it repeats if it is shorter than the part, it is cropped to fill the frame, its own sound is not used).
         - It makes one video from one song. It cannot combine several songs into one video.
         - It cannot upload to YouTube; it only creates the files (and suggested titles and descriptions for Shorts).
         - The full video's lyric style (font and layout) is fixed; you can move the words up or down in the preview. Word styles and colours can be chosen only for Shorts.

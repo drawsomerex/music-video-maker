@@ -69,6 +69,7 @@ struct UpdateSheet: View {
                     Text("Your songs, pictures and settings are kept. The app restarts by itself when it is done.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
+                    Button("Skip this version") { updater.skip(r.version); dismiss() }.help("Do not prompt for this release again. Later versions are still offered.")
                     Spacer()
                     Button("Not now") { dismiss() }.disabled(updater.isInstalling).help("Keep using this version. The “Update available” message stays at the top until you update.")
                     Button { Task { await updater.install(r) } } label: { Label("Update now", systemImage: "arrow.down.circle.fill").padding(.horizontal, 6) }
@@ -93,6 +94,7 @@ struct UpdatesSettingsSection: View {
             LabeledContent("Status") { Text(updater.statusText).foregroundStyle(updater.available == nil ? Color.secondary : Color.blue) }
             LabeledContent("") {
                 HStack {
+                    Button("Versions & rollback…") { updater.showVersions = true }.disabled(updater.isInstalling).help("Choose a version, revert, stay on a version or manage skipped releases.")
                     if updater.available != nil {
                         Button("Update now…") { updater.showAvailable = true }.buttonStyle(.borderedProminent)
                             .help("Shows what is new and installs the update.")
@@ -102,7 +104,71 @@ struct UpdatesSettingsSection: View {
                         .help("Looks online for a newer version of Music Video Maker.")
                 }
             }
+            HStack {
+                Button("Stay on this version") { updater.holdCurrent() }.disabled(!updater.heldVersion.isEmpty).help("Keep this release until you choose to resume update prompts.")
+                if !updater.heldVersion.isEmpty { Button("Resume updates") { updater.resumeUpdates() }.help("Allow update notifications again.") }
+            }
             if let t = updater.lastChecked { Text("Last checked \(t.formatted(date: .abbreviated, time: .shortened)). The app also checks by itself about once a day.").font(.callout).foregroundStyle(.secondary) }
         }
+    }
+}
+
+struct VersionsSheet: View {
+    @EnvironmentObject var updater: Updater
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Updater.Release?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack { Text("App versions").font(.title2.bold()); Spacer(); Button("Done") { dismiss() }.help("Close version management.") }
+            Text("Installed: \(Updater.current)").font(.headline)
+            HStack {
+                if updater.heldVersion.isEmpty {
+                    Button("Stay on this version") { updater.holdCurrent() }.help("Stop update prompts until you choose to resume them.")
+                } else {
+                    Text("Staying on \(updater.heldVersion)")
+                    Button("Resume update notifications") { updater.resumeUpdates() }.help("Allow the app to notify you about newer versions again.")
+                }
+                Spacer()
+                Button("Refresh list") { Task { await updater.loadVersions() } }.disabled(updater.busy).help("Fetch available standalone versions from GitHub.")
+            }
+            Text("Changing versions saves a backup of your open project. Earlier apps may lack these editing and version controls; use their Check for Updates command to return to a newer release.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if updater.isInstalling { Text(updater.phase); ProgressView(value: updater.progress ?? 0) }
+            else if updater.busy { ProgressView("Loading versions…") }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(updater.releases) { r in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Version \(r.version)").font(.headline)
+                                if r.version == Updater.current { Text("Installed").foregroundStyle(.secondary) }
+                                if updater.skippedVersions.contains(r.version) { Text("Skipped").foregroundStyle(.secondary) }
+                                Spacer()
+                                if r.version != Updater.current {
+                                    Button(Updater.isNewer(Updater.current, than: r.version) ? "Revert to this version…" : "Install this version…") { selected = r }
+                                        .disabled(updater.busy).help("Review and install exactly version \(r.version). The app will restart.")
+                                }
+                            }
+                            DisclosureGroup("Release notes") { Text(r.notes.isEmpty ? "No release notes were supplied." : r.notes).textSelection(.enabled).font(.body).padding(.vertical, 6) }
+                                .help("Read the changes included in this version.")
+                            if r.version != Updater.current {
+                                Button(updater.skippedVersions.contains(r.version) ? "Stop skipping this version" : "Skip this version") {
+                                    if updater.skippedVersions.contains(r.version) { updater.unskip(r.version) } else { updater.skip(r.version) }
+                                }.disabled(updater.busy).help("A skipped release will not produce automatic prompts. Later releases are still offered.")
+                            }
+                        }.padding(12).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+            if !updater.skippedVersions.isEmpty {
+                Text("Skipped: " + updater.skippedVersions.joined(separator: ", ")).font(.callout).foregroundStyle(.secondary)
+                Button("Clear skipped versions") { updater.skippedVersions = [] }.help("Allow update prompts for all versions again. Staying on a version is a separate setting.")
+            }
+        }.padding(20).frame(minWidth: 740, idealWidth: 820, minHeight: 480, idealHeight: 620)
+        .task { await updater.loadVersions() }
+        .confirmationDialog("Install version \(selected?.version ?? "") and restart?", isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } }), titleVisibility: .visible) {
+            Button("Install and restart") { if let r = selected { Task { await updater.install(r) } }; selected = nil }
+            Button("Cancel", role: .cancel) { selected = nil }
+        } message: { Text("Your open project is backed up first. Reverting to an earlier version automatically pauses update notifications.") }
     }
 }

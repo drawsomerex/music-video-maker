@@ -31,6 +31,16 @@ struct MusicVideoApp: App {
                 .environmentObject(model)
                 .environmentObject(updater)
                 .task {
+                    if let mode = Updater.env["MV_EDITOR_SELFTEST"] {
+                        if mode == "check" { await EditorChecks.run(model: model, updater: updater); NSApplication.shared.terminate(nil) }
+                        else if mode == "update" || mode == "rollback" || mode == "bad-checksum" {
+                            if mode == "rollback" { await updater.loadVersions(); updater.available = updater.releases.last }
+                            else { await updater.check(silent: false) }
+                            if let r = updater.available { await updater.install(r) }
+                            if let error = updater.message { FileHandle.standardError.write(Data(("UPDATER RESULT: " + error + "\n").utf8)); NSApplication.shared.terminate(nil) }
+                        }
+                        return
+                    }
                     if let f = Updater.env["MV_HELP_TEST"] {          // developer check of the help assistant: one question per line, answers go to stderr
                         let status = model.helpStatus(screen: Updater.env["MV_HELP_SCREEN"] ?? model.screenName)
                         FileHandle.standardError.write(Data("STATUS:\n\(status)\n\n".utf8))
@@ -50,6 +60,11 @@ struct MusicVideoApp: App {
                     let fixed = await model.reportCenter.refresh()
                     if let f = fixed.first { model.notice = "Good news: the problem you reported (“\(f.title)”) is fixed." + (f.reply.isEmpty ? "" : "\n\n\(f.reply)") + "\n\nSee Help ▸ Report a Problem ▸ My reports." }
                 }
+                .onAppear { updater.beforeInstall = {
+                    guard !model.busy, !model.listening, model.stage != .rendering, model.stage != .working, model.shortProgress == nil, !model.timelineDragging else { throw MVError("Finish or cancel the current task before changing app versions.") }
+                    try model.backupForVersionChange()
+                } }
+                .sheet(isPresented: $updater.showVersions) { VersionsSheet().environmentObject(updater) }
                 .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
                 .alert("Updates", isPresented: Binding(get: { updater.message != nil }, set: { if !$0 { updater.message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(updater.message ?? "") }
                 .sheet(isPresented: $model.showGuide) { QuickGuideView() }
@@ -63,6 +78,16 @@ struct MusicVideoApp: App {
                 } message: { Text(model.errorMessage ?? "") }
         }
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button(model.editUndo.last.map { "Undo " + $0.name } ?? "Undo") {
+                    if let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable, text.undoManager?.canUndo == true { text.undoManager?.undo() } else { model.undoEdit() }
+                }.keyboardShortcut("z", modifiers: .command)
+                    .disabled(model.editUndo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canUndo != true)
+                Button("Redo") {
+                    if let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable, text.undoManager?.canRedo == true { text.undoManager?.redo() } else { model.redoEdit() }
+                }.keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(model.editRedo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canRedo != true)
+            }
             CommandGroup(replacing: .help) {
                 Button("Help & Questions…") { model.helpScreen = model.screenName; model.showHelp = true }.keyboardShortcut("?", modifiers: .command)
                 Button("Quick Guide") { model.showGuide = true }
@@ -73,6 +98,7 @@ struct MusicVideoApp: App {
                 }.disabled(!Updater.enabled || updater.isInstalling)
             }
             CommandGroup(after: .appInfo) {
+                Button("Versions & Rollback…") { updater.showVersions = true }.disabled(updater.isInstalling)
                 Button(updater.available.map { "Update to Version \($0.version)…" } ?? "Check for Updates…") {
                     if updater.available != nil { updater.showAvailable = true } else { Task { await updater.check(silent: false) } }
                 }.disabled(!Updater.enabled || updater.isInstalling)

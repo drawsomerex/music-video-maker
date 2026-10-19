@@ -22,11 +22,27 @@ public enum LyricText {
 
     /// Removes anything in [square], {curly}, <angle> or (round) brackets, brackets included (Suno tags, stage directions, backing vocals), and tidies the spaces.
     public static func clean(_ line: String) -> String {
-        var s = line
-        for pattern in [#"\[[^\]]*\]"#, #"\{[^}]*\}"#, #"<[^>]*>"#, #"\([^)]*\)"#] { s = s.replacingOccurrences(of: pattern, with: " ", options: .regularExpression) }
-        // a stray, unclosed bracket and everything after it on the line
-        if let r = s.range(of: #"[\[{<(].*$"#, options: .regularExpression) { s.removeSubrange(r) }
-        return s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        var stack: [Character] = []
+        return visible(line, stack: &stack).replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+    }
+    private static func visible(_ text: String, stack: inout [Character]) -> String {
+        let pairs: [Character: Character] = ["[": "]", "{": "}", "<": ">", "(": ")"]
+        var out = ""
+        for ch in text {
+            if let closing = pairs[ch] { stack.append(closing); if stack.count == 1 { out.append(" ") } }
+            else if "]}>)".contains(ch) { if stack.last == ch { stack.removeLast() } }
+            else if stack.isEmpty { out.append(ch) }
+        }
+        return out
+    }
+    /// Bracketed stage directions can span several timestamped words in old projects.
+    public static func cleanWords(_ words: [TimedWord]) -> [TimedWord] {
+        var stack: [Character] = []
+        return words.compactMap { word in
+            let text = visible(word.text, stack: &stack).trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { return nil }
+            var cleaned = word; cleaned.text = text; return cleaned
+        }
     }
 
     /// The lyric lines of `raw` with where parts start.

@@ -13,9 +13,10 @@ final class VideoClipSource: @unchecked Sendable {
 
     init(url: URL, maxPixel: Int, start: Double = 0, end: Double? = nil) {
         asset = AVURLAsset(url: url)
-        let whole = max(0.1, CMTimeGetSeconds(asset.duration))
-        from = min(max(0, start), whole - 0.1)
-        seconds = max(0.1, min(end ?? whole, whole) - from)
+        let duration = CMTimeGetSeconds(asset.duration)
+        let whole = duration.isFinite && duration > 0 ? duration : 0.001
+        from = min(max(0, start), max(0, whole - 0.001))
+        seconds = max(0.001, min(end ?? whole, whole) - from)
         gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.requestedTimeToleranceBefore = .zero
@@ -28,7 +29,7 @@ final class VideoClipSource: @unchecked Sendable {
     func looped(at t: Double, sceneLength: Double) -> (main: CGImage?, over: CGImage?, overAlpha: Double) {
         guard sceneLength > seconds + 0.05 else { return (frame(at: t), nil, 0) }
         let f = min(0.8, seconds / 3), period = seconds - f
-        let local = t.truncatingRemainder(dividingBy: period)
+        let local = max(0, t.isFinite ? t : 0).truncatingRemainder(dividingBy: period)
         if t >= period, local < f {                                 // the seam: the end of the clip dissolves into its beginning
             return (frame(at: period + local), frame(at: local), local / f)
         }
@@ -38,10 +39,10 @@ final class VideoClipSource: @unchecked Sendable {
     /// The picture of the clip `t` seconds after the scene began (the clip repeats if it is shorter than the scene).
     func frame(at t: Double) -> CGImage? {
         lock.lock(); defer { lock.unlock() }
-        let local = t.truncatingRemainder(dividingBy: seconds)
+        let local = max(0, t.isFinite ? t : 0).truncatingRemainder(dividingBy: seconds)
         let key = Int((local * 30).rounded())                    // 30 pictures per second is plenty
         if key == lastKey, let img = lastImage { return img }
-        let img = try? gen.copyCGImage(at: CMTime(seconds: from + min(local, seconds - 0.04), preferredTimescale: 600), actualTime: nil)
+        let img = try? gen.copyCGImage(at: CMTime(seconds: from + min(local, max(0, seconds - min(0.04, seconds / 2))), preferredTimescale: 600), actualTime: nil)
         if let img { lastKey = key; lastImage = img }
         return img ?? lastImage
     }

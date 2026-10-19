@@ -6,6 +6,7 @@ import MVCore
 /// Step 2: for each section see the lyrics + a suggested prompt, generate or drop the picture in, and render.
 struct PlanView: View {
     @EnvironmentObject var model: AppModel
+    @State private var dropSection: Int?
     @State private var confirmMissing = false
     @State private var confirmRegenAll = false
     @State private var mode = ProcessInfo.processInfo.environment["MV_DEMO_MODE"] == "1" ? 1 : 0   // 0 = full video, 1 = YouTube Shorts
@@ -113,6 +114,7 @@ struct PlanView: View {
 
     func modeBarActions(compact: Bool) -> some View {
         HStack(spacing: 8) {
+            Button("Edit timeline") { model.goToStep(1) }.help("Return to the first page to split or join pictures, music sections and independent Shorts.")
             Button { model.revealProject() } label: { if compact { Image(systemName: "folder") } else { Label("Show folder", systemImage: "folder") } }
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
             HelpButton(screen: mode == 1 ? "Pictures screen, YouTube Shorts tab" : "Pictures screen")
@@ -184,10 +186,17 @@ struct PlanView: View {
             SlotRow(number: 0, title: "Title card", subtitle: plan.title, time: "", cand: plan.intro.selectedCandidate, work: model.workDir!, repeatNote: nil).tag(-1)
             ForEach(plan.sections.indices, id: \.self) { i in
                 let s = plan.sections[i]
-                SlotRow(number: i + 1, title: s.lineIDs.isEmpty ? (i == 0 ? "Music before the words" : (i == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Section \(i + 1)", subtitle: s.lineIDs.first.map { plan.lines[$0].text } ?? "♪",
-                        time: timeString(s.start + plan.audioOffset), cand: s.selectedCandidate, work: model.workDir!, repeatNote: s.repeatOf.map { "same lyrics as \($0 + 1)" }).tag(i)
+                SlotRow(number: i + 1, title: s.lineIDs.isEmpty ? (i == 0 ? "Music before the words" : (i == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Picture \(i + 1)", subtitle: s.lineIDs.first.flatMap { plan.lines.indices.contains($0) ? plan.lines[$0].text : nil } ?? "♪",
+                        time: timeString(s.start), cand: s.selectedCandidate, work: model.workDir!, repeatNote: s.repeatOf.map { "same lyrics as \($0 + 1)" }).tag(i)
+                    .draggable("mv-picture:\(i)")
+                    .dropDestination(for: String.self) { values, _ in
+                        guard let value = values.first, value.hasPrefix("mv-picture:"), let source = Int(value.dropFirst(11)), source != i else { return false }
+                        model.reassignPicture(from: source, to: i); return true
+                    } isTargeted: { targeted in dropSection = targeted ? i : nil }
+                    .overlay(alignment: .bottom) { if dropSection == i { Text(s.selectedCandidate == nil ? "Move here" : "Swap pictures").font(.callout.bold()).padding(5).background(.regularMaterial) } }
+                    .help("Drag this picture onto another section to move it there or swap their artwork. Undo reverses the action.")
             }
-        }.listStyle(.sidebar)
+        }.listStyle(.sidebar).disabled(model.busy)
     }
 
     // MARK: detail
@@ -215,8 +224,8 @@ struct PlanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(selection < 0 ? "Title card" : (section.lineIDs.isEmpty ? (selection == 0 ? "Music before the words" : (selection == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Section \(selection + 1)")).font(.title2.bold())
-                    Text(selection < 0 ? "opening slide" : "\(timeString(section.start + plan.audioOffset))–\(timeString(section.end + plan.audioOffset)) · \(Int(section.duration)) s")
+                    Text(selection < 0 ? "Title card" : (section.lineIDs.isEmpty ? (selection == 0 ? "Music before the words" : (selection == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Picture \(selection + 1)")).font(.title2.bold())
+                    Text(selection < 0 ? "opening slide" : "\(timeString(section.start))–\(timeString(section.end)) · \(Int(section.duration)) s")
                         .foregroundStyle(.secondary)
                     Spacer()
                     if model.plan!.alignmentCoverage < 0.5 && selection <= 0 {
@@ -231,7 +240,7 @@ struct PlanView: View {
                             Spacer()
                             Text("▶ plays a line. If a line shows too early or late, use the small − and + buttons.").font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
                         }
-                        ForEach(section.lineIDs, id: \.self) { lineIdx in
+                        ForEach(section.lineIDs.filter { plan.lines.indices.contains($0) }, id: \.self) { lineIdx in
                             let line = plan.lines[lineIdx]
                             ViewThatFits(in: .horizontal) {
                                 HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 4); lineNudges(lineIdx) }
@@ -240,7 +249,7 @@ struct PlanView: View {
                         }
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
                 }
-                if let r = section.repeatOf {
+                if let r = section.repeatOf, plan.sections.indices.contains(r) {
                     HStack {
                         Label("Same lyrics as section \(r + 1)", systemImage: "arrow.triangle.2.circlepath").font(.callout)
                         Spacer()
@@ -300,8 +309,24 @@ struct PlanView: View {
                     Text("The picture is drawn from this idea plus the art style, in widescreen with no text.").font(.callout).foregroundStyle(.tertiary)
                 }
 
+                if selection >= 0, section.selectedCandidate != nil {
+                    Menu("Use in another section…") {
+                        ForEach(plan.sections.indices.filter { $0 != selection }, id: \.self) { destination in
+                            Button("\(plan.sections[destination].selectedCandidate == nil ? "Move to" : "Swap with") picture \(destination + 1)") { model.reassignPicture(from: selection, to: destination) }
+                                .help("Move into an empty section, or swap if it already has artwork. Undo reverses this action.")
+                        }
+                    }.help("Move this artwork to an empty section or swap it with another section's artwork.")
+                }
+                if !section.candidates.isEmpty {
+                    Menu("Choose saved artwork (\(section.candidates.count))") {
+                        ForEach(Array(section.candidates.enumerated()), id: \.offset) { index, candidate in
+                            Button("\(index == section.selected ? "✓ " : "")\(candidate.credit.isEmpty ? "Artwork \(index + 1)" : candidate.credit)") { model.selectArtwork(index, section: selection) }
+                                .help("Use this saved picture or video. Other artwork is kept and Undo restores your choice.")
+                        }
+                    }.help("Choose earlier artwork, including pictures kept when sections were joined.")
+                }
                 DropWell(section: selection)
-            }.padding(24)
+            }.padding(24).disabled(model.busy)
         }
     }
 
@@ -327,7 +352,7 @@ struct PlanView: View {
             Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: {
                 Label("Make my video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 3).fixedSize()
             }
-            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
+            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command).disabled(model.busy)
             .help(model.autoRenderShorts ? "Creates the finished video and the short clips. It takes a few minutes; you can watch the progress and cancel at any time."
                                          : "Creates the finished video file. It takes a few minutes; you can watch the progress and cancel at any time.")
         }

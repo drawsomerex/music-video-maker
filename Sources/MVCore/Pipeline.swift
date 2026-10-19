@@ -50,6 +50,12 @@ public enum Pipeline {
         let legacy = work.appendingPathComponent("plan.json")
         let url = FileManager.default.fileExists(atPath: planURL(work).path) ? planURL(work) : legacy
         var plan = try JSONDecoder().decode(Plan.self, from: Data(contentsOf: url))
+        for i in plan.lines.indices {
+            plan.lines[i].text = LyricText.clean(plan.lines[i].text)
+            plan.lines[i].words = LyricText.cleanWords(plan.lines[i].words)
+        }
+        guard plan.songDuration.isFinite, plan.songDuration > 0 else { throw MVError("This project has an invalid song length.") }
+        for i in plan.sections.indices { plan.sections[i].lineIDs = plan.sections[i].lineIDs.filter { plan.lines.indices.contains($0) } }
         // Make older projects self-contained: copy the song in.
         if plan.audioFile.isEmpty, FileManager.default.fileExists(atPath: plan.audioPath) {
             let src = URL(fileURLWithPath: plan.audioPath); let name = "audio." + (src.pathExtension.isEmpty ? "mp3" : src.pathExtension.lowercased())
@@ -79,7 +85,10 @@ public enum Pipeline {
         let srcURL = URL(fileURLWithPath: audioPath)
         let audioName = "audio." + (srcURL.pathExtension.isEmpty ? "mp3" : srcURL.pathExtension.lowercased())
         let ownAudio = work.appendingPathComponent(audioName)
-        if !FileManager.default.fileExists(atPath: ownAudio.path) { try? FileManager.default.copyItem(at: srcURL, to: ownAudio) }
+        if srcURL.standardizedFileURL != ownAudio.standardizedFileURL {
+            if FileManager.default.fileExists(atPath: ownAudio.path) { try FileManager.default.removeItem(at: ownAudio) }
+            try FileManager.default.copyItem(at: srcURL, to: ownAudio)
+        }
 
         let omlx = OMLX(config: config)
         progress?("Connecting to AI engine", 0)
@@ -139,7 +148,7 @@ public enum Pipeline {
     }
 
     public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
-                            preferredStyle: String = "", setting: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
+                            preferredStyle: String = "", setting: String = "", pictureBoundaries: [Double]? = nil, shorts: [ShortClip] = [], config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
         let heard = try await listen(audioPath: audioPath, title: title, lyrics: lyrics, work: work, config: config, progress: progress)
         let duration = heard.duration, parsed = heard.parsed, omlx = heard.omlx, lines = heard.lines, timing = heard.timing
         let ownAudio = work.appendingPathComponent("audio." + (URL(fileURLWithPath: audioPath).pathExtension.isEmpty ? "mp3" : URL(fileURLWithPath: audioPath).pathExtension.lowercased()))
@@ -151,6 +160,7 @@ public enum Pipeline {
         let verseOK = parsed.stanzaBreaks.count + 1 <= max(2, Int(duration / 6))
         let cuts = explicitParts ? parsed.partBreaks : (verseOK ? parsed.stanzaBreaks : [])
         var sections = Planner.structure(lines: lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: duration)
+        if let boundaries = pictureBoundaries { sections = TimelineEditor.applying(boundaries, to: sections, lines: lines, duration: duration) }
         let first = lines.first?.start ?? duration
         // Title card plays over the song's instrumental intro when there's room; otherwise a short silent pre-roll.
         let introDur = first >= 3.3 ? min(6.0, first - 0.6) : 4.5
@@ -188,7 +198,9 @@ public enum Pipeline {
         plan.partStarts = cuts.sorted()
         plan.partsFromVerses = !explicitParts && !cuts.isEmpty
         plan.setting = settingNote
-        plan.shorts = autoShorts(plan: plan)
+        plan.sourceLyrics = lyrics
+        plan.pictureBoundaries = pictureBoundaries
+        plan.shorts = shorts
         try savePlan(plan, work)
         progress?("Done", 1)
         return plan
@@ -211,7 +223,7 @@ public enum Pipeline {
         progress?("Syncing lyrics", 0.7)
         let res = LyricAligner.align(lines: plan.lines.map(\.text), words: words, songDuration: plan.songDuration)
         plan.lines = res.lines; plan.alignmentCoverage = res.coverage; plan.timing = "exact"
-        plan.sections = Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration)
+        plan.sections = plan.pictureBoundaries == nil ? Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration) : TimelineEditor.assignLines(plan.sections, lines: plan.lines)
         try? JSONEncoder().encode(WordCacheFile(key: "", words: words)).write(to: work.appendingPathComponent("transcript_words.json"))
         try savePlan(plan, work)
         progress?("Done", 1)
@@ -250,7 +262,7 @@ public enum Pipeline {
                 }
             }
         }
-        plan.sections = Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration)
+        plan.sections = plan.pictureBoundaries == nil ? Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration) : TimelineEditor.assignLines(plan.sections, lines: plan.lines)
         try? savePlan(plan, work)
     }
 
@@ -347,11 +359,13 @@ public enum Pipeline {
     /// Loads a video clip into a section. The clip is copied into the project; a still frame from it serves as the thumbnail and poster.
     /// While the section is on screen the clip plays (looping if it is shorter than the section); the song's own sound is kept, the clip's sound is not used.
     static func attachVideo(_ url: URL, section index: Int, plan: inout Plan, work: URL) throws -> String? {
+        guard index == -1 || plan.sections.indices.contains(index) else { throw MVError("Choose an existing picture section first.") }
         let asset = AVURLAsset(url: url)
         guard let track = asset.tracks(withMediaType: .video).first else { throw MVError("“\(url.lastPathComponent)” isn't a video I can read. Try an MP4 or MOV file.") }
         let size = track.naturalSize.applying(track.preferredTransform)
         let w = Int(abs(size.width)), h = Int(abs(size.height))
         let secs = CMTimeGetSeconds(asset.duration)
+        guard secs.isFinite, secs > 0 else { throw MVError("This video has no readable duration.") }
         let n = index + 1, stamp = Int(Date().timeIntervalSince1970 * 1000)
         let vid = "full/section_\(n)_\(stamp).\(url.pathExtension.lowercased())", poster = "full/section_\(n)_\(stamp).jpg", thumb = "thumbs/section_\(n)_\(stamp).jpg"
         let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true; gen.maximumSize = CGSize(width: 1920, height: 1920)
@@ -365,9 +379,9 @@ public enum Pipeline {
         let dst = work.appendingPathComponent(vid); try? FileManager.default.removeItem(at: dst)
         try FileManager.default.copyItem(at: url, to: dst)
         writeJPEG(frame, poster, 0.92); writeJPEG(frame, thumb, 0.8)
-        var c = ImageCandidate(id: "video:\(n)", provider: "Video", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
+        var c = ImageCandidate(id: "video:\(UUID().uuidString)", provider: "Video", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
         c.thumbFile = thumb; c.fullFile = poster; c.videoFile = vid; c.videoLength = secs
-        if index < 0 { plan.intro.candidates = [c]; plan.intro.selected = 0 } else { plan.sections[index].candidates = [c]; plan.sections[index].selected = 0 }
+        if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1 } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1 }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
         var notes: [String] = []
@@ -379,8 +393,8 @@ public enum Pipeline {
     /// Deletes any orphaned `section_*` image/thumbnail files in `full/` and `thumbs/` no longer referenced by any section in `plan`.
     public static func cleanupUnreferencedImages(plan: Plan, work: URL) {
         let allSecs = [plan.intro] + plan.sections
-        let usedFull = Set(allSecs.flatMap { [$0.selectedCandidate?.fullFile, $0.selectedCandidate?.videoFile].compactMap { $0 } })
-        let usedThumb = Set(allSecs.compactMap { $0.selectedCandidate?.thumbFile })
+        let usedFull = Set(allSecs.flatMap(\.candidates).flatMap { [$0.fullFile, $0.videoFile].compactMap { $0 } })
+        let usedThumb = Set(allSecs.flatMap(\.candidates).compactMap(\.thumbFile))
         let fm = FileManager.default
         for (sub, used) in [("full", usedFull), ("thumbs", usedThumb)] {
             let dir = work.appendingPathComponent(sub)
@@ -395,6 +409,7 @@ public enum Pipeline {
     /// Loads a picture into a section (−1 = title card). Copies it into the work folder, makes a thumbnail and finds its focal point for the Ken Burns move.
     @discardableResult
     public static func attach(imageAt url: URL, section index: Int, plan: inout Plan, work: URL) throws -> String? {
+        guard index == -1 || plan.sections.indices.contains(index) else { throw MVError("Choose an existing picture section first.") }
         if videoExtensions.contains(url.pathExtension.lowercased()) { return try attachVideo(url, section: index, plan: &plan, work: work) }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
               let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int else { throw MVError("“\(url.lastPathComponent)” isn't an image I can read.") }
@@ -408,10 +423,10 @@ public enum Pipeline {
         guard let t = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 640] as CFDictionary),
               let dest = CGImageDestinationCreateWithURL(work.appendingPathComponent(thumb) as CFURL, "public.jpeg" as CFString, 1, nil) else { throw MVError("Couldn't make a thumbnail of “\(url.lastPathComponent)”.") }
         CGImageDestinationAddImage(dest, t, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary); CGImageDestinationFinalize(dest)
-        var c = ImageCandidate(id: "manual:\(n)", provider: "Manual", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
+        var c = ImageCandidate(id: "manual:\(UUID().uuidString)", provider: "Manual", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
         c.thumbFile = thumb; c.fullFile = full
         if let a = ImageScorer.analyze(fileURL: work.appendingPathComponent(thumb)) { c.focusX = Double(a.focus.x); c.focusY = Double(a.focus.y) }
-        if index < 0 { plan.intro.candidates = [c]; plan.intro.selected = 0 } else { plan.sections[index].candidates = [c]; plan.sections[index].selected = 0 }
+        if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1 } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1 }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
         let aspect = Double(w) / Double(h)
@@ -421,7 +436,7 @@ public enum Pipeline {
     }
 
     public static func removeImage(section index: Int, plan: inout Plan, work: URL) {
-        if index < 0 { plan.intro.candidates = []; plan.intro.selected = -1 } else { plan.sections[index].candidates = []; plan.sections[index].selected = -1 }
+        if index < 0 { plan.intro.selected = -1 } else if plan.sections.indices.contains(index) { plan.sections[index].selected = -1 }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
     }
@@ -471,12 +486,12 @@ public enum Pipeline {
         let label = "gpt-image-2.5-sunburst (\(OpenRouter.formatUSD(gen.costUSD)))"
         if index < 0 {
             if !plan.intro.candidates.isEmpty {
-                plan.intro.candidates[0].provider = "OpenRouter"
-                plan.intro.candidates[0].credit = label
+                plan.intro.candidates[plan.intro.selected].provider = "OpenRouter"
+                plan.intro.candidates[plan.intro.selected].credit = label
             }
         } else if plan.sections.indices.contains(index), !plan.sections[index].candidates.isEmpty {
-            plan.sections[index].candidates[0].provider = "OpenRouter"
-            plan.sections[index].candidates[0].credit = label
+            plan.sections[index].candidates[plan.sections[index].selected].provider = "OpenRouter"
+            plan.sections[index].candidates[plan.sections[index].selected].credit = label
         }
 
         plan.totalGenerationCostUSD += gen.costUSD

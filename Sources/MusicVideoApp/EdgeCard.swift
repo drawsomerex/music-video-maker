@@ -46,7 +46,7 @@ struct EdgeCard: View {
 
     func set(_ v: Double) {
         let x = min(max(0, v), model.plan?.songDuration ?? v)
-        model.update(clip.id) { if isStart { $0.start = min(x, $0.end - 2) } else { $0.end = max(x, $0.start + 2) } }
+        model.update(clip.id) { if isStart { $0.start = min(x, $0.end - 0.5) } else { $0.end = max(x, $0.start + 0.5) } }
     }
     func hear() {
         if isStart { model.playRange(c.start, c.start + 3.5) } else { model.playRange(max(c.start, c.end - 4), c.end) }
@@ -153,7 +153,7 @@ struct EdgeStrip: View {
                                 let a = max(lo, prevEnd), b = min(hi, wd.start)
                                 if b > a {
                                     ctx.fill(Path(CGRect(x: x(a), y: 0, width: x(b) - x(a), height: size.height)), with: .color(.purple.opacity(0.13)))
-                                    if x(b) - x(a) > 90 { ctx.draw(Text("♪ music only").font(.system(size: 11, weight: .semibold)).foregroundColor(.purple.opacity(0.85)), at: CGPoint(x: (x(a) + x(b)) / 2, y: 30), anchor: .center) }
+                                    if x(b) - x(a) > 90 { ctx.draw(Text("♪ music only").font(.system(size: 14, weight: .semibold)).foregroundColor(.purple.opacity(0.85)), at: CGPoint(x: (x(a) + x(b)) / 2, y: 30), anchor: .center) }
                                 }
                             }
                             prevEnd = max(prevEnd, wd.end)
@@ -175,7 +175,7 @@ struct EdgeStrip: View {
                         // seconds ruler
                         var s = ceil(lo)
                         while s <= hi { ctx.fill(Path(CGRect(x: x(s), y: 0, width: 1, height: s.truncatingRemainder(dividingBy: 5) == 0 ? 9 : 4)), with: .color(.secondary.opacity(0.45)))
-                            if s.truncatingRemainder(dividingBy: 5) == 0 { ctx.draw(Text(clock(s)).font(.system(size: 9).monospacedDigit()).foregroundColor(.secondary), at: CGPoint(x: x(s) + 3, y: 14), anchor: .leading) }
+                            if s.truncatingRemainder(dividingBy: 5) == 0 { ctx.draw(Text(clock(s)).font(.system(size: 13).monospacedDigit()).foregroundColor(.secondary), at: CGPoint(x: x(s) + 3, y: 14), anchor: .leading) }
                             s += 1 }
                         // words, three staggered rows
                         var rowEnd = [CGFloat](repeating: -100, count: rows); var n = 0
@@ -183,7 +183,7 @@ struct EdgeStrip: View {
                             let px = x(wd.start), r = n % rows; n += 1
                             let y = size.height * 0.74 + CGFloat(r) * 12 + 2
                             ctx.fill(Path(CGRect(x: px, y: size.height * 0.74 - 14, width: 1, height: 14 + CGFloat(r) * 12)), with: .color(.orange.opacity(0.5)))
-                            if px >= rowEnd[r] { ctx.draw(Text(wd.text).font(.system(size: 11, weight: .semibold)).foregroundColor(.orange), at: CGPoint(x: px + 3, y: y + 5), anchor: .leading); rowEnd[r] = px + CGFloat(wd.text.count) * 6.4 + 8 }
+                            if px >= rowEnd[r] { ctx.draw(Text(wd.text).font(.system(size: 14, weight: .semibold)).foregroundColor(.orange), at: CGPoint(x: px + 3, y: y + 5), anchor: .leading); rowEnd[r] = px + CGFloat(wd.text.count) * 6.4 + 8 }
                         }
                         // what is outside the Short is dimmed
                         if isStart { ctx.fill(Path(CGRect(x: 0, y: 0, width: max(0, x(c.start)), height: size.height)), with: .color(.black.opacity(0.38))) }
@@ -192,7 +192,7 @@ struct EdgeStrip: View {
                     }
                     // the marker
                     Rectangle().fill(color).frame(width: 3, height: h).offset(x: x(t) - 1.5)
-                    Text(clock(t)).font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(.white).fixedSize().padding(.horizontal, 6).padding(.vertical, 2)
+                    Text(clock(t)).font(.system(size: 14, weight: .bold).monospacedDigit()).foregroundStyle(.white).fixedSize().padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Capsule().fill(color)).offset(x: min(max(0, x(t) - 28), max(0, w - 60)), y: h - 20)
                 }
                 .background(RoundedRectangle(cornerRadius: 8).fill(.background.opacity(0.7)))
@@ -201,12 +201,13 @@ struct EdgeStrip: View {
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { g in
+                        model.beginTimelineDrag()
                         let raw = lo + Double(min(max(0, g.location.x), w) / w) * (hi - lo)
                         let near = NSEvent.modifierFlags.contains(.shift) ? 0 : 10 * (hi - lo) / Double(max(1, w))      // snapping reach: 10 pixels
-                        let v = model.snap(raw, near: near)
-                        model.update(clip.id) { if isStart { $0.start = min(v, $0.end - 2) } else { $0.end = max(v, $0.start + 2) } }
+                        let v = model.snap(raw, near: near, edgeStart: isStart)
+                        model.update(clip.id) { if isStart { $0.start = min(v, $0.end - 0.5) } else { $0.end = max(v, $0.start + 0.5) } }
                     }
-                    .onEnded { _ in onSet(t) })
+                    .onEnded { _ in model.endTimelineDrag(); onSet(t) })
             }.frame(minHeight: 150, idealHeight: 190, maxHeight: 260)
         }
     }

@@ -14,7 +14,7 @@ public enum Transcriber {
     nonisolated(unsafe) private static var cachedPCMKey = ""
     nonisolated(unsafe) private static var cachedPCM: [Int16] = []
 
-    static func fileStamp(_ path: String) -> String {
+    public static func fileStamp(_ path: String) -> String {
         let a = try? FileManager.default.attributesOfItem(atPath: path)
         return "\(path)|\(a?[.size] ?? 0)|\(a?[.modificationDate] ?? Date.distantPast)"
     }

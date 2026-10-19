@@ -2,6 +2,7 @@
 import SwiftUI
 import AVFoundation
 import MVCore
+import CryptoKit
 
 /// Real-time preview of the *actual* composition: the same FrameComposer the final render uses, drawn at preview size
 /// next to the song's audio. Dragging the captions changes a live parameter, so there's no rebuild.
@@ -18,6 +19,10 @@ final class LivePreview: ObservableObject {
 
     private var composer: FrameComposer?
     private var key = ""
+    private var loadID = UUID()
+    private var frameGeneration = UUID()
+    private var clockAnchor: Date?
+    private var clockStart = 0.0
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var busy = false
@@ -29,21 +34,29 @@ final class LivePreview: ObservableObject {
 
     /// Builds (or reuses) the composer for this plan/clip. Cheap when nothing changed.
     func load(plan: Plan, work: URL, clip: ShortClip?, audio: URL) async {
-        let sig = [clip.map { "\($0.id)|\($0.start)|\($0.end)|\($0.dynamic)|\($0.styleSeed)|\($0.hook)|\($0.cta)|\($0.motion)|\($0.textStyle)|\($0.accent)|\($0.pulse)|\($0.loop)" } ?? "full",
-                   plan.sections.map {
-                       guard let c = $0.selectedCandidate else { return "-" }
-                       return "\(c.videoFile ?? "")\(c.videoStart)-\(c.videoEnd ?? -1)|\(c.fullFile ?? "-")@\(Int(c.focusX * 1000)),\(Int(c.focusY * 1000))|\(c.camStartX ?? -1),\(c.camStartY ?? -1),\(c.camEndX ?? -1),\(c.camEndY ?? -1),\(c.camZoom)"
-                   }.joined(separator: ","),
-                   "\(plan.lines.count)|\(plan.lines.map { Int($0.start * 100) }.hashValue)|\(plan.title)"].joined(separator: "#")
+        guard !Task.isCancelled else { return }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        var bytes = (try? encoder.encode(plan)) ?? Data()
+        bytes.append((try? encoder.encode(clip)) ?? Data())
+        bytes.append(Data((work.path + Transcriber.fileStamp(audio.path)).utf8))
+        for section in [plan.intro] + plan.sections {
+            if let c = section.selectedCandidate {
+                for file in [c.fullFile, c.videoFile].compactMap({ $0 }) { bytes.append(Data(Transcriber.fileStamp(work.appendingPathComponent(file).path).utf8)) }
+            }
+        }
+        let sig = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let request = UUID(); loadID = request
+        defer { if loadID == request { preparing = false } }
         vertical = clip != nil
         duration = clip.map(\.duration) ?? (plan.songDuration + plan.audioOffset)
-        audioStart = clip?.start ?? 0
+        audioStart = clip?.start ?? -plan.audioOffset
         fadeIn = clip?.dynamic ?? false
         if sig == key, composer != nil { return }
         pause()
         preparing = true; preparingPhase = "Analyzing beats & timing…"; preparingProgress = 0.15
         let cap = clip?.captionY ?? plan.captionY
-        let built: FrameComposer = await Task.detached(priority: .userInitiated) { [weak self] in
+        let owner = self
+        let build = Task.detached(priority: .userInitiated) { () -> FrameComposer in
             var s = clip != nil ? VideoSettings(height: 960) : VideoSettings(height: 540)
             if clip != nil { s.width = 540 }
             var beats: [Double] = []
@@ -51,11 +64,14 @@ final class LivePreview: ObservableObject {
                 let st = ShortStyle.make(seed: c.styleSeed, clip: c)
                 if st.pulse > 0 || !st.calm { beats = await BeatDetector.beats(audioPath: audio.path, start: c.start, end: c.end, work: work) }
             }
-            await MainActor.run { self?.preparingPhase = "Composing lyric & scene layers…"; self?.preparingProgress = 0.6 }
+            await MainActor.run { if owner.loadID == request { owner.preparingPhase = "Composing lyric & scene layers…"; owner.preparingProgress = 0.6 } }
             let comp = FrameComposer(plan: plan, work: work, settings: s, short: clip, beats: beats)
             comp.captionBottom = cap
             return comp
-        }.value
+        }
+        let built = await withTaskCancellationHandler { await build.value } onCancel: { build.cancel() }
+        guard !Task.isCancelled, loadID == request else { return }
+        frameGeneration = UUID()
         preparingPhase = "Rendering first frame…"; preparingProgress = 0.9
         composer = built; key = sig; captionY = cap
         if let p = try? AVAudioPlayer(contentsOf: audio) { player = p; p.prepareToPlay() }
@@ -63,7 +79,7 @@ final class LivePreview: ObservableObject {
         preparingProgress = 1.0; preparing = false
     }
 
-    func invalidate() { key = "" }
+    func invalidate() { key = ""; loadID = UUID(); frameGeneration = UUID(); preparing = false }
     /// Screenshots only: show a ready-made picture instead of building the preview.
     func setStill(_ img: NSImage, vertical v: Bool) { image = img; vertical = v; preparing = false }
 
@@ -72,50 +88,56 @@ final class LivePreview: ObservableObject {
         guard let comp = composer else { return }
         if busy { pending = t; return }
         busy = true
-        let tt = min(max(0.02, t), comp.totalDuration - 0.02)
+        let tt = min(max(0, t), max(0, comp.totalDuration - 0.02))
+        let generation = frameGeneration
         queue.async { [weak self] in
             let cg = comp.still(at: tt)
             let img = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.image = img; self.busy = false
+                if self.frameGeneration == generation { self.image = img }; self.busy = false
                 if let p = self.pending { self.pending = nil; self.render(at: p) }
             }
         }
     }
 
     func seek(_ t: Double) {
+        let wasPlaying = playing
+        if wasPlaying { pause() }
         time = min(max(0, t), duration)
-        if playing { player?.currentTime = audioStart + time }
+        if wasPlaying { toggle() }
         render(at: time)
     }
 
     func setCaption(_ v: Double?) {
-        captionY = v; composer?.captionBottom = v
+        captionY = v
+        if let comp = composer { queue.async { comp.captionBottom = v } }
         render(at: time)
     }
 
     // MARK: playback
-    func toggle() { playing ? pause() : play() }
-
-    func play() {
-        guard let p = player, composer != nil else { return }
-        if time >= duration - 0.2 { time = 0 }
-        p.currentTime = audioStart + time
-        if fadeIn && time < 0.1 { p.volume = 0; p.play(); p.setVolume(1, fadeDuration: 1.8) } else { p.volume = 1; p.play() }
-        playing = true
+    func toggle() {
+        if playing { pause(); return }
+        guard let p = player else { return }
+        if time >= duration - 0.05 { time = 0 }
+        let audioTime = audioStart + time
+        p.currentTime = max(0, audioTime)
+        p.volume = fadeIn && time < 0.1 ? 0 : 1
+        if audioTime < 0 { p.play(atTime: p.deviceCurrentTime - audioTime) } else { p.play() }
+        if fadeIn && time < 0.1 { p.setVolume(1, fadeDuration: 1.8) }
+        clockAnchor = Date(); clockStart = time; playing = true
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, let p = self.player else { return }
-                self.time = max(0, p.currentTime - self.audioStart)
+                guard let self, let anchor = self.clockAnchor else { return }
+                self.time = min(self.duration, self.clockStart + Date().timeIntervalSince(anchor))
                 self.render(at: self.time)
-                if self.time >= self.duration - 0.05 || !p.isPlaying { self.pause() }
+                if self.time >= self.duration - 0.01 { self.pause() }
             }
         }
     }
 
-    func pause() { timer?.invalidate(); timer = nil; player?.pause(); playing = false }
+    func pause() { timer?.invalidate(); timer = nil; player?.pause(); playing = false; clockAnchor = nil }
 }
 
 /// The preview with draggable captions, a safe-zone overlay and transport controls.
@@ -161,13 +183,14 @@ struct LivePreviewPane: View {
             .clipShape(RoundedRectangle(cornerRadius: 16)).shadow(radius: 8, y: 3)
 
             HStack(spacing: 8) {
-                Button { live.toggle() } label: { Image(systemName: live.playing ? "pause.fill" : "play.fill").frame(width: 18) }.buttonStyle(.borderedProminent).controlSize(.small)
-                Slider(value: Binding(get: { live.time }, set: { live.seek($0) }), in: 0...max(1, live.duration))
+                Button { live.toggle() } label: { Image(systemName: live.playing ? "pause.fill" : "play.fill").frame(width: 18) }.buttonStyle(.borderedProminent).controlSize(.large).help(live.playing ? "Pause the preview." : "Play the preview with your song.")
+                Slider(value: Binding(get: { live.time }, set: { live.seek($0) }), in: 0...max(1, live.duration)).help("Choose where to watch the preview.")
                 Text("\(clock(live.time))").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
             }
             HStack(spacing: 8) {
                 Image(systemName: "captions.bubble").foregroundStyle(.secondary)
                 Slider(value: Binding(get: { live.captionY ?? defaultCaption }, set: { live.setCaption($0) }), in: 0.04...0.86) { editing in if !editing { onCaptionCommit(live.captionY) } }
+                    .help("Move the lyrics higher or lower in the picture.")
                 Button("Reset") { live.setCaption(nil); onCaptionCommit(nil) }.controlSize(.mini).disabled(live.captionY == nil).help("Put the words back in their usual place.")
             }
             HStack {
