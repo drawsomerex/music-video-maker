@@ -6,15 +6,17 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 ## [Unreleased]
 
 - Rebuilt the first-page picture and Shorts timeline with a shared time ruler, readable labels, zoom, playback cursor, and an expandable editor.
+- Fixed stale timeline drafts overwriting newer artwork, camera and prompt edits; Undo now tracks later project edits, retains paid artwork and accounting, and cannot run during background tasks.
 - Fixed joins at automatic boundaries. Explicit picture splits and joins now work across music and singing, preserve every other boundary, and never alter Shorts or source audio.
 - Added independent first-page Shorts creation, suggestions, naming, start/end sliders, splitting and joining. Joining includes intervening audio and explains the three-minute limit. Picture divisions no longer silently create Shorts.
 - Added Undo/Redo for timeline, Shorts and artwork edits, explicit reset wording, whole-word placement and split previews. Boundary drags save once when finished; save failures are visible.
 - Drag picture rows to move or swap artwork, or use the labeled reassignment menu. Splits reuse artwork; joins and replacement keep previous pictures and videos selectable as alternatives.
 - Fixed version changes waiting indefinitely for restart when the Versions sheet was still open.
-- Added in-app version selection and rollback, persistent stay-on-version and skip/unskip controls, project save-file backups, and automatic holding after rollback. Downloads require a checksum and validate the requested version and macOS compatibility.
+- Added in-app version selection and rollback, persistent stay-on-version and skip/unskip controls, project and media backups, and automatic holding after rollback. Downloads require a checksum and validate the requested version and macOS compatibility.
 - Fixed stale preview builds and incomplete preview cache keys; corrected audio synchronization during silent title-card pre-roll and serialized caption updates with frame rendering.
 - Isolated song-listening caches, fixed stale copied audio, kept raw lyric formatting during boundary edits, and sanitized nested/unfinished stage directions and older saved captions.
 - Hardened the undeployed bug-report relay with bounded request parsing, required rate-limit configuration, and quoted report text.
+- Fixed the Shorts Start control moving the opposite end at the three-minute limit.
 - Hardened short-video trims, section indexing, and saved-artwork file cleanup. Updated the guide to describe the new controls.
 
 ## [1.6.0] - 2026-10-18

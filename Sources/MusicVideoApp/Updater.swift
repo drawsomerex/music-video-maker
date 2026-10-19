@@ -29,7 +29,7 @@ final class Updater: ObservableObject {
     @Published var skippedVersions = Updater.defaults.stringArray(forKey: "skippedAppVersions") ?? [] {
         didSet { Self.defaults.set(skippedVersions, forKey: "skippedAppVersions") }
     }
-    var beforeInstall: (() throws -> Void)?
+    var beforeInstall: (() async throws -> Void)?
     var isInstalling: Bool { restartPending || (busy && progress != nil) }
     var statusText: String {
         if isInstalling { return phase }
@@ -155,7 +155,7 @@ final class Updater: ObservableObject {
             try await Task.detached { try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path]) }.value
             let dest = Bundle.main.bundleURL
             guard fm.isWritableFile(atPath: dest.deletingLastPathComponent().path) else { throw MVUpdateError("Move this app to a writable Applications folder and try again.") }
-            try beforeInstall?() // captures any edits made during the download; refuses to interrupt a render.
+            try await beforeInstall?() // captures any edits made during the download; refuses to interrupt a render.
             let rollback = Self.isNewer(Self.current, than: r.version)
             phase = "Installing and restarting…"; progress = 0.97
             let script = work.appendingPathComponent("swap.sh")

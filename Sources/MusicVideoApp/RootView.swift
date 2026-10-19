@@ -11,7 +11,7 @@ struct RootView: View {
             UpdateStrip()
             if model.busy { BackgroundTaskBanner().transition(.move(edge: .top).combined(with: .opacity)) }
             if !model.needsNativeSetup { CostBar() }
-            screens
+            screens.disabled(updater.isInstalling)
         }
         .background(WindowFitter())
         .animation(.smooth(duration: 0.3), value: updaterVisible)

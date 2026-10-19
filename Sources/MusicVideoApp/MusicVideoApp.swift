@@ -62,7 +62,7 @@ struct MusicVideoApp: App {
                 }
                 .onAppear { updater.beforeInstall = {
                     guard !model.busy, !model.listening, model.stage != .rendering, model.stage != .working, model.shortProgress == nil, !model.timelineDragging else { throw MVError("Finish or cancel the current task before changing app versions.") }
-                    try model.backupForVersionChange()
+                    try await model.backupForVersionChange()
                 } }
                 .sheet(isPresented: $updater.showVersions) { VersionsSheet().environmentObject(updater) }
                 .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
@@ -82,11 +82,11 @@ struct MusicVideoApp: App {
                 Button(model.editUndo.last.map { "Undo " + $0.name } ?? "Undo") {
                     if let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable, text.undoManager?.canUndo == true { text.undoManager?.undo() } else { model.undoEdit() }
                 }.keyboardShortcut("z", modifiers: .command)
-                    .disabled(model.editUndo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canUndo != true)
+                    .disabled(updater.isInstalling || !model.historyAvailable || (model.editUndo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canUndo != true))
                 Button("Redo") {
                     if let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable, text.undoManager?.canRedo == true { text.undoManager?.redo() } else { model.redoEdit() }
                 }.keyboardShortcut("z", modifiers: [.command, .shift])
-                    .disabled(model.editRedo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canRedo != true)
+                    .disabled(updater.isInstalling || !model.historyAvailable || (model.editRedo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canRedo != true))
             }
             CommandGroup(replacing: .help) {
                 Button("Help & Questions…") { model.helpScreen = model.screenName; model.showHelp = true }.keyboardShortcut("?", modifiers: .command)

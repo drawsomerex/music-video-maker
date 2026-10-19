@@ -20,6 +20,7 @@ extension AppModel {
         if draftKey != analysisKey { draftSections = nil; draftShorts = []; draftKey = analysisKey; editUndo = []; editRedo = [] }
     }
     func clearTimelineSession() {
+        skipNextPlanHistory = true; checkpointRevision = nil
         draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
         timelineCursor = 0; listenTask?.cancel(); listening = false; previewTask?.cancel(); live.invalidate(); live.pause()
     }
@@ -27,24 +28,45 @@ extension AppModel {
     func checkpoint(_ name: String, coalesce: Bool = false) {
         guard !timelineDragging else { return }
         ensureDraftKey()
+        if checkpointRevision == planRevision { return }
+        checkpointRevision = planRevision
         if coalesce && lastEditName == name && Date().timeIntervalSince(lastEditAt) < 0.7 { lastEditAt = Date(); return }
         editUndo.append(snapshot(name)); if editUndo.count > 60 { editUndo.removeFirst() }; editRedo = []
         lastEditName = name; lastEditAt = Date()
     }
+    var historyAvailable: Bool { !busy && !listening && stage != .working && stage != .rendering && shortProgress == nil && !timelineDragging }
     func restore(_ state: TimelineSnapshot) {
-        plan = state.plan; draftSections = state.sections; draftShorts = state.shorts; draftKey = state.key; selectedShort = state.selected
+        restoringHistory = true
+        defer { restoringHistory = false; checkpointRevision = nil }
+        var restored = state.plan
+        if var target = restored, let current = plan {
+            // Undo can change the chosen artwork; it cannot refund a paid generation or discard its saved media.
+            target.totalGenerationCostUSD = max(target.totalGenerationCostUSD, current.totalGenerationCostUSD)
+            target.imagesGeneratedCount = max(target.imagesGeneratedCount, current.imagesGeneratedCount)
+            target.lastImageCostUSD = current.lastImageCostUSD ?? target.lastImageCostUSD
+            func keep(_ source: [ImageCandidate], in section: inout PhotoSection) {
+                for c in source where !section.candidates.contains(where: { $0.id == c.id }) { section.candidates.append(c) }
+            }
+            keep(current.intro.candidates, in: &target.intro)
+            for i in target.sections.indices {
+                let assets = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.candidates)
+                keep(assets, in: &target.sections[i])
+            }
+            restored = target
+        }
+        plan = restored; draftSections = state.sections; draftShorts = state.shorts; draftKey = state.key; selectedShort = state.selected
         lastEditAt = .distantPast; stopPlayback(); live.invalidate(); persist()
     }
-    func undoEdit() { guard let state = editUndo.popLast() else { return }; editRedo.append(snapshot(state.name)); restore(state) }
-    func redoEdit() { guard let state = editRedo.popLast() else { return }; editUndo.append(snapshot(state.name)); restore(state) }
+    func undoEdit() { guard historyAvailable, let state = editUndo.popLast() else { return }; editRedo.append(snapshot(state.name)); restore(state) }
+    func redoEdit() { guard historyAvailable, let state = editRedo.popLast() else { return }; editUndo.append(snapshot(state.name)); restore(state) }
     func beginTimelineDrag() { guard !timelineDragging else { return }; checkpoint("Move Short boundary"); timelineDragging = true }
     func endTimelineDrag() { timelineDragging = false; persist(); refreshPreview(at: 0) }
 
     func commitPictures(_ sections: [PhotoSection]) {
-        ensureDraftKey(); draftSections = sections
+        ensureDraftKey()
         if var p = plan, timelineLines?.lines.map(\.text) == p.lines.map(\.text) {
-            p.sections = sections; p.pictureBoundaries = TimelineEditor.boundaries(sections); plan = p; persist()
-        }
+            p.sections = sections; p.pictureBoundaries = TimelineEditor.boundaries(sections); plan = p; draftSections = nil; persist()
+        } else { draftSections = sections; planRevision += 1; checkpointRevision = nil }
         selectedSection = min(selectedSection, sections.count - 1)
         live.invalidate()
     }
@@ -79,7 +101,7 @@ extension AppModel {
     func setTimelineShorts(_ shorts: [ShortClip]) {
         ensureDraftKey()
         if var p = plan, timelineLines?.lines.map(\.text) == p.lines.map(\.text) { p.shorts = shorts; plan = p; persist() }
-        else { draftShorts = shorts }
+        else { draftShorts = shorts; planRevision += 1; checkpointRevision = nil }
         live.invalidate()
     }
     func addTimelineShort() {
@@ -105,9 +127,15 @@ extension AppModel {
     func editTimelineShort(_ id: UUID, change: (inout ShortClip) -> Void) {
         var shorts = timelineShorts; guard let i = shorts.firstIndex(where: { $0.id == id }), let t = timelineLines else { return }
         checkpoint("Edit Short", coalesce: true)
+        let old = shorts[i]
         change(&shorts[i])
-        shorts[i].start = max(0, min(shorts[i].start, t.duration - 0.5))
-        shorts[i].end = min(t.duration, max(shorts[i].start + 0.5, min(shorts[i].end, shorts[i].start + ShortClip.maxDuration)))
+        if shorts[i].start != old.start && shorts[i].end == old.end {
+            shorts[i].start = min(old.end - 0.5, max(max(0, old.end - ShortClip.maxDuration), shorts[i].start))
+            if shorts[i].start != old.start && shorts[i].start == old.end - ShortClip.maxDuration { snapDescription = "The start cannot move earlier without making this Short longer than 3 minutes. The end stays fixed." }
+        } else {
+            shorts[i].start = max(0, min(shorts[i].start, t.duration - 0.5))
+            shorts[i].end = min(t.duration, max(shorts[i].start + 0.5, min(shorts[i].end, shorts[i].start + ShortClip.maxDuration)))
+        }
         setTimelineShorts(shorts)
     }
     func splitTimelineShort(_ id: UUID) {
@@ -155,12 +183,32 @@ extension AppModel {
         select(a, in: &p.sections[destination]); select(b, in: &p.sections[source])
         plan = p; draftSections = nil; live.invalidate(); persist()
     }
-    func backupForVersionChange() throws {
+    func backupForVersionChange() async throws {
         guard let p = plan, let w = workDir else { return }
-        try Pipeline.savePlan(p, w)
-        let folder = w.appendingPathComponent("Version Backups/\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: Pipeline.planURL(w), to: folder.appendingPathComponent(Pipeline.projectFileName))
+        try await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            try Pipeline.savePlan(p, w)
+            let folder = w.appendingPathComponent("Version Backups/\(UUID().uuidString)")
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            var backup = p
+            var files = Set(([p.intro] + p.sections).flatMap(\.candidates).flatMap { [$0.fullFile, $0.thumbFile, $0.videoFile].compactMap { $0 } })
+            if !p.audioFile.isEmpty { files.insert(p.audioFile) }
+            for file in files {
+                guard !file.hasPrefix("/"), !file.split(separator: "/").contains("..") else { throw MVError("A project media path is unsafe to back up.") }
+                let source = w.appendingPathComponent(file), target = folder.appendingPathComponent(file)
+                guard fm.fileExists(atPath: source.path) else { continue }
+                try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.copyItem(at: source, to: target)
+            }
+            if p.audioFile.isEmpty {
+                let source = Pipeline.audioURL(p, work: w)
+                if fm.fileExists(atPath: source.path) {
+                    let name = "audio." + (source.pathExtension.isEmpty ? "wav" : source.pathExtension)
+                    try fm.copyItem(at: source, to: folder.appendingPathComponent(name)); backup.audioFile = name
+                }
+            }
+            try Pipeline.savePlan(backup, folder)
+        }.value
     }
 }
 

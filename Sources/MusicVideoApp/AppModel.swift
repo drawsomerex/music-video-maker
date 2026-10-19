@@ -23,7 +23,13 @@ final class AppModel: ObservableObject {
 
     @Published var phase = ""
     @Published var progress = 0.0
-    @Published var plan: Plan?
+    @Published var plan: Plan? {
+        willSet {
+            if plan != nil, newValue != nil, !restoringHistory, !skipNextPlanHistory, !timelineDragging,
+               stage != .working, checkpointRevision != planRevision { checkpoint("Edit project", coalesce: true) }
+            planRevision += 1; checkpointRevision = nil; skipNextPlanHistory = false
+        }
+    }
     @Published var workDir: URL?
     @Published var outputURL: URL?
     @Published var autoRenderShorts = false
@@ -43,6 +49,10 @@ final class AppModel: ObservableObject {
     @Published var editUndo: [TimelineSnapshot] = []
     @Published var editRedo: [TimelineSnapshot] = []
     var timelineDragging = false
+    var restoringHistory = false
+    var skipNextPlanHistory = false
+    var planRevision = 0
+    var checkpointRevision: Int?
     var listenTask: Task<Void, Never>?
     var lastEditAt = Date.distantPast
     var lastEditName = ""
@@ -335,8 +345,8 @@ final class AppModel: ObservableObject {
     /// The pictures the song would get right now (one per verse and per music break), or nil until the song has been listened to.
     var previewSections: [PhotoSection]? {
         guard let t = timelineLines else { return nil }
-        if draftKey == analysisKey, let sections = draftSections { return sections }
         if let p = plan, p.lines.map(\.text) == t.lines.map(\.text) { return p.sections }
+        if draftKey == analysisKey, let sections = draftSections { return sections }
         let parsed = LyricAligner.parse(lyrics)
         return Planner.structure(lines: t.lines, stanzaBreaks: parsed.stanzaBreaks, partBreaks: parsed.partBreaks, songDuration: t.duration)
     }
@@ -709,6 +719,7 @@ final class AppModel: ObservableObject {
 
     func setPrompt(_ text: String, section: Int) {
         guard var p = plan, section == -1 || p.sections.indices.contains(section) else { return }
+        checkpoint("Edit picture idea", coalesce: true)
         if section < 0 { p.intro.prompt = text } else { p.sections[section].prompt = text }
         plan = p; persist()
     }
@@ -757,7 +768,7 @@ final class AppModel: ObservableObject {
         checkpoint("Load artwork")
         do {
             if let warn = try Pipeline.attach(imageAt: url, section: section, plan: &p, work: w) { notice = warn }
-            plan = p; live.invalidate()
+            plan = p; draftSections = nil; persist(); live.invalidate()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -771,7 +782,7 @@ final class AppModel: ObservableObject {
                 let res = Pipeline.attachFolder(url, plan: &p, work: w, progress: handler)
                 return (p, res)
             }.value
-            self.plan = updated; self.live.invalidate()
+            self.plan = updated; self.persist(); self.live.invalidate()
             self.notice = "Loaded \(r.loaded.count) picture(s)." + (r.warnings.isEmpty ? "" : "\n" + r.warnings.joined(separator: "\n"))
         }
     }
@@ -779,7 +790,7 @@ final class AppModel: ObservableObject {
     func removeImage(section: Int) {
         guard var p = plan, let w = workDir else { return }
         checkpoint("Remove artwork")
-        Pipeline.removeImage(section: section, plan: &p, work: w); plan = p; live.invalidate()
+        Pipeline.removeImage(section: section, plan: &p, work: w); plan = p; draftSections = nil; persist(); live.invalidate()
     }
 
     /// Chooses which part of a video clip plays (seconds inside the clip); `end` nil = to the end of the clip.
@@ -929,6 +940,7 @@ final class AppModel: ObservableObject {
         let q = quality
         let alsoShorts = autoRenderShorts
 
+        checkpoint("Make video")
         mainTask?.cancel()
         mainTask = Task {
             do {

@@ -26,6 +26,22 @@ enum EditorChecks {
         check(model.previewSections?.map(\.start) == original.map(\.start), "join music removes only chosen boundary")
         model.undoEdit(); check(model.previewSections?.count == original.count + 1, "undo join")
         model.redoEdit(); check(model.previewSections?.count == original.count, "redo join")
+        if var changed = model.plan {
+            changed.sections[0].prompt = "New picture idea after splitting"
+            changed.sections[0].candidates[changed.sections[0].selected].camZoom = 2
+            changed.totalGenerationCostUSD += 0.1; changed.imagesGeneratedCount += 1
+            model.plan = changed
+            model.subdivide(section: changed.sections[0], into: 2)
+            check(model.plan?.sections[0].prompt == "New picture idea after splitting" && model.plan?.sections[0].selectedCandidate?.camZoom == 2, "timeline uses live artwork and camera edits")
+            model.undoEdit()
+            check(model.plan?.sections[0].prompt == "New picture idea after splitting", "undo split preserves earlier picture idea edit")
+            model.undoEdit()
+            check(model.plan?.totalGenerationCostUSD == changed.totalGenerationCostUSD && model.plan?.imagesGeneratedCount == changed.imagesGeneratedCount, "undo never refunds paid generation accounting")
+            model.redoEdit()
+            let count = model.plan?.sections.count
+            model.busy = true; model.undoEdit(); model.busy = false
+            check(model.plan?.sections.count == count, "keyboard history blocked during background work")
+        }
         model.timelineCursor = 5; model.addTimelineShort()
         guard let id = model.selectedShort else { return }
         model.timelineCursor = 15; model.splitTimelineShort(id)
@@ -44,12 +60,26 @@ enum EditorChecks {
         model.endTimelineDrag()
         if let saved = try? Pipeline.loadPlan(work) { check(saved.shorts.first(where: { $0.id == id })?.end == 55, "drag completion saves latest state") }
         else { check(false, "saved project can reopen") }
-        do { try model.backupForVersionChange(); check(true, "backup before version change") } catch { check(false, "backup before version change") }
+        do {
+            try await model.backupForVersionChange()
+            let backups = try FileManager.default.contentsOfDirectory(at: work.appendingPathComponent("Version Backups"), includingPropertiesForKeys: nil)
+            let complete = backups.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("full/clip.mp4").path) && FileManager.default.fileExists(atPath: $0.appendingPathComponent("audio.wav").path) }
+            check(complete, "backup contains source audio and referenced video")
+        } catch { check(false, "backup before version change") }
         model.restoreAutomaticPictures(); check(model.timelineShorts.count == oldShorts.count + 1, "restore pictures preserves Shorts")
         model.undoEdit()
         let realWork = model.workDir; model.workDir = URL(fileURLWithPath: root + "/missing/child"); model.persist()
         check(model.saveStatus != "Saved" && model.errorMessage != nil, "save failure is visible")
         model.workDir = realWork; model.errorMessage = nil; model.persist()
+        if var longPlan = model.plan {
+            let real = model.snapshot("Restore test")
+            longPlan.songDuration = 300
+            let long = ShortClip(name: "Full length", start: 100, end: 280)
+            longPlan.shorts = [long]; model.plan = longPlan
+            model.editTimelineShort(long.id) { $0.start = 90 }
+            check(model.timelineShorts.first?.start == 100 && model.timelineShorts.first?.end == 280, "moving start preserves end at three-minute cap")
+            model.restore(real)
+        }
         updater.holdCurrent(); check(!updater.dueForAutoCheck && !updater.heldVersion.isEmpty, "stay on installed version")
         updater.skip("9.9.9"); check(updater.skippedVersions.contains("9.9.9"), "skip persists")
         updater.unskip("9.9.9"); check(!updater.skippedVersions.contains("9.9.9"), "unskip")
