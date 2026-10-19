@@ -45,6 +45,9 @@ if [ -n "$VERSION_ARG" ]; then NEW="$VERSION_ARG"; else
   IFS=. read -r MA MI PA <<< "$CUR"
   case "$BUMP" in major) NEW="$((MA+1)).0.0";; minor) NEW="$MA.$((MI+1)).0";; patch) NEW="$MA.$MI.$((PA+1))";; *) die "--bump must be patch, minor or major";; esac
 fi
+if [ "$DRY" = 0 ] && git rev-parse --verify --quiet "refs/tags/v$NEW" >/dev/null; then
+  die "Version v$NEW already has a tag. Choose a new version; published releases must never be overwritten."
+fi
 echo "$NEW" > VERSION
 say "Version $CUR → $NEW"
 
@@ -84,8 +87,8 @@ LEAK=$(mkdir -p /tmp/mv-leak && rm -rf /tmp/mv-leak/* && ditto -x -k "$ZIP" /tmp
 LEAK2=$(find /tmp/mv-leak -type f -exec sh -c 'strings -a "$1" | grep -qE "$2" && echo "$1"' _ {} "$HOME" \; 2>/dev/null | head -3)
 [ -z "$LEAK$LEAK2" ] || die "Release blocked: personal path found in $LEAK$LEAK2"
 rm -rf /tmp/mv-leak
-git add -A; git commit -qm "Release v$NEW" || true
-git tag -f "v$NEW"
+git add -A; git commit -qm "Release v$NEW" -m "Co-Authored-By: GPT-6 <noreply@anthropic.com>" || true
+git tag "v$NEW"
 git push -q origin HEAD --tags
 gh release create "v$NEW" "$ZIP" "$ZIP.sha256" --repo "$REPO" --title "Music Video Maker $NEW" --notes "$NOTES"
 say "Released: https://github.com/$REPO/releases/tag/v$NEW"

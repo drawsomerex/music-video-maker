@@ -39,7 +39,8 @@ enum HelpGuide {
         On the first Song page, select "Pictures & Shorts". Press "Listen and show the timeline" to find word timings once. No pictures are generated. Planning afterwards reuses this listening. Change the audio or lyrics and listen again for fresh timing.
         The time ruler is shared by the picture and Shorts lanes. Picture widths represent their actual durations. Picture numbers match the Pictures page; the title card is separate. Music-only sections are marked with a music note. The listening point shows where a split will go. Clicking selects or listens; it does not move a Short.
         Use "Expand timeline" for more room, or the timeline zoom buttons for precision. "Listen here" plays from the chosen point and "Stop" stops playback. Moving the listening-point slider edits nothing.
-        Pictures tab:
+        To join two music sections: first go to the Song page, open "Pictures & Shorts", and select its "Pictures" tab. Find the second of the two sections and press its "Join with previous" button, then confirm "Join pictures". Do not select two rows.
+        Pictures tab inside the Song page timeline:
         - "Split picture at point" starts a new picture at the chosen time, after showing the exact time. "Hear this change" plays around that point; use the split button again to commit after listening.
         - "Start new picture before this line" shows the precise time and splits before that lyric line.
         - "Split in two" makes two equal picture sections. Both initially reuse the same artwork.
@@ -48,6 +49,7 @@ enum HelpGuide {
         - "Restore automatic divisions" restores verse and music divisions after confirmation, while keeping artwork and Shorts. It can be undone.
         Automatic divisions start with one picture per verse and music break of at least 4 seconds. Music breaks over 40 seconds divide into pictures of at most 30 seconds. Manual boundaries take precedence, even if all boundaries have been removed.
         Splitting or joining pictures never changes audio, lyrics, or Shorts. Your raw lyrics are kept, including verse formatting. Bracketed stage directions are omitted from captions and picture ideas.
+        To split a Short: on the Song page, open "Pictures & Shorts" and select its "Shorts" tab. Choose the Short, move the listening point inside it (at least half a second from either end), then press "Split at point".
         Shorts tab (also on the first page):
         - "Add a Short" adds a 30-second clip at the listening point. "Suggest Shorts" adds suggestions based on lyric pauses. Shorts are created only on request and picture edits never create or rearrange them.
         - Rename a Short, use its Start and End sliders, or press "Play Short". "Keep whole words when placing cuts" places starts before a word and ends after it; turn it off for exact placement.
