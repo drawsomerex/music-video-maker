@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-19
+
 - Bug reports now send only the report text you can review and optional technical details; status checks keep the right report when a new report is added during refresh.
 
 - Rebuilt the first-page picture and Shorts timeline with a shared time ruler, readable labels, zoom, playback cursor, and an expandable editor.
