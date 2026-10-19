@@ -188,11 +188,15 @@ struct PlanView: View {
                 let s = plan.sections[i]
                 SlotRow(number: i + 1, title: s.lineIDs.isEmpty ? (i == 0 ? "Music before the words" : (i == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Picture \(i + 1)", subtitle: s.lineIDs.first.flatMap { plan.lines.indices.contains($0) ? plan.lines[$0].text : nil } ?? "♪",
                         time: timeString(s.start), cand: s.selectedCandidate, work: model.workDir!, repeatNote: s.repeatOf.map { "same lyrics as \($0 + 1)" }).tag(i)
-                    .draggable("mv-picture:\(i)")
-                    .dropDestination(for: String.self) { values, _ in
-                        guard let value = values.first, value.hasPrefix("mv-picture:"), let source = Int(value.dropFirst(11)), source != i else { return false }
-                        model.reassignPicture(from: source, to: i); return true
-                    } isTargeted: { targeted in dropSection = targeted ? i : nil }
+                    .onDrag { NSItemProvider(object: "mv-picture:\(i)" as NSString) }
+                    .onDrop(of: [UTType.text], isTargeted: Binding(get: { dropSection == i }, set: { dropSection = $0 ? i : nil })) { providers in
+                        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
+                        _ = provider.loadObject(ofClass: NSString.self) { value, _ in
+                            guard let value = value as? String, value.hasPrefix("mv-picture:"), let source = Int(value.dropFirst(11)), source != i else { return }
+                            Task { @MainActor in dropSection = nil; model.reassignPicture(from: source, to: i) }
+                        }
+                        return true
+                    }
                     .overlay(alignment: .bottom) { if dropSection == i { Text(s.selectedCandidate == nil ? "Move here" : "Swap pictures").font(.callout.bold()).padding(5).background(.regularMaterial) } }
                     .help("Drag this picture onto another section to move it there or swap their artwork. Undo reverses the action.")
             }
