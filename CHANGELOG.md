@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-20
+
 ### Added
 - **Picture ideas that move the story forward, checked by the AI on your Mac.** New ideas follow on from the previous picture's idea. After the ideas are first written and after every *Another idea*, a local "story check" fixes ideas that are physically impossible, don't follow on from the one before, or don't fit the song, and says what it changed. Ideas you edit yourself are never touched, and clicking a generate button doesn't run it.
 - **Style guide picture.** The title card (or any picture you choose with *Use as the style guide*) is sent as a reference with every other picture, so the whole video shares one look. Measured cost: about half a cent per picture.
