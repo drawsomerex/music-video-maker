@@ -7,19 +7,17 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [1.8.0] - 2026-10-21
 
-<<<<<<< HEAD
-## [1.7.2] - 2026-10-20
-
-## [1.7.1] - 2026-10-20
-=======
 ### Added
 - **Two focal points in every picture idea, and a camera that travels between them.** New picture ideas name two clearly different things to look at, placed apart in the frame (shown under the idea as "The camera moves from … to …"); the drawn picture is asked to include both. After a picture is drawn, a tiny cloud check (about 0.006 cent) finds where each focal point is, and the automatic Ken Burns moves from the first to the second. For video clips, the prompt asks for the action and camera to travel from the first focal point toward the second (the first one animating as it goes), and the same camera move now runs over the clip and the frame it ends on.
 - **A shared Pictures folder.** Every picture — drawn by the app or added by you — is also saved in `Pictures` inside your main Music Videos folder as "2026-10-21 Song title 007.png" (date, song, an ever-increasing number) so you can scroll through them. Each song keeps its own copy as well (a free clone on a Mac disk). *Pictures folder* button on the Pictures screen; the file name under each picture shows it in Finder.
->>>>>>> polish
+
+## [1.7.2] - 2026-10-20
 
 ### Changed
 - **The automatic camera makes one journey and never goes back and forth repeatedly.** It travels from one subject to the next; in a long section (11 s or more) it comes back once at the end. With three or more subjects it goes A → B → C and stops. (Before, long sections ping-ponged.)
 - **Your own Ken Burns move is as big as the picture allows.** The view is now zoomed in as far as is sensible (up to 2.4×): *Moves closer* goes from a fairly close view to the closest, *Moves wider* the other way, and *Stays level* is a close, steady view that travels between your two points. A larger zoom always keeps both points inside the picture. The dashed frames shown while you place the dots match.
+
+## [1.7.1] - 2026-10-20
 
 ### Changed
 - **A new video clip is used straight away.** The moment a clip arrives it is switched on (with *Use this clip* as the default button, so Return accepts it); *Redo* or *Discard* are still there if you don't like it.
