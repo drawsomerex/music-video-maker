@@ -64,6 +64,7 @@ extension AppModel {
                 let done = try await work(p0, d)
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
+                    if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
                     loopProject = cur; LoopVideo.save(cur, d)
                 }
@@ -87,13 +88,22 @@ extension AppModel {
         guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
         config = Config.load()
         let cfg = config
-        runLoop("Drawing the picture…", estimate: 45) { p, d in
-            var q = p; try await LoopVideo.makePicture(&q, dir: d, config: cfg); return q
+        runLoop("Drawing the picture…", estimate: 50) { [weak self] p, d in
+            var q = p; try await LoopVideo.makePicture(&q, dir: d, config: cfg)
+            await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
+            await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q
         }
     }
     func loopUsePicture(_ url: URL) {
         guard var p = loopProject, let d = loopDir else { return }
-        do { try LoopVideo.addPicture(&p, dir: d, file: url, config: config); loopProject = p } catch { errorMessage = error.localizedDescription }
+        do { try LoopVideo.addPicture(&p, dir: d, file: url, config: config); loopProject = p } catch { errorMessage = error.localizedDescription; return }
+        loopDescribeMotion()
+    }
+    /// Writes "what moves" from the picture in use (a fraction of a cent).
+    func loopDescribeMotion() {
+        guard hasOpenRouterKey, loopProject?.picture != nil else { return }
+        let cfg = Config.load()
+        runLoop("Looking at what should move…", estimate: 8) { p, d in var q = p; await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q }
     }
     func loopChoosePicture() {
         let o = NSOpenPanel(); o.allowedContentTypes = [.image]; o.message = "Choose the picture the loop clip starts from"

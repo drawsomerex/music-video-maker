@@ -331,7 +331,12 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Length in hours (0.05 = 3 minutes, for a test)") var hours = 1.0
         @Option(help: "Where to save the video") var out: String?
         @Flag(help: "Only make the loop preview (one loop, no sound)") var previewOnly = false
+        @Option(help: "Print what should move in this picture (and the clip instruction it gives), then stop") var describe: String?
         func run() async throws {
+            if let d = describe {
+                guard let r = await LoopVideo.describeMotion(file: URL(fileURLWithPath: (d as NSString).expandingTildeInPath)) else { throw MVError("No description came back.") }
+                print("What moves: \(r.text)\nCost: \(r.cost)\n\nClip instruction:\n\(LoopVideo.clipPrompt(scene: "", motion: r.text))"); return
+            }
             let dir = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath)
             let fm = FileManager.default
             var p: LoopProject

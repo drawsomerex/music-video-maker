@@ -20,6 +20,7 @@ public struct LoopProject: Codable, Equatable {
     public var songSeconds = 0.0
     public var scene = ""                       // what the scene shows
     public var style = ""                       // the look (an art style), optional
+    public var motion = ""                      // what moves in the loop clip (written from the picture; you can edit it)
     public var pictures: [String] = []          // every picture made or added, oldest first
     public var picture: String?                 // the one the clip starts from
     public var clips: [String] = []             // every loop clip made or added
@@ -32,13 +33,14 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""; screenTitle = try c.decodeIfPresent(String.self, forKey: .screenTitle) ?? ""
         songFile = try c.decodeIfPresent(String.self, forKey: .songFile) ?? ""; songSeconds = try c.decodeIfPresent(Double.self, forKey: .songSeconds) ?? 0
         scene = try c.decodeIfPresent(String.self, forKey: .scene) ?? ""; style = try c.decodeIfPresent(String.self, forKey: .style) ?? ""
+        motion = try c.decodeIfPresent(String.self, forKey: .motion) ?? ""
         pictures = try c.decodeIfPresent([String].self, forKey: .pictures) ?? []; picture = try c.decodeIfPresent(String.self, forKey: .picture)
         clips = try c.decodeIfPresent([String].self, forKey: .clips) ?? []; clip = try c.decodeIfPresent(String.self, forKey: .clip)
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
@@ -140,11 +142,45 @@ public enum LoopVideo {
         p.clips.append(name); p.clip = name; save(p, dir)
     }
 
-    /// Written for a seamless loop: the camera never moves, the motion is gentle and cyclical, nothing enters or leaves, the light stays the same.
-    public static func clipPrompt(scene: String) -> String {
-        "\(scene) A seamless looping shot: the camera is completely still (locked-off tripod, no zoom, no pan). Only gentle, continuous, repeating natural motion " +
-        "(such as water, rain, snow, clouds, fire, smoke, leaves or light flickering) moving at a steady pace for the whole clip. Nothing enters or leaves the frame, " +
-        "no sudden events, the lighting stays the same, and the last moment looks like the first. Calm, peaceful, no text."
+    /// Written for a seamless loop: the camera never moves, everything that would really move does so naturally and evenly, the sky only very slowly
+    /// (clouds drift one way and do not come back, so slow drift keeps the seam invisible), nothing enters or leaves, the light stays the same.
+    public static func clipPrompt(scene: String, motion: String = "") -> String {
+        let m = motion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(scene.isEmpty ? "" : scene + " ")" +
+        (m.isEmpty ? "Everything that would really move in this scene moves naturally (such as water, waves, rain, snow, clouds, fire, smoke, leaves or flickering light). "
+                   : "What moves: \(m). Everything else that would naturally move moves gently too. ") +
+        "A seamless looping shot: the camera is completely still (locked-off tripod, no zoom, no pan). The motion is continuous and even for the whole clip; " +
+        "clouds and the sky move only very slowly; people and animals only move a little in place. Nothing enters or leaves the frame, no sudden events, the lighting stays the same, and the last moment looks like the first. Calm, peaceful, no text."
+    }
+
+    /// Looks at the picture once (a cheap cloud vision call, a fraction of a cent) and lists what should move in the loop clip. Returns the text and its cost.
+    public static func describeMotion(file: URL, config: Config = .load()) async -> (text: String, cost: Double)? {
+        guard let img = loadImage(file, maxPixel: 768) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary); CGImageDestinationFinalize(dest)
+        let text = "This picture becomes a 15-second looping video with a completely still camera. Look carefully at THIS picture and list what in it should move, and how, " +
+            "so it looks real. Name only things you can actually see in it, in the order of how much they matter. Moving water, waves, rain, snow, fire, smoke and flames move " +
+            "naturally (for water, say how it moves near the shore or edge too); clouds, mist and the sky always very slowly; people and animals only make small movements in place " +
+            "(never walking, riding or travelling across the picture, which would jump back when the clip repeats). Then say which large things stay still. The form, for a quite different picture " +
+            "(a snowy cabin): \"snow falling gently, smoke curling from the chimney, firelight flickering in the window, clouds drifting very slowly; the cabin and the pines stay still\". " +
+            "One line, 15–40 words. Reply with ONLY that line."
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
+        req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + (data as Data).base64EncodedString()]]]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.2, "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
+        guard let (d, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+              let msg = (ch["message"] as? [String: Any])?["content"] as? String else { return nil }
+        let line = msg.trimmingCharacters(in: CharacterSet(charactersIn: " \n\"“”.")).replacingOccurrences(of: "\n", with: " ")
+        guard line.count > 10 else { return nil }
+        return (line, ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0)
+    }
+
+    /// Fills in "what moves" for the picture in use (replacing the description of an earlier picture). Never throws: without it the clip uses the general wording.
+    public static func refreshMotion(_ p: inout LoopProject, dir: URL, config: Config = .load()) async {
+        guard let pic = p.picture, let r = await describeMotion(file: dir.appendingPathComponent(pic), config: config) else { return }
+        p.motion = r.text; p.imagesUSD += r.cost; save(p, dir)
     }
     public static func clipPrice(sharp: Bool, perSecond768: Double) -> Double { Double(clipSeconds) * (sharp ? 0.10 : perSecond768) }
 
@@ -153,7 +189,7 @@ public enum LoopVideo {
         guard let pic = p.picture, let frame = Pipeline.firstFrameJPEG(file: dir.appendingPathComponent(pic)) else { throw MVError("Make or add the picture first. The clip starts from it.") }
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         var saved = p
-        let clip = try await OpenRouterVideo.generate(prompt: clipPrompt(scene: scene.isEmpty ? "A calm scene." : scene), firstFrameJPEG: frame, seconds: clipSeconds, apiKey: config.openRouterKey,
+        let clip = try await OpenRouterVideo.generate(prompt: clipPrompt(scene: scene, motion: p.motion), firstFrameJPEG: frame, seconds: clipSeconds, apiKey: config.openRouterKey,
                                                       resolution: p.sharpClip ? "2K" : OpenRouterVideo.resolution,
                                                       onJob: { id in saved.pendingJob = id; save(saved, dir) }, onPhase: onPhase)
         p.pendingJob = nil

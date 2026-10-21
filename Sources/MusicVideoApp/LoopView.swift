@@ -156,7 +156,18 @@ struct LoopView: View {
                     Button { model.loopChoosePicture() } label: { Label("Use my own picture…", systemImage: "photo") }.disabled(working)
                         .help("Choose a picture from your Mac (or drag it onto the box). The loop clip starts from it.")
                 }
-                if p.pictures.count > 1 { thumbs(p.pictures, selected: p.picture) { n in model.editLoop { $0.picture = n } } }
+                if p.pictures.count > 1 { thumbs(p.pictures, selected: p.picture) { n in model.editLoop { $0.picture = n }; model.loopDescribeMotion() } }
+                if p.picture != nil {
+                    HStack {
+                        Text("What moves").font(.callout.weight(.semibold))
+                        Spacer()
+                        Button { model.loopDescribeMotion() } label: { Label("Describe it from the picture", systemImage: "eye") }.disabled(working || !model.hasOpenRouterKey)
+                            .help("Looks at the picture and lists what should move in the clip (a fraction of a cent). Done automatically for every new picture.")
+                    }
+                    TextField("e.g. waves rolling onto the beach, foam washing up the sand, clouds drifting very slowly", text: bind(\.motion), axis: .vertical)
+                        .lineLimit(2...4).textFieldStyle(.roundedBorder)
+                        .help("Goes into the clip's instructions word for word. Anything else that would naturally move moves gently too; clouds and the sky always move very slowly so the loop's seam stays invisible.")
+                }
             }
         }
     }
