@@ -887,6 +887,10 @@ final class AppModel: ObservableObject {
         return String(format: "%.2f s %@", abs(v), v < 0 ? "early" : "late")
     }
     @Published var showGuide = QuickGuideView.shouldShowFirst
+    @Published var clipJob: ClipJob?                // the video clip being made right now (or waiting for your decision)
+    @Published var videoPricePerSecond = OpenRouterVideo.fallbackPricePerSecond
+    var clipTask: Task<Void, Never>?
+    var clipDecision: CheckedContinuation<ClipDecision, Never>?
     @Published var showReport = false        // the "Report a problem" window
     var reportPrefill = ""
     let reportCenter = ReportCenter()

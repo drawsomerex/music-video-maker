@@ -65,10 +65,19 @@ public final class FrameComposer: @unchecked Sendable {
             if modeRng.next() % 5 == 0 { candidateMode = 4 }
             else if candidateMode == prevMode { candidateMode = candidateMode == 2 ? 3 : 2 }
             prevMode = candidateMode
-            sc.append(PhotoScene(box: boxes[i], a: a, b: max(e, a + 1), seed: sceneSeed,
+            let sec = all[i]
+            let useClips = sec.useClips && !sec.clips.isEmpty
+            if useClips { candidateMode = 0 }                                  // after the clips the last frame holds, then a gentle push-in
+            let sceneBox: ImageBox? = useClips ? (sec.clips.last.map { ImageBox(url: work.appendingPathComponent($0.lastFrame), maxPixel: maxPx) } ?? boxes[i]) : boxes[i]
+            let scene = PhotoScene(box: sceneBox, a: a, b: max(e, a + 1), seed: sceneSeed,
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
                                  shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
-                                 video: c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx, start: c?.videoStart ?? 0, end: c?.videoEnd) }, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath))
+                                 video: useClips ? nil : c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx, start: c?.videoStart ?? 0, end: c?.videoEnd) }, beats: beats, preferredMode: candidateMode, camera: useClips ? nil : c?.cameraPath)
+            if useClips {
+                scene.clipTrack = sec.clips.map { ClipSegment(source: VideoClipSource(url: work.appendingPathComponent($0.file), maxPixel: maxPx), offset: $0.offset, seconds: $0.seconds) }
+                if let last = sec.clips.last { scene.kbStart = a + last.offset + last.seconds }
+            }
+            sc.append(scene)
         }
         scenes = sc
         var rng = SeededRNG((dyn ? short!.styleSeed : 0xC0FFEE) ^ UInt64(plan.title.hashValue & 0xFFFF)); var last = -1; var ks: [TransitionKind] = []

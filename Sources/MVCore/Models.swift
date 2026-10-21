@@ -85,6 +85,19 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     }
 }
 
+/// A generated video clip (HeyGen) that plays at the start of a section instead of Ken Burns. A section can have several, back to back.
+public struct SectionClip: Codable, Identifiable, Hashable {
+    public var id: String = UUID().uuidString
+    public var file: String = ""            // clips/….mp4, relative to the project folder
+    public var lastFrame: String = ""       // frames/….jpg: the clip's final picture (the next clip starts from it; a short clip freezes on it)
+    public var seconds: Double = 0          // length of the clip
+    public var offset: Double = 0           // where it starts inside the section
+    public var prompt: String = ""
+    public var costUSD: Double = 0
+    public var warning: String? = nil       // what the realism check noticed, if anything
+    public init() {}
+}
+
 public struct PhotoSection: Codable, Identifiable {
     public var id: Int                    // -1 = intro
     public var start: Double              // song time
@@ -97,9 +110,11 @@ public struct PhotoSection: Codable, Identifiable {
     public var prompt: String = ""          // suggested image-generation prompt
     public var repeatOf: Int? = nil        // index of an earlier section with the same lyrics (e.g. a repeated chorus)
     public var note: String? = nil
+    public var clips: [SectionClip] = []     // generated video clips for this section
+    public var useClips: Bool = false        // false = Ken Burns on the picture (the default); true = play the clips, then freeze and Ken Burns for the rest
     public var promptManual: Bool = false    // true once you edit the idea yourself: the story logic check never changes it
     public var logicNote: String? = nil      // what the story logic check changed in this idea (shown under the idea)
-    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote }
+    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id); start = try c.decode(Double.self, forKey: .start); end = try c.decode(Double.self, forKey: .end)
@@ -112,6 +127,8 @@ public struct PhotoSection: Codable, Identifiable {
         repeatOf = try c.decodeIfPresent(Int.self, forKey: .repeatOf)
         note = try c.decodeIfPresent(String.self, forKey: .note)
         promptManual = try c.decodeIfPresent(Bool.self, forKey: .promptManual) ?? false
+        clips = try c.decodeIfPresent([SectionClip].self, forKey: .clips) ?? []
+        useClips = try c.decodeIfPresent(Bool.self, forKey: .useClips) ?? false
         logicNote = try c.decodeIfPresent(String.self, forKey: .logicNote)
     }
     public init(id: Int, start: Double, end: Double, lineIDs: [Int], queries: [String], candidates: [ImageCandidate], selected: Int, seed: UInt64) {
@@ -144,6 +161,7 @@ public struct Plan: Codable {
     public var totalGenerationCostUSD: Double = 0.0  // cumulative OpenRouter USD spent generating/rerolling images for this song
     public var imagesGeneratedCount: Int = 0         // total AI image generations/rerolls run for this song
     public var lastImageCostUSD: Double? = nil       // most recent actual per-image cost returned by OpenRouter
+    public var totalVideoCostUSD: Double = 0         // what the video clips have cost so far
     public var styleGuideSection: Int? = nil         // the picture every other picture is drawn to match (nil = the title card, −1)
     /// Seconds added to every caption time when drawing (negative = captions appear sooner). Seen from the audience's side, captions that
     /// land exactly on the sound feel late, so new and old projects start slightly early; the user can fine-tune it per song.
@@ -161,7 +179,7 @@ public struct Plan: Codable {
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, totalVideoCostUSD
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -185,6 +203,7 @@ public struct Plan: Codable {
         imagesGeneratedCount = try c.decodeIfPresent(Int.self, forKey: .imagesGeneratedCount) ?? 0
         lastImageCostUSD = try c.decodeIfPresent(Double.self, forKey: .lastImageCostUSD)
         styleGuideSection = try c.decodeIfPresent(Int.self, forKey: .styleGuideSection)
+        totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
         partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []
         setting = try c.decodeIfPresent(String.self, forKey: .setting) ?? ""
@@ -275,10 +294,11 @@ public struct Config: Codable {
     public var projectsFolder: String = ""    // where project folders are created (blank = ~/Movies/Music Videos)
     public var outputFolder: String = ""      // where finished videos & Shorts go (blank = next to each project)
     public var openRouterKey: String = ""     // OpenRouter API key for image generation (openai/gpt-image-2.5-sunburst)
+    public var videoRealismCheck: Bool = true  // after each video clip, a cheap cloud check looks for physically impossible things (about 0.1 cent)
     public var effectiveOpenRouterKey: String { openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines) }
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey }
+    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey, videoRealismCheck }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         omlxURL = try c.decodeIfPresent(String.self, forKey: .omlxURL) ?? ""
@@ -288,6 +308,7 @@ public struct Config: Codable {
         projectsFolder = try c.decodeIfPresent(String.self, forKey: .projectsFolder) ?? ""
         outputFolder = try c.decodeIfPresent(String.self, forKey: .outputFolder) ?? ""
         openRouterKey = try c.decodeIfPresent(String.self, forKey: .openRouterKey) ?? ""
+        videoRealismCheck = try c.decodeIfPresent(Bool.self, forKey: .videoRealismCheck) ?? true
     }
 
     /// Folder that holds project folders.

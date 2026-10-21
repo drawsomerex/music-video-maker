@@ -27,6 +27,9 @@ struct CostBar: View {
             if let p = model.plan {
                 item(compact ? "This song" : "Spent on this song", OpenRouter.formatUSD(p.totalGenerationCostUSD), detail: p.imagesGeneratedCount > 0 ? "\(p.imagesGeneratedCount) pictures" : nil,
                      help: "What drawing pictures for this song has cost so far.")
+                if p.totalVideoCostUSD > 0 {
+                    item(compact ? "Video" : "Video clips", OpenRouter.formatUSD(p.totalVideoCostUSD), detail: nil, help: "What the video clips for this song have cost so far (the cost OpenRouter reported).")
+                }
                 let blank = model.missing.count
                 item(blank == 0 ? "Blank pictures" : (compact ? "To draw \(blank) blank" : "To draw the \(blank) blank pictures"), blank == 0 ? "none" : "≈ " + OpenRouter.formatUSD(model.missingImagesCostUSD),
                      help: "The estimated cost of drawing every picture that is still blank, at about \(OpenRouter.formatUSD(model.perImageCostUSD)) each.")

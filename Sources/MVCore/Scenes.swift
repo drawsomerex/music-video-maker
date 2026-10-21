@@ -40,8 +40,12 @@ public struct CameraPath: Equatable {
 /// - Zoom interpolates logarithmically (`z(u) = z0 * (z1 / z0)^u`) so perceived optical magnification speed is constant.
 /// - Center position couples with inverse zoom (`alpha = (1/z0 - 1/z(u)) / (1/z0 - 1/z1)`), guaranteeing that all four edges
 ///   of the crop rectangle move in straight lines and every intermediate frame stays 100% inside the image without clamping jumps.
+struct ClipSegment { let source: VideoClipSource; let offset: Double; let seconds: Double }
+
 final class PhotoScene {
     let box: ImageBox?
+    var clipTrack: [ClipSegment] = []   // generated video clips played back to back from the start of the scene; afterwards the last frame (`box`) gets a Ken Burns push-in
+    var kbStart: Double = .nan          // when that Ken Burns begins (video time); NaN = at the start of the scene
     let video: VideoClipSource?          // a video clip that plays during this scene instead of a moving still picture
     let a: Double, b: Double            // video-time interval
     let seed: UInt64
@@ -180,11 +184,22 @@ final class PhotoScene {
     }
 
     func draw(t: Double, ctx: CGContext, W: Int, H: Int) {
-        let u0 = clamp01((t - a) / max(0.001, b - a))
+        let kb0 = kbStart.isNaN ? a : kbStart
+        let u0 = clamp01((t - kb0) / max(0.001, b - kb0))
         // Blended cosine S-curve: silky acceleration and deceleration while staying alive during cross-dissolves
         let uCos = 0.5 - 0.5 * cos(.pi * u0)
         let u = 0.28 * u0 + 0.72 * uCos
 
+        if !clipTrack.isEmpty {                                      // generated clips: play them, then fall through to the Ken Burns on the last frame
+            let local = t - a
+            if let seg = clipTrack.last(where: { local >= $0.offset - 0.001 }), local < seg.offset + seg.seconds, let frame = seg.source.frame(at: max(0, local - seg.offset)) {
+                let iw = Double(frame.width), ih = Double(frame.height), target = Double(W) / Double(H)
+                let rw = iw / ih > target ? ih * target : iw, rh = rw / target
+                let s = Double(W) / rw
+                ctx.draw(frame, in: CGRect(x: -(iw / 2 - rw / 2) * s, y: -(ih - (ih / 2 - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
+                return
+            }
+        }
         if let v = video {
             let shot = v.looped(at: max(0, t - a), sceneLength: self.b - a)
             if let frame = shot.main {
