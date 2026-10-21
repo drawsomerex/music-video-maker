@@ -6,6 +6,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 ## [Unreleased]
 
 ### Changed
+- **The automatic camera makes one journey and never goes back and forth repeatedly.** It travels from one subject to the next; in a long section (11 s or more) it comes back once at the end. With three or more subjects it goes A → B → C and stops. (Before, long sections ping-ponged.)
+- **Your own Ken Burns move is as big as the picture allows.** The view is now zoomed in as far as is sensible (up to 2.4×): *Moves closer* goes from a fairly close view to the closest, *Moves wider* the other way, and *Stays level* is a close, steady view that travels between your two points. A larger zoom always keeps both points inside the picture. The dashed frames shown while you place the dots match.
+
+### Changed
 - **A new video clip is used straight away.** The moment a clip arrives it is switched on (with *Use this clip* as the default button, so Return accepts it); *Redo* or *Discard* are still there if you don't like it.
 - **The automatic camera always moves, from one subject to the next.** The app finds the main subjects of each picture (people first, then other salient objects) and the camera travels from one to the next at a steady, visible pace — zoomed in on each (about 1.75×) — instead of drifting slowly. A picture with one subject moves from a wide view in on the subject. Long sections keep travelling back and forth between the subjects, so a picture is never left standing still. The frame after a video clip does the same: it starts wide (matching the clip) and moves in on the subjects. Pictures with a camera move you set yourself are unchanged.
 
