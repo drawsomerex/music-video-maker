@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -304,16 +304,57 @@ struct MVideo: AsyncParsableCommand {
         @Argument var work: String
         @Option(help: "Comma-separated seconds, e.g. 1,3,20.5") var at: String
         @Option var height = 1080
+        @Option(help: "Render frames of this Short (1 = the first) instead of the full video; times are inside the Short") var short: Int?
+        @Option(help: "With --short: the look's word style (pill, pop, stack, sweep) to test") var words: String?
         func run() async throws {
             let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
-            let plan = try Pipeline.loadPlan(w)
-            let c = FrameComposer(plan: plan, work: w, settings: VideoSettings(height: height))
+            var plan = try Pipeline.loadPlan(w)
+            if plan.shorts.isEmpty { plan.shorts = Pipeline.autoShorts(plan: plan) }
+            var clip = short.flatMap { plan.shorts.indices.contains($0 - 1) ? plan.shorts[$0 - 1] : nil }
+            if var c = clip, let m = words { c.dynamic = m != "simple"; c.textStyle = m; clip = c }
+            let c = FrameComposer(plan: plan, work: w, settings: clip == nil ? VideoSettings(height: height) : VideoSettings.short(), short: clip)
             for s in at.split(separator: ",").compactMap({ Double($0) }) {
                 let url = w.appendingPathComponent(String(format: "preview_%07.2f.png", s))
                 let d = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
                 CGImageDestinationAddImage(d, c.still(at: s), nil); CGImageDestinationFinalize(d)
                 print(url.path)
             }
+        }
+    }
+
+    struct Loop: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Looping long music video: make the long video for a looping project folder (song + loop clip), or a new one from a song and a clip.")
+        @Argument(help: "A looping project folder (with loop.json), or a new folder to create") var folder: String
+        @Option(help: "Song file (for a new project)") var song: String?
+        @Option(help: "Loop clip (mp4/mov) to use") var clip: String?
+        @Option(help: "Title on the title screen") var title: String?
+        @Option(help: "Length in hours (0.05 = 3 minutes, for a test)") var hours = 1.0
+        @Option(help: "Where to save the video") var out: String?
+        @Flag(help: "Only make the loop preview (one loop, no sound)") var previewOnly = false
+        func run() async throws {
+            let dir = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath)
+            let fm = FileManager.default
+            var p: LoopProject
+            if LoopVideo.isLoopProject(dir) { p = try LoopVideo.load(dir) } else {
+                guard let s = song else { throw MVError("Give --song for a new project.") }
+                try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                p = LoopProject(); p.title = title ?? URL(fileURLWithPath: s).deletingPathExtension().lastPathComponent
+                p.songFile = "song." + URL(fileURLWithPath: s).pathExtension
+                try? fm.removeItem(at: dir.appendingPathComponent(p.songFile)); try fm.copyItem(at: URL(fileURLWithPath: s), to: dir.appendingPathComponent(p.songFile))
+            }
+            if let c = clip { let name = "clip-cli." + URL(fileURLWithPath: c).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(name)); try fm.copyItem(at: URL(fileURLWithPath: c), to: dir.appendingPathComponent(name)); p.clip = name }
+            if let t = title { p.screenTitle = t }
+            p.hours = hours
+            LoopVideo.save(p, dir)
+            guard let cl = p.clip else { throw MVError("No loop clip yet: give --clip.") }
+            if previewOnly {
+                let o = dir.appendingPathComponent("loop-preview.mp4")
+                try await LoopVideo.makePreview(clip: dir.appendingPathComponent(cl), output: o); print("✅ \(o.path)"); return
+            }
+            let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title) (looping).mp4")
+            let t0 = Date()
+            try await LoopVideo.render(p, dir: dir, output: o) { ph, f in print(String(format: "\r%3d%%  %@", Int(f * 100), ph), terminator: ""); fflush(stdout) }
+            print(String(format: "\n✅ %@  (%.0fs)", o.path, Date().timeIntervalSince(t0)))
         }
     }
 

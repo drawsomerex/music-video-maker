@@ -9,7 +9,7 @@ import MVNative
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum Stage { case setup, working, plan, rendering, done }
+    enum Stage { case setup, working, plan, rendering, done, loop }
 
     @Published var stage: Stage = .setup
     @Published var audioURL: URL?
@@ -60,6 +60,11 @@ final class AppModel: ObservableObject {
     // Background task progress banner (shown whenever any background task runs)
     @Published var busy = false
     @Published var videoJob: VideoJob?
+    // Looping long music video (its own workflow)
+    @Published var loopProject: LoopProject?
+    @Published var loopDir: URL?
+    @Published var loopJob: LoopJob?
+    var loopTask: Task<Void, Never>?
     var videoTask: Task<Void, Never>?
     @Published var workingSection: Int?            // the picture being drawn (or whose idea is being rewritten) right now: only it is locked while a task runs
     @Published var doneNote: DoneNote?
@@ -194,7 +199,7 @@ final class AppModel: ObservableObject {
     }
 
     // Projects
-    @Published var recents: [URL] = (UserDefaults.standard.stringArray(forKey: "recentProjects") ?? []).map { URL(fileURLWithPath: $0) }.filter { Pipeline.isProject($0) }
+    @Published var recents: [URL] = (UserDefaults.standard.stringArray(forKey: "recentProjects") ?? []).map { URL(fileURLWithPath: $0) }.filter { Pipeline.isProject($0) || LoopVideo.isLoopProject($0) }
 
     // Shorts editor
     @Published var waveform: [Float] = []
@@ -950,6 +955,7 @@ final class AppModel: ObservableObject {
         case .rendering: return "Making the video (progress screen)"
         case .plan: return "Pictures screen"
         case .done: return "Video screen (finished video)"
+        case .loop: return "Looping long music video"
         }
     }
 
@@ -1093,6 +1099,7 @@ final class AppModel: ObservableObject {
     }
 
     func openProject(_ folder: URL) {
+        if LoopVideo.isLoopProject(folder) { openLoop(folder); return }
         clearTimelineSession()
         do {
             var p = try Pipeline.loadPlan(folder)
@@ -1109,7 +1116,7 @@ final class AppModel: ObservableObject {
         let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false
         p.message = "Choose a project folder (it contains project.mvproj)"; p.directoryURL = outputRoot
         if p.runModal() == .OK, let u = p.url {
-            if Pipeline.isProject(u) { openProject(u) }
+            if Pipeline.isProject(u) || LoopVideo.isLoopProject(u) { openProject(u) }
             else if let sub = (try? FileManager.default.contentsOfDirectory(at: u, includingPropertiesForKeys: nil))?.first(where: Pipeline.isProject) { openProject(sub) }
             else { errorMessage = "That folder isn't a Music Video project." }
         }

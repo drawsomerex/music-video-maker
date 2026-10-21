@@ -24,7 +24,7 @@ public enum OpenRouterVideo {
     public static func clipSeconds(forSectionSeconds s: Double) -> Int { min(maxSeconds, max(minSeconds, Int(ceil(s - 0.001)))) }
 
     /// Makes one clip from a first-frame picture. `onPhase` reports progress text. Throws on any refusal (a refused request is never charged).
-    public static func generate(prompt: String, firstFrameJPEG: Data, seconds: Int, apiKey: String, onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> Clip {
+    public static func generate(prompt: String, firstFrameJPEG: Data, seconds: Int, apiKey: String, resolution res: String = OpenRouterVideo.resolution, onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> Clip {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first.") }
         func request(_ method: String, _ url: String, body: [String: Any]? = nil) async throws -> (Int, Data) {
@@ -40,7 +40,7 @@ public enum OpenRouterVideo {
             return String(data: d, encoding: .utf8)?.prefix(200).description ?? "unknown error"
         }
         let body: [String: Any] = [
-            "model": model, "prompt": prompt, "duration": seconds, "resolution": resolution, "aspect_ratio": "16:9", "generate_audio": true,   // HeyGen always renders sound; the song replaces it
+            "model": model, "prompt": prompt, "duration": seconds, "resolution": res, "aspect_ratio": "16:9", "generate_audio": true,   // HeyGen always renders sound; the song replaces it
             "frame_images": [["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + firstFrameJPEG.base64EncodedString()], "frame_type": "first_frame"]]]
         onPhase?("Sending the picture to HeyGen…")
         let (st, d) = try await request("POST", "https://openrouter.ai/api/v1/videos", body: body)

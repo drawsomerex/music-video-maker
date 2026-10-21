@@ -23,7 +23,7 @@ final class LyricLayer {
     init(lines: [LyricLine], W: Int, H: Int, timeOffset: Double, vertical: Bool = false, window: ClosedRange<Double>? = nil) {
         self.W = W; self.H = H; self.vertical = vertical; self.unit = Double(min(W, H))
         scrim = CGGradient(colorsSpace: sRGB, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.5), CGColor(gray: 0, alpha: 0.78)] as CFArray, locations: [0, 0.55, 1])!
-        let maxW = CGFloat(W) * (vertical ? 0.86 : 0.80)
+        let maxW = CGFloat(W) * (vertical ? 0.76 : 0.80)        // Shorts: inside YouTube's safe area (its buttons cover the sides)
         let live = lines.enumerated().filter { !$0.element.words.isEmpty }.map { $0.element }
             .filter { l in window.map { l.end + timeOffset > $0.lowerBound + 0.02 && l.start + timeOffset < $0.upperBound - 0.02 } ?? true }
         // Hand-off timing: roomy gaps fade in 0.45 s early / out 0.6 s late; tight gaps switch cleanly (out, then in) with no overlap.
@@ -40,6 +40,10 @@ final class LyricLayer {
             var size = CGFloat(unit) * (vertical ? 0.080 : 0.064)
             var rows = LyricLayer.buildRows(l, size: size, maxWidth: maxW, H: Int(unit), offset: timeOffset)
             if rows.count > (vertical ? 3 : 2) { size = CGFloat(unit) * (vertical ? 0.064 : 0.052); rows = LyricLayer.buildRows(l, size: size, maxWidth: maxW, H: Int(unit), offset: timeOffset) }
+            // a single word longer than the width cannot wrap: make the line smaller until every row fits
+            while size > CGFloat(unit) * 0.036, rows.contains(where: { $0.w - 2 * $0.textX > Double(maxW) * 1.02 }) {
+                size *= 0.9; rows = LyricLayer.buildRows(l, size: size, maxWidth: maxW, H: Int(unit), offset: timeOffset)
+            }
             visuals.append(Visual(rows: rows, show: shows[i], hide: hides[i], start: l.start + timeOffset, end: l.end + timeOffset))
         }
     }

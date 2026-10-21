@@ -119,7 +119,7 @@ public final class FrameComposer: @unchecked Sendable {
         } else {
             lyrics = LyricLayer(lines: plan.lines, W: W, H: H, timeOffset: off + fullPlan.captionShift, vertical: settings.vertical, window: 0...totalDuration)
         }
-        captionBottom = short?.captionY ?? fullPlan.captionY
+        captionBottom = short != nil ? short?.captionY : fullPlan.captionY        // a Short has its own caption position; it never borrows the main video's
         lyrics.bottom = captionBottom
         intro = hasIntro ? IntroLayer(title: plan.title, subject: plan.subject, W: W, H: H, end: plan.introDuration) : nil
         if dyn, let sh = short {

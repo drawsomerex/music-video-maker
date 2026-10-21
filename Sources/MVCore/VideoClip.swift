@@ -94,9 +94,9 @@ final class VideoClipSource: @unchecked Sendable {
 
     /// What to show `t` seconds into a scene that lasts `sceneLength`. A clip that has to repeat loops like a professional video loop:
     /// the last stretch of the clip dissolves into its beginning (an overlap of up to 0.8 s) and playback carries on from there, so there is never a hard cut.
-    func looped(at t: Double, sceneLength: Double) -> (main: CGImage?, over: CGImage?, overAlpha: Double) {
+    func looped(at t: Double, sceneLength: Double, blend: Double = 0.8) -> (main: CGImage?, over: CGImage?, overAlpha: Double) {
         guard sceneLength > seconds + 0.05 else { return (frame(at: t), nil, 0) }
-        let f = min(0.8, seconds / 3), period = seconds - f
+        let f = min(blend, seconds / 3), period = seconds - f
         let local = max(0, t.isFinite ? t : 0).truncatingRemainder(dividingBy: period)
         if t >= period, local < f {                                 // the seam: the end of the clip dissolves into its beginning
             return (frame(at: period + local), frame(at: local), local / f)

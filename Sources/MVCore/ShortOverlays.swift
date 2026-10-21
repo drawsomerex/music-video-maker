@@ -52,7 +52,7 @@ private func nsColor(_ c: CGColor) -> NSColor { NSColor(cgColor: c) ?? .yellow }
 final class WordLayer: LyricRendering {
     enum Mode { case pop, pill, stack }
     struct Item { var start: Double, end: Double; var normal: TextBitmap, accent: TextBitmap, dark: TextBitmap; var cx: Double, cy: Double }
-    struct Phrase { var items: [Item]; var show: Double, hide: Double; var blockH: Double }
+    struct Phrase { var items: [Item]; var show: Double, hide: Double; var blockH: Double; var scale = 1.0 }      // scale < 1: a phrase too wide for the safe area is shrunk to fit
     var phrases: [Phrase] = []
     let W: Int, H: Int, mode: Mode, accent: CGColor
     let scrim: CGGradient
@@ -63,7 +63,8 @@ final class WordLayer: LyricRendering {
         scrim = CGGradient(colorsSpace: sRGB, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.5), CGColor(gray: 0, alpha: 0.8)] as CFArray, locations: [0, 0.55, 1])!
         let size = CGFloat(W) * (mode == .stack ? 0.135 : 0.074)
         let font = roundedFont(size: size, weight: mode == .stack ? .black : .heavy)
-        let maxRow = Double(W) * 0.88, maxChars = mode == .stack ? 15 : 52, maxWords = mode == .stack ? 3 : 11
+        // Shorts: YouTube's buttons cover the sides, so the words stay inside the middle 84 % (rows wrap at 74 %, leaving room for the pill and the pop)
+        let maxRow = Double(W) * 0.74, safe = Double(W) * 0.84, maxChars = mode == .stack ? 15 : 52, maxWords = mode == .stack ? 3 : 11
         var raw: [[TimedWord]] = []
         for l in lines where !l.words.isEmpty {
             guard l.end + timeOffset > window.lowerBound + 0.02, l.start + timeOffset < window.upperBound - 0.02 else { continue }
@@ -108,7 +109,10 @@ final class WordLayer: LyricRendering {
                 let cy = blockH / 2 - rowH * (Double(ri) + 0.5)
                 for (k, var it) in row.enumerated() { it.cx = x + widths[k] / 2; it.cy = cy; placed.append(it); x += widths[k] + space }
             }
-            phrases.append(Phrase(items: placed, show: (placed.first?.start ?? 0) - 0.10, hide: (placed.last?.end ?? 0) + 0.32, blockH: blockH))
+            // the widest extent of any word, counting the pill around it and the pop's overshoot; a single long word may be wider than a row
+            let extent = placed.map { abs($0.cx) + Double($0.normal.size.width) / 2 + Double($0.normal.size.height) * 0.25 }.max() ?? 0
+            let fit = min(1, safe / 2 / max(1, extent * (mode == .pill ? 1.0 : 1.1)))
+            phrases.append(Phrase(items: placed, show: (placed.first?.start ?? 0) - 0.10, hide: (placed.last?.end ?? 0) + 0.32, blockH: blockH, scale: fit))
         }
         for i in 0..<max(0, phrases.count - 1) { phrases[i].hide = min(phrases[i].hide, max(phrases[i].items.last?.end ?? 0, phrases[i + 1].show - 0.02)) }
     }
@@ -135,6 +139,7 @@ final class WordLayer: LyricRendering {
             vis = max(vis, alpha)
             let centerY = mode == .stack ? Double(H) * (bottom.map { $0 + 0.10 } ?? 0.30) : Double(H) * (bottom ?? 0.20) + p.blockH / 2
             ctx.saveGState(); ctx.setAlpha(alpha)
+            if p.scale < 1 { ctx.translateBy(x: cxm, y: centerY); ctx.scaleBy(x: p.scale, y: p.scale); ctx.translateBy(x: -cxm, y: -centerY) }
             let activeIdx = p.items.lastIndex(where: { t >= $0.start - 0.02 })
             let glideIdx = p.items.lastIndex(where: { t >= $0.start - 0.14 })          // the pill leaves for the next word slightly early
             if mode == .pill, let ai = glideIdx {
@@ -157,7 +162,7 @@ final class WordLayer: LyricRendering {
                     if isActive { img = it.accent; sc *= 1.08 }
                 case .pill:
                     a = (activeIdx ?? -1) >= i ? 1 : 0.62
-                    if isActive { img = it.dark }                        // no scale change: the pill alone marks the word
+                    if isActive && glideIdx == activeIdx { img = it.dark }   // dark only while the pill is under it (when the pill moves on early, the word turns white again)
                 }
                 let pad = Double(img.pad)
                 let iw = Double(img.image.width), ih = Double(img.image.height)

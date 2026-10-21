@@ -29,6 +29,7 @@ struct RootView: View {
             case .working, .rendering: ProgressStage().transition(.opacity)
             case .plan: PlanView().transition(.opacity)
             case .done: DoneView().transition(.opacity)
+            case .loop: LoopView().transition(.opacity)
             }
             }
         }
@@ -112,8 +113,28 @@ struct SetupView: View {
     @State private var showStyles = false
     @State private var showIdeas = false
     @Environment(\.openSettings) private var openSettings
+    @AppStorage("startKind") private var startKind = 0            // 0 = music video with lyrics, 1 = looping long music video
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text("What do you want to make?").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                Picker("", selection: $startKind) {
+                    Label("Music video with lyrics", systemImage: "text.bubble").tag(0)
+                    Label("Looping long music video", systemImage: "repeat").tag(1)
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 460)
+                    .help("Music video with lyrics: pictures that change with the song and the words on screen. Looping long music video: one song and one seamlessly looping 15-second scene, made into a 1 to 12 hour video (study music).")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10).background(.regularMaterial)
+            Divider()
+            if startKind == 1 {
+                ScrollView { LoopStartView().padding(28).frame(maxWidth: .infinity) }
+            } else { lyricBody }
+        }
+    }
+
+    var lyricBody: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 24) {
                 ScrollView(.vertical, showsIndicators: false) {
