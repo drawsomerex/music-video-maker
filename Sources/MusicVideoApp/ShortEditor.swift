@@ -1,7 +1,7 @@
 // The Shorts editor: one screen, no scrolling.
 //   Left:  the clip's name and length, the whole-song map, ONE close-up of the end you are working on (Start / End switch),
 //          the nudge buttons, how it finishes, and the play buttons.
-//   Right: the vertical preview, the look, and "Make this clip".
+//   Right: the vertical preview, the look, and "Make this Short".
 import SwiftUI
 import MVCore
 
@@ -58,7 +58,7 @@ struct ShortEditor: View {
     var header: some View {
         HStack(spacing: 12) {
             TextField("Name", text: Binding(get: { c.name }, set: { n in model.update(clip.id) { $0.name = n } }))
-                .textFieldStyle(.roundedBorder).font(.title3.bold()).frame(maxWidth: 240).help("A name for this clip. It becomes the file name.")
+                .textFieldStyle(.roundedBorder).font(.title3.bold()).frame(maxWidth: 240).help("A name for this Short. It becomes the file name.")
             LengthBadge(duration: c.duration)
             Text(ShortLength.message(c.duration)).font(.callout.weight(.medium)).foregroundStyle(ShortLength.color(c.duration)).lineLimit(1)
             Spacer(minLength: 6)
@@ -146,7 +146,7 @@ struct ShortEditor: View {
                     TextField("blank = \(plan.title)", text: Binding(get: { c.hook }, set: { v in set { $0.hook = v; if !v.isEmpty { $0.dynamic = true } } })).textFieldStyle(.roundedBorder)
                         .help("The big words shown during the first two seconds. Leave empty to use your song title.")
                     Button { model.writeHook(clip.id) } label: { Image(systemName: "sparkles") }.disabled(model.hookBusy || model.busy)
-                        .help("Suggest one: the AI reads this clip's words and suggests a short, catchy opening title.")
+                        .help("Suggest one: the AI reads this Short's words and suggests a short, catchy opening title.")
                 }
                 HStack(spacing: 6) {
                     Text("Words").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
@@ -188,17 +188,17 @@ struct ShortEditor: View {
         VStack(spacing: 8) {
             if let p = model.shortProgress {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("\(model.shortPhase.isEmpty ? "Making the clip" : model.shortPhase) (\(Int(p * 100))%)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    Text("\(model.shortPhase.isEmpty ? "Making the Short" : model.shortPhase) (\(Int(p * 100))%)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                     HStack { ProgressView(value: p); Button("Cancel") { model.cancelShortRender() }.buttonStyle(.bordered).help("Stops making this clip.") }
                 }
             } else if let out = model.shortOutput {
                 HStack {
                     Button { NSWorkspace.shared.activateFileViewerSelecting([out]) } label: { Label("Show in Finder", systemImage: "folder") }.help("Opens the folder with this clip.")
-                    ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }.help("Send the clip by Messages, Mail or AirDrop.")
+                    ShareLink(item: out) { Label("Share", systemImage: "square.and.arrow.up") }.help("Send the Short by Messages, Mail or AirDrop.")
                     Spacer()
                 }
             }
-            Button { model.renderShort(clip.id) } label: { Label("Make this clip", systemImage: "film").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 5) }
+            Button { model.renderShort(clip.id) } label: { Label("Make this Short", systemImage: "film").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 5) }
                 .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.shortProgress != nil)
                 .help("Creates the finished vertical video for this clip.")
         }
@@ -237,7 +237,7 @@ struct ShortMoreOptions: View {
                 Button { model.shuffleLook(clipID) } label: { Label("Try a different look", systemImage: "dice") }
                     .help("Picks a new random title animation and set of cuts. Press it until you like what you see in the preview.")
                 Button { dismiss(); model.renderShort(clipID, variants: 3) } label: { Label("Make 3 versions", systemImage: "square.stack.3d.up") }
-                    .help("Makes the same clip three times with different looks, so you can see which one people watch longest on YouTube.")
+                    .help("Makes the same Short three times with different looks, so you can see which one people watch longest on YouTube.")
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }

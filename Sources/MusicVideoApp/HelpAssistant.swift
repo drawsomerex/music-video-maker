@@ -89,6 +89,7 @@ extension AppModel {
         if downloadingModel { l.append("A model is downloading right now.") }
         if busy { l.append("A background task is running: \(busyPhase.isEmpty ? "working" : busyPhase) (\(Int(busyProgress * 100))%).") }
         if stage == .working { l.append("The app is planning the video: \(phase) (\(Int(progress * 100))%).") }
+        if let j = videoJob { l.append("The app is making the video in the strip at the top: \(j.phase) (\(Int(j.progress * 100))%).") }
         if stage == .rendering { l.append("The app is making the video: \(phase) (\(Int(progress * 100))%).") }
         if isRecording { l.append("Recording is in progress (\(Int(recordingSeconds)) seconds).") }
         if let p = plan {

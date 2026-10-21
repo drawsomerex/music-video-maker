@@ -19,18 +19,21 @@ struct PlanView: View {
         return plan.sections[idx]
     }
 
-    @State private var showTimeline = (NSScreen.main?.visibleFrame.height ?? 1000) > 850      // starts hidden on a small screen so the pictures keep the room
+    @AppStorage("picturesTimeline") private var timelineChoice = "auto"     // "auto" (follows the window height), "open" or "closed": your last choice
+    @State private var windowHeight: CGFloat = 900
     @State private var confirmAllPictures = false
     @State private var confirmAllClips = false
+    var timelineOpen: Bool { timelineChoice == "open" || (timelineChoice == "auto" && windowHeight >= 900) }
     var timelinePanel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Button { withAnimation { showTimeline.toggle() } } label: { Label("Timeline", systemImage: showTimeline ? "chevron.down" : "chevron.right").font(.headline) }.buttonStyle(.plain)
-                    .help("The whole song on a true-to-scale timeline: drag the picture borders and the Shorts. Click to hide or show it.")
-                Spacer()
+            HStack(spacing: 10) {
+                Button { withAnimation { timelineChoice = timelineOpen ? "closed" : "open" } } label: { Label("Timeline", systemImage: timelineOpen ? "chevron.down" : "chevron.right").font(.headline) }.buttonStyle(.plain)
+                    .help("The whole song on a true-to-scale timeline: drag the picture borders and the Shorts. Click to open or fold it; the app remembers your choice.")
+                if !timelineOpen { TimelineStrip { withAnimation { timelineChoice = "open" } } }
+                else { Spacer() }
             }
-            if showTimeline { ScaledTimeline() }
-        }.padding(.horizontal, 20).padding(.vertical, 8)
+            if timelineOpen { ScaledTimeline() }
+        }.padding(.horizontal, 20).padding(.vertical, timelineOpen ? 8 : 5)
     }
     var snapshot = false
     init(snapshot: Bool = false) { self.snapshot = snapshot }
@@ -67,6 +70,7 @@ struct PlanView: View {
                 ShortsView()
             }
         }
+        .background(GeometryReader { g in Color.clear.onAppear { windowHeight = g.size.height }.onChange(of: g.size.height) { _, h in windowHeight = h } })
         .sheet(isPresented: $model.showFullPreview, onDismiss: { model.live.pause() }) {
             VStack(spacing: 12) {
                 HStack { Text("Preview — \(plan.title)").font(.headline); Spacer(); Button("Done") { model.showFullPreview = false }.keyboardShortcut(.defaultAction) }
@@ -86,10 +90,10 @@ struct PlanView: View {
             Button("OK", role: .cancel) {}
         } message: { Text(model.notice ?? "") }
         .confirmationDialog("\(model.missing.count) section(s) have no picture yet", isPresented: $confirmMissing, titleVisibility: .visible) {
-            Button("Generate \(model.missing.count) missing picture(s) (~\(OpenRouter.formatUSD(model.missingImagesCostUSD)))") {
-                model.generateAllMissingImages()
+            Button("Draw the \(model.missing.count) missing picture\(model.missing.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.missingImagesCostUSD))), then make the video") {
+                model.drawMissingThenRender()
             }
-            Button("Render anyway (colour gradients fill the gaps)") { model.render() }
+            Button("Make it with colour backgrounds in the gaps") { model.render() }
             Button("Keep working", role: .cancel) {}
         }
         .confirmationDialog("Regenerate all \(model.totalImages) pictures for this song?", isPresented: $confirmRegenAll, titleVisibility: .visible) {
@@ -116,7 +120,7 @@ struct PlanView: View {
             Divider().frame(height: 22)
             Picker("", selection: $mode) { Text(compact ? "Video" : "Full video").tag(0); Text(compact ? "Shorts" : "YouTube Shorts").tag(1) }
                 .pickerStyle(.segmented).frame(width: compact ? 170 : 260).labelsHidden()
-                .help("“Full video” is the whole song in widescreen. “YouTube Shorts” makes short vertical clips for phones.")
+                .help("“Full video” is the whole song in widescreen. “YouTube Shorts” makes short vertical videos for phones.")
             if !compact { Text(plan.title).font(.headline).lineLimit(1).truncationMode(.tail).frame(maxWidth: 260) }
             if plan.timing != "exact" {
                 if !compact { Label("Word timing is rough", systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).lineLimit(1) }
@@ -129,7 +133,6 @@ struct PlanView: View {
 
     func modeBarActions(compact: Bool) -> some View {
         HStack(spacing: 8) {
-            Button("Edit timeline") { model.goToStep(1) }.help("Return to the first page to split or join pictures, music sections and independent Shorts.")
             Button { model.revealProject() } label: { if compact { Image(systemName: "folder") } else { Label("Show folder", systemImage: "folder") } }
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
             Menu {
@@ -149,8 +152,7 @@ struct PlanView: View {
     @State private var showStyleSheet = false
 
     var styleBar: some View {
-        VStack(spacing: 10) {
-            nextStepCard
+        VStack(alignment: .leading, spacing: 8) {
             if model.canAddInstrumentalIntro, let first = plan.lines.first?.start {
                 HStack(spacing: 12) {
                     Image(systemName: "music.note").foregroundStyle(.orange)
@@ -163,33 +165,15 @@ struct PlanView: View {
                 }
                 .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 300), spacing: 8)], alignment: .leading, spacing: 8) {
-                Button { if model.hasOpenRouterKey { confirmAllPictures = true } else { model.generateAllMissingImages() } } label: {
-                    Label(model.missing.isEmpty ? "All pictures are ready" : "Make all missing pictures (\(model.missing.count))", systemImage: "wand.and.sparkles").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).disabled(model.missing.isEmpty || model.busy)
-                .help(model.hasOpenRouterKey ? "Draws a picture for every part that has none (about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total). You can watch the progress and cancel at any time."
-                                             : "Draws the pictures for you. First add your OpenRouter key with the “Picture maker key” button.")
-                let clipCount = model.clipTargets.count
-                Button { confirmAllClips = true } label: { Label(clipCount == 0 ? "Every picture has a video clip" : "Make video clips for all pictures (\(clipCount))", systemImage: "film.stack").frame(maxWidth: .infinity) }
-                    .disabled(clipCount == 0 || model.busy || model.clipJob != nil)
-                    .help("Makes one HeyGen video clip for every picture that has none, one after another (about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total at list price). Ken Burns stays for the rest of each part. You see the price first.")
-                Button { showDescriptionSheet = true } label: { Label("Setting & description", systemImage: "text.alignleft").frame(maxWidth: .infinity) }
-                    .help("Set the place and theme every picture follows, and read or change what the app thinks the song is about. Every picture idea is built from them.")
-                Button { showStyleSheet = true } label: { Label("Art style", systemImage: "paintpalette").frame(maxWidth: .infinity) }
-                    .help("Choose how all the pictures should look, such as oil painting, watercolor or anime.")
-                Button { model.showOpenRouterKeySheet = true } label: { Label(model.hasOpenRouterKey ? "Picture maker key & credit" : "Add picture maker key", systemImage: "key.fill").frame(maxWidth: .infinity) }
-                    .help(model.hasOpenRouterKey ? "See your remaining OpenRouter credit, change your key, or make every picture again." : "Add your OpenRouter key so the app can draw the pictures for you. You can also skip this and drag in your own pictures.")
-                if plan.shorts.isEmpty {
-                    Button { model.autoMakeShorts() } label: { Label("Make Shorts automatically", systemImage: "sparkles").frame(maxWidth: .infinity) }
-                        .help("This song has no Shorts yet. Cuts it into Shorts of about 30 seconds at natural breaks (works on older projects too). You can change them on the Shorts page or the timeline.")
-                }
-                Button { model.copyAllPrompts() } label: { Label("Copy all picture ideas", systemImage: "doc.on.doc").frame(maxWidth: .infinity) }
-                    .help("Copies every picture idea so you can paste them into another image maker.")
+            // one row: the two big jobs, everything else under More; the "what next" sentence only when there is room for it
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { makeAllButton(short: false); clipsAllButton(short: false); moreMenu; nextStepLine.padding(.leading, 6); Spacer(minLength: 0) }
+                HStack(spacing: 8) { makeAllButton(short: false); clipsAllButton(short: false); moreMenu; Spacer(minLength: 0) }
+                HStack(spacing: 8) { makeAllButton(short: true); clipsAllButton(short: true); moreMenu; Spacer(minLength: 0) }
             }
             .buttonStyle(.bordered)
         }
-        .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
+        .padding(.horizontal, 20).padding(.vertical, 8).background(.regularMaterial)
         .confirmationDialog("Make all the missing pictures?", isPresented: $confirmAllPictures, titleVisibility: .visible) {
             Button("Make \(model.missing.count) picture\(model.missing.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.missingImagesCostUSD)))") { model.generateAllMissingImages() }
             Button("Cancel", role: .cancel) {}
@@ -203,6 +187,42 @@ struct PlanView: View {
             Text("One clip (5–15 s) for each of \(model.clipTargets.count) picture\(model.clipTargets.count == 1 ? "" : "s") that have none, at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second — about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total (half while their promotion runs)." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " Each clip plays once, then the camera moves over its last picture. Pictures that already have clips are skipped.")
         }
         .task { model.refreshVideoPrice() }
+    }
+
+    func makeAllButton(short: Bool) -> some View {
+        Button { if model.hasOpenRouterKey { confirmAllPictures = true } else { model.generateAllMissingImages() } } label: {
+            Label(model.missing.isEmpty ? (short ? "All ready" : "All pictures are ready") : (short ? "Missing (\(model.missing.count))" : "Make all missing pictures (\(model.missing.count))"), systemImage: "wand.and.sparkles").lineLimit(1)
+        }
+        .buttonStyle(.borderedProminent).disabled(model.missing.isEmpty || model.busy)
+        .help(model.hasOpenRouterKey ? "Draws a picture for every part that has none (about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total). You see the price first, and can watch the progress and cancel at any time."
+                                     : "Draws the pictures for you. First add your OpenRouter key (More ▸ Picture maker key).")
+    }
+    func clipsAllButton(short: Bool) -> some View {
+        let clipCount = model.clipTargets.count
+        return Button { confirmAllClips = true } label: {
+            Label(clipCount == 0 ? (short ? "All have clips" : "Every picture has a video clip") : (short ? "Clips (\(clipCount))" : "Make video clips for all pictures (\(clipCount))"), systemImage: "film.stack").lineLimit(1)
+        }
+        .disabled(clipCount == 0 || model.busy || model.clipJob != nil)
+        .help("Makes one HeyGen video clip for every picture that has none, one after another (about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total at list price). You see the price first.")
+    }
+    var moreMenu: some View {
+        Menu {
+            Button("Setting & description…") { showDescriptionSheet = true }
+            Button("Art style…") { showStyleSheet = true }
+            Button(model.hasOpenRouterKey ? "Picture maker key & credit…" : "Add picture maker key…") { model.showOpenRouterKeySheet = true }
+            Divider()
+            if plan.shorts.isEmpty { Button("Make Shorts automatically") { model.autoMakeShorts() } }
+            Button("Copy all picture ideas") { model.copyAllPrompts() }
+        } label: { Label("More", systemImage: "ellipsis.circle") }
+        .menuIndicator(.hidden).fixedSize()
+        .help("Setting & description, art style, the picture maker key and credit, making Shorts automatically, and copying all picture ideas.")
+    }
+    var nextStepLine: some View {
+        let text: String, icon: String, tint: Color
+        if model.missing.isEmpty { text = "All \(model.totalImages) pictures are ready — press Preview, then “Make my video”."; icon = "checkmark.seal.fill"; tint = .green }
+        else if model.hasOpenRouterKey { text = "\(model.loadedCount) of \(model.totalImages) pictures ready — make the rest, or drag in your own."; icon = "photo.on.rectangle"; tint = .secondary }
+        else { text = "\(model.loadedCount) of \(model.totalImages) pictures ready — drag in your own pictures, or add a picture maker key (More)."; icon = "photo.on.rectangle"; tint = .secondary }
+        return Label(text, systemImage: icon).font(.callout).foregroundStyle(tint).lineLimit(1).fixedSize()
     }
 
     /// One plain sentence about what to do next, always visible above the pictures.
@@ -242,7 +262,7 @@ struct PlanView: View {
                     .overlay(alignment: .bottom) { if dropSection == i { Text(s.selectedCandidate == nil ? "Move here" : "Swap pictures").font(.callout.bold()).padding(5).background(.regularMaterial) } }
                     .help("Drag this picture onto another section to move it there or swap their artwork. Undo reverses the action.")
             }
-        }.listStyle(.sidebar).disabled(model.busy)
+        }.listStyle(.sidebar)
     }
 
     // MARK: detail
@@ -266,123 +286,145 @@ struct PlanView: View {
         .help("Moves just this line earlier (−) or later (+) in the video. 0.1 s is a tiny nudge; 0.5 s is half a second.")
     }
 
+    @State private var detailSize = CGSize(width: 800, height: 600)
+    /// Wide enough to put the words and the idea beside the picture (a full-screen window); otherwise everything is one column.
+    var wideDetail: Bool { detailSize.width >= 1150 }
+
     var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(selection < 0 ? "Title card" : (section.lineIDs.isEmpty ? (selection == 0 ? "Music before the words" : (selection == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Picture \(selection + 1)")).font(.title2.bold())
-                    Text(selection < 0 ? "opening slide" : "\(timeString(section.start))–\(timeString(section.end)) · \(Int(section.duration)) s")
-                        .foregroundStyle(.secondary)
+                detailHeader
+                if wideDetail {
+                    HStack(alignment: .top, spacing: 22) {
+                        VStack(alignment: .leading, spacing: 16) { wordsBox; repeatBox; ideaBox; moveMenu }.frame(width: detailSize.width * 0.38)
+                        DropWell(section: selection, maxPictureHeight: detailSize.height * 0.62).disabled(model.workingSection == selection)
+                    }
+                } else {
+                    wordsBox; repeatBox; ideaBox; moveMenu
+                    DropWell(section: selection, maxPictureHeight: max(220, detailSize.height * 0.55)).disabled(model.workingSection == selection)
+                }
+            }.padding(24)
+        }
+        .background(GeometryReader { g in Color.clear.onAppear { detailSize = g.size }.onChange(of: g.size) { _, v in detailSize = v } })
+    }
+
+    @ViewBuilder var detailHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(selection < 0 ? "Title card" : (section.lineIDs.isEmpty ? (selection == 0 ? "Music before the words" : (selection == plan.sections.count - 1 ? "Music after the words" : "Music break")) : "Picture \(selection + 1)")).font(.title2.bold())
+            Text(selection < 0 ? "opening slide" : "\(timeString(section.start))–\(timeString(section.end)) · \(Int(section.duration)) s")
+                .foregroundStyle(.secondary)
+            Spacer()
+            if model.plan!.alignmentCoverage < 0.5 && selection <= 0 {
+                Label("Lyrics only \(Int(plan.alignmentCoverage * 100))% matched", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+            }
+        }
+
+    }
+    @ViewBuilder var wordsBox: some View {
+        if !section.lineIDs.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Words in this part").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    if model.plan!.alignmentCoverage < 0.5 && selection <= 0 {
-                        Label("Lyrics only \(Int(plan.alignmentCoverage * 100))% matched", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
-                    }
+                    Text("▶ plays a line. If a line shows too early or late, use the small − and + buttons.").font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
                 }
-
-                if !section.lineIDs.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Words in this part").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-                            Spacer()
-                            Text("▶ plays a line. If a line shows too early or late, use the small − and + buttons.").font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
-                        }
-                        ForEach(section.lineIDs.filter { plan.lines.indices.contains($0) }, id: \.self) { lineIdx in
-                            let line = plan.lines[lineIdx]
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 4); lineNudges(lineIdx) }
-                                VStack(alignment: .leading, spacing: 4) { HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 0) }; HStack { Spacer().frame(width: 52); lineNudges(lineIdx) } }
-                            }
-                        }
-                    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
-                }
-                if let r = section.repeatOf, plan.sections.indices.contains(r) {
-                    HStack {
-                        Label("Same lyrics as section \(r + 1)", systemImage: "arrow.triangle.2.circlepath").font(.callout)
-                        Spacer()
-                        Button("Reuse its picture") { model.reuse(section: selection, from: r) }.disabled(plan.sections[r].selectedCandidate == nil)
-                    }.padding(10).background(RoundedRectangle(cornerRadius: 10).fill(.blue.opacity(0.1)))
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
+                ForEach(section.lineIDs.filter { plan.lines.indices.contains($0) }, id: \.self) { lineIdx in
+                    let line = plan.lines[lineIdx]
                     ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
-                        if model.busy { ProgressView().controlSize(.small) }
-                        Button { model.rewritePrompt(section: selection) } label: { Label("Another idea", systemImage: "arrow.clockwise") }.disabled(model.busy)
-                            .help("Has the AI write a different picture idea for this part.")
-                        Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
-                            .help("Copies this picture idea (with the art style) so you can paste it into another image maker.")
-                        Button {
-                            model.generateImage(section: selection)
-                        } label: {
-                            Label(
-                                section.hasImage
-                                    ? "Try another picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))"
-                                    : "Make this picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))",
-                                systemImage: section.hasImage ? "dice.fill" : "sparkles"
-                            )
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.busy)
-                        .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
-                    }
-                    HStack(spacing: 8) {
-                        Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
-                        if model.busy { ProgressView().controlSize(.small) }
-                        Button { model.rewritePrompt(section: selection) } label: { Label("Another idea", systemImage: "arrow.clockwise") }.disabled(model.busy)
-                            .help("Has the AI write a different picture idea for this part.")
-                        Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
-                            .help("Copies this picture idea (with the art style) so you can paste it into another image maker.")
-                        Button {
-                            model.generateImage(section: selection)
-                        } label: {
-                            Label(
-                                section.hasImage
-                                    ? "Try another picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))"
-                                    : "Make this picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))",
-                                systemImage: section.hasImage ? "dice.fill" : "sparkles"
-                            )
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.busy)
-                        .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
-                    }.labelStyle(.iconOnly)
-                    }
-                    TextEditor(text: Binding(get: { section.prompt }, set: { model.setPrompt($0, section: selection) }))
-                        .font(.callout).scrollContentBackground(.hidden).padding(8).frame(minHeight: 86)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
-                    Text("The picture is drawn from this idea plus the art style, in widescreen with no text.").font(.callout).foregroundStyle(.tertiary)
-                    if let n = section.logicNote, !n.isEmpty {
-                        Label("Story check changed this idea: \(n)", systemImage: "checkmark.seal").font(.callout).foregroundStyle(.blue).fixedSize(horizontal: false, vertical: true)
-                            .help("The local AI checked that this picture follows the one before it, is physically possible and fits the song, and rewrote it. Edit the idea to keep your own words; edited ideas are never changed.")
-                    } else if section.promptManual {
-                        Label("Your own wording — the story check leaves it alone.", systemImage: "pencil").font(.callout).foregroundStyle(.secondary)
-                    }
-                    if section.focal.count >= 2 {
-                        Label("The camera moves from “\(section.focal[0])” to “\(section.focal[1])”", systemImage: "scope").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                            .help("Every picture idea has two focal points. The automatic camera travels from the first to the second, and a video clip animates the first moving toward the second.")
+                        HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 4); lineNudges(lineIdx) }
+                        VStack(alignment: .leading, spacing: 4) { HStack(spacing: 6) { lineHead(lineIdx, line); Spacer(minLength: 0) }; HStack { Spacer().frame(width: 52); lineNudges(lineIdx) } }
                     }
                 }
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.5)))
+        }
+    }
+    @ViewBuilder var repeatBox: some View {
+        if let r = section.repeatOf, plan.sections.indices.contains(r) {
+            HStack {
+                Label("Same lyrics as section \(r + 1)", systemImage: "arrow.triangle.2.circlepath").font(.callout)
+                Spacer()
+                Button("Reuse its picture") { model.reuse(section: selection, from: r) }.disabled(plan.sections[r].selectedCandidate == nil)
+            }.padding(10).background(RoundedRectangle(cornerRadius: 10).fill(.blue.opacity(0.1)))
+        }
 
-                if selection >= 0, section.selectedCandidate != nil {
-                    Menu("Use in another section…") {
-                        ForEach(plan.sections.indices.filter { $0 != selection }, id: \.self) { destination in
-                            Button("\(plan.sections[destination].selectedCandidate == nil ? "Move to" : "Swap with") picture \(destination + 1)") { model.reassignPicture(from: selection, to: destination) }
-                                .help("Move into an empty section, or swap if it already has artwork. Undo reverses this action.")
-                        }
-                    }.help("Move this artwork to an empty section or swap it with another section's artwork.")
+    }
+    @ViewBuilder var ideaBox: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
+                if model.workingSection == selection { ProgressView().controlSize(.small) }
+                Button { model.rewritePrompt(section: selection) } label: { Label("Another idea", systemImage: "arrow.clockwise") }.disabled(model.busy)
+                    .help("Has the AI write a different picture idea for this part.")
+                Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
+                    .help("Copies this picture idea (with the art style) so you can paste it into another image maker.")
+                Button {
+                    model.generateImage(section: selection)
+                } label: {
+                    Label(
+                        section.hasImage
+                            ? "Try another picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))"
+                            : "Make this picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))",
+                        systemImage: section.hasImage ? "dice.fill" : "sparkles"
+                    )
                 }
-                if !section.candidates.isEmpty {
-                    Menu("Choose saved artwork (\(section.candidates.count))") {
-                        ForEach(Array(section.candidates.enumerated()), id: \.offset) { index, candidate in
-                            Button("\(index == section.selected ? "✓ " : "")\(candidate.credit.isEmpty ? "Artwork \(index + 1)" : candidate.credit)") { model.selectArtwork(index, section: selection) }
-                                .help("Use this saved picture or video. Other artwork is kept and Undo restores your choice.")
-                        }
-                    }.help("Choose earlier artwork, including pictures kept when sections were joined.")
+                .buttonStyle(.borderedProminent)
+                .disabled(model.busy)
+                .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
+            }
+            HStack(spacing: 8) {
+                Text("Picture idea").font(.headline).help("A description of the picture for this part of the song. The app writes it from your lyrics. You can edit it."); Spacer()
+                if model.workingSection == selection { ProgressView().controlSize(.small) }
+                Button { model.rewritePrompt(section: selection) } label: { Label("Another idea", systemImage: "arrow.clockwise") }.disabled(model.busy)
+                    .help("Has the AI write a different picture idea for this part.")
+                Button { model.copy(model.fullPrompt(section: selection)) } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(.bordered)
+                    .help("Copies this picture idea (with the art style) so you can paste it into another image maker.")
+                Button {
+                    model.generateImage(section: selection)
+                } label: {
+                    Label(
+                        section.hasImage
+                            ? "Try another picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))"
+                            : "Make this picture (about \(OpenRouter.formatUSD(model.perImageCostUSD)))",
+                        systemImage: section.hasImage ? "dice.fill" : "sparkles"
+                    )
                 }
-                DropWell(section: selection)
-            }.padding(24).disabled(model.busy)
+                .buttonStyle(.borderedProminent)
+                .disabled(model.busy)
+                .help(section.hasImage ? "Draws a new picture for this part and replaces the current one. It costs a few cents." : "Draws a picture for this part from the idea above. It costs a few cents.")
+            }.labelStyle(.iconOnly)
+            }
+            TextEditor(text: Binding(get: { section.prompt }, set: { model.setPrompt($0, section: selection) }))
+                .font(.callout).scrollContentBackground(.hidden).padding(8).frame(minHeight: 86)
+                .disabled(model.workingSection == selection)
+                .background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
+            if model.workingSection == selection {
+                Label("The app is working on this picture right now, so it is locked until it is done. Everything else stays open.", systemImage: "lock.fill").font(.callout).foregroundStyle(.orange)
+            } else {
+                Text("The picture is drawn from this idea plus the art style, in widescreen with no text.").font(.callout).foregroundStyle(.tertiary)
+            }
+            if let n = section.logicNote, !n.isEmpty {
+                Label("Story check changed this idea: \(n)", systemImage: "checkmark.seal").font(.callout).foregroundStyle(.blue).fixedSize(horizontal: false, vertical: true)
+                    .help("The local AI checked that this picture follows the one before it, is physically possible and fits the song, and rewrote it. Edit the idea to keep your own words; edited ideas are never changed.")
+            } else if section.promptManual {
+                Label("Your own wording — the story check leaves it alone.", systemImage: "pencil").font(.callout).foregroundStyle(.secondary)
+            }
+            if section.focal.count >= 2 {
+                Label("The camera moves from “\(section.focal[0])” to “\(section.focal[1])”", systemImage: "scope").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .help("Every picture idea has two focal points. The automatic camera travels from the first to the second, and a video clip animates the first moving toward the second.")
+            }
+        }
+
+    }
+    @ViewBuilder var moveMenu: some View {
+        if selection >= 0, section.selectedCandidate != nil {
+            Menu("Use in another section…") {
+                ForEach(plan.sections.indices.filter { $0 != selection }, id: \.self) { destination in
+                    Button("\(plan.sections[destination].selectedCandidate == nil ? "Move to" : "Swap with") picture \(destination + 1)") { model.reassignPicture(from: selection, to: destination) }
+                        .help("Move into an empty section, or swap if it already has artwork. Undo reverses this action.")
+                }
+            }.help("Move this artwork to an empty section or swap it with another section's artwork.")
         }
     }
 
@@ -400,16 +442,16 @@ struct PlanView: View {
             .help("How many parts of the song have a picture. Parts without one get a plain colour background.")
             Spacer(minLength: 8)
             Button { showMakeOptions = true } label: {
-                Label("\(model.quality == 2160 ? "4K" : "\(model.quality)p")\(model.autoRenderShorts ? " + clips" : "")", systemImage: "slider.horizontal.3")
+                Label("\(model.quality == 2160 ? "4K" : "\(model.quality)p")\(model.autoRenderShorts ? " + Shorts" : "")", systemImage: "slider.horizontal.3")
             }
             .controlSize(.large)
-            .help("Choose the picture sharpness and whether short clips for YouTube Shorts are made too.")
+            .help("Choose the picture sharpness and whether YouTube Shorts are made too.")
             .popover(isPresented: $showMakeOptions, arrowEdge: .top) { makeOptions.padding(18).frame(width: 330) }
             Button { model.missing.isEmpty ? model.render() : (confirmMissing = true) } label: {
                 Label("Make my video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 3).fixedSize()
             }
-            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command).disabled(model.busy)
-            .help(model.autoRenderShorts ? "Creates the finished video and the short clips. It takes a few minutes; you can watch the progress and cancel at any time."
+            .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command).disabled(model.busy || model.videoJob != nil)
+            .help(model.autoRenderShorts ? "Creates the finished video and the YouTube Shorts. It takes a few minutes; you can watch the progress and cancel at any time."
                                          : "Creates the finished video file. It takes a few minutes; you can watch the progress and cancel at any time.")
         }
         .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
@@ -427,11 +469,11 @@ struct PlanView: View {
             }
             Toggle(isOn: $model.autoRenderShorts) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Also make short clips for YouTube Shorts").font(.subheadline.weight(.medium))
-                    Text(plan.shorts.isEmpty ? "No Shorts yet: the app cuts your song into vertical clips of about 30 seconds at natural breaks and makes them with the video." : "\(plan.shorts.count) vertical clips, made with the video.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text("Also make YouTube Shorts").font(.subheadline.weight(.medium))
+                    Text(plan.shorts.isEmpty ? "No Shorts yet: the app cuts your song into Shorts of about 30 seconds at natural breaks and makes them with the video." : "\(plan.shorts.count) Shorts, made with the video.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .toggleStyle(.checkbox).help("Also make the vertical clips when the main video is made. You can change the clips on the Shorts page.")
+            .toggleStyle(.checkbox).help("Also make the YouTube Shorts when the main video is made. You can change them on the Shorts page.")
             Button("Done") { showMakeOptions = false }.help("Close this window.").keyboardShortcut(.defaultAction).frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
@@ -533,6 +575,8 @@ struct OpenRouterKeySheet: View {
 struct DropWell: View {
     @EnvironmentObject var model: AppModel
     let section: Int
+    var maxPictureHeight: CGFloat = .infinity       // the picture never grows taller than this (it scales with the window)
+    var pictureMaxWidth: CGFloat { maxPictureHeight.isFinite ? min(1000, maxPictureHeight * 16.0 / 9.0) : 1000 }
     @State private var targeted = false
     @State private var showShortCrop = true
     @State private var dragEnd: Bool?           // while dragging a camera dot: false = start dot, true = end dot
@@ -642,13 +686,14 @@ struct DropWell: View {
                     }
                 )
             } }
-            .frame(maxWidth: 1000)
+            .frame(maxWidth: pictureMaxWidth)
             .background(RoundedRectangle(cornerRadius: 12).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: sec.selectedCandidate == nil ? [6, 5] : [])).foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.5)))
             .dropDestination(for: URL.self) { urls, _ in
                 guard let u = urls.first else { return false }; model.load(u, section: section); return true
             } isTargeted: { targeted = $0 }
+            if sec.candidates.count > 1 { EarlierVersions(section: section).frame(maxWidth: 1000, alignment: .leading) }
             if let c = sec.selectedCandidate {
                 if c.videoFile == nil, c.fullFile != nil { ClipPanel(section: section).frame(maxWidth: 1000, alignment: .leading) }
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
@@ -807,5 +852,59 @@ struct CaptionTimingBar: View {
             }
             Text("Now: words \(model.captionShiftText)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
         }
+    }
+}
+
+
+/// Every picture this part has had (each "Try another picture", your own files, artwork kept from a join), as small thumbnails.
+/// Click one to use it again (free); ✕ throws that version away.
+struct EarlierVersions: View {
+    @EnvironmentObject var model: AppModel
+    let section: Int
+    @State private var confirmDelete: Int?
+    var sec: PhotoSection? { model.plan.flatMap { section < 0 ? $0.intro : ($0.sections.indices.contains(section) ? $0.sections[section] : nil) } }
+
+    var body: some View {
+        if let sec, let w = model.workDir {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Earlier versions (\(sec.candidates.count))").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: true) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(sec.candidates.enumerated()), id: \.offset) { i, c in
+                            ZStack(alignment: .topTrailing) {
+                                Button { model.selectArtwork(i, section: section) } label: {
+                                    Group {
+                                        if let t = c.thumbFile ?? c.fullFile { Thumb(file: w.appendingPathComponent(t)) } else { Color.secondary.opacity(0.2) }
+                                    }
+                                    .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(i == sec.selected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: i == sec.selected ? 3 : 1))
+                                    .overlay(alignment: .bottomLeading) { if c.videoFile != nil { Image(systemName: "film").font(.caption2).padding(3).background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white).padding(3) } }
+                                }
+                                .buttonStyle(.plain)
+                                .help(hoverText(c, work: w) + (i == sec.selected ? " — in use now." : " — click to use this one again (free)."))
+                                if i != sec.selected {
+                                    Button { confirmDelete = i } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.white, .black.opacity(0.6)) }
+                                        .buttonStyle(.plain).padding(2).help("Throw this version away (it is removed from this song; a copy stays in your Pictures folder).")
+                                }
+                            }
+                        }
+                    }.padding(.vertical, 2)
+                }
+            }
+            .confirmationDialog("Throw this version away?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }), titleVisibility: .visible) {
+                Button("Throw it away", role: .destructive) { if let i = confirmDelete { model.deleteArtwork(i, section: section) }; confirmDelete = nil }
+                Button("Keep it", role: .cancel) { confirmDelete = nil }
+            } message: { Text("It is removed from this song. A copy stays in your Pictures folder, and Undo brings it back.") }
+        }
+    }
+
+    func hoverText(_ c: ImageCandidate, work: URL) -> String {
+        var parts: [String] = []
+        if let f = c.videoFile ?? c.fullFile, let d = (try? FileManager.default.attributesOfItem(atPath: work.appendingPathComponent(f).path))?[.modificationDate] as? Date {
+            parts.append("Made " + d.formatted(date: .abbreviated, time: .shortened))
+        }
+        if c.provider == "OpenRouter", let r = c.credit.range(of: #"\(\$[0-9.]+\)"#, options: .regularExpression) { parts.append("cost " + c.credit[r].dropFirst().dropLast()) }
+        else if c.provider == "Manual" || c.provider == "Video" { parts.append("your own file (\(c.credit))") }
+        return parts.isEmpty ? (c.credit.isEmpty ? "Earlier version" : c.credit) : parts.joined(separator: ", ")
     }
 }

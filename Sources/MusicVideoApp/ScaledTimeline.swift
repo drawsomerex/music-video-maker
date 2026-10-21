@@ -18,6 +18,7 @@ struct ScaledTimeline: View {
     @State private var shortDrag: (id: UUID, mode: Int, start: Double, end: Double)?       // mode 0 = move, 1 = left edge, 2 = right edge
     @State private var focusSelectedShort = false
     @FocusState private var focused: Bool
+    @State private var confirmRestore = false
 
     private let rulerH: CGFloat = 20, waveH: CGFloat = 38, lyricsH: CGFloat = 44, picsH: CGFloat = 58, shortH: CGFloat = 26
 
@@ -57,6 +58,10 @@ struct ScaledTimeline: View {
         .onKeyPress(.delete) { deleteSelection() }
         .onKeyPress(.deleteForward) { deleteSelection() }
         .task { if model.waveform.isEmpty { model.loadWaveform() } }
+        .confirmationDialog("Restore the automatic picture divisions?", isPresented: $confirmRestore, titleVisibility: .visible) {
+            Button("Restore them") { model.restoreAutomaticPictures() }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The borders go back to one picture per verse and per music break. Your artwork is kept, and Undo brings your borders back.") }
     }
 
     var totalHeight: CGFloat { rulerH + waveH + lyricsH + picsH + (showShorts ? CGFloat(rowCount) * (shortH + 4) + 10 : 0) + 18 }
@@ -80,6 +85,13 @@ struct ScaledTimeline: View {
                 Button { if model.plan != nil { model.autoMakeShorts() } else { model.suggestTimelineShorts() } } label: { Label("Make Shorts automatically", systemImage: "sparkles") }
                     .help("Cuts the song into Shorts of about 30 seconds at natural breaks. You can drag, resize, delete or add Shorts afterwards. Your pictures are not changed.")
             }
+            Menu {
+                Button("Split long sections") { model.splitLongVerses() }
+                    .help("Splits every picture longer than 30 seconds into equal pictures. Artwork is reused and Shorts stay unchanged.")
+                Button("Restore automatic divisions…") { confirmRestore = true }
+                    .help("Puts the picture borders back where the app first placed them (one picture per verse and per music break). Artwork is kept and you can Undo.")
+            } label: { Label("More", systemImage: "ellipsis.circle") }.menuIndicator(.hidden).fixedSize()
+                .help("More timeline tools. Tip: right-click a lyric line to start a new picture there.")
             Button { model.timelineZoom = max(1, model.timelineZoom / 1.5) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom out.")
             Button { model.timelineZoom = 1 } label: { Text("Fit the whole song") }.help("Shows the whole song at once.")
             Button { model.timelineZoom = min(40, model.timelineZoom * 1.5) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom in for precise placement.")
@@ -152,6 +164,10 @@ struct ScaledTimeline: View {
             .offset(x: l.start * pps, y: 2)
             .help("\(preciseClock(l.start))  \(l.text)")
             .onTapGesture { model.timelineCursor = l.start; model.playRange(l.start, l.end) }
+            .contextMenu {
+                Button("Start a new picture here") { model.splitPicture(at: l.start) }
+                Button("Listen to this line") { model.timelineCursor = l.start; model.playRange(l.start, l.end) }
+            }
     }
 
     // MARK: pictures
@@ -266,5 +282,36 @@ struct ScaledTimeline: View {
     func playhead(pps: Double) -> some View {
         let t = model.playhead ?? model.timelineCursor
         return Rectangle().fill(model.playhead != nil ? Color.red : Color.primary).frame(width: 2, height: totalHeight - 18).offset(x: t * pps - 1).allowsHitTesting(false)
+    }
+}
+
+
+/// The timeline folded away: one slim row with the pictures (and the Shorts as a thin line under them) in true scale. Click it to open the full timeline.
+struct TimelineStrip: View {
+    @EnvironmentObject var model: AppModel
+    let open: () -> Void
+    var body: some View {
+        let sections = model.previewSections ?? [], shorts = model.timelineShorts
+        let duration = max(1, model.timelineLines?.duration ?? 1)
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(sections.enumerated()), id: \.offset) { i, s in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color(hue: Double((i * 47) % 360) / 360, saturation: s.selectedCandidate == nil ? 0.15 : 0.45, brightness: 0.85))
+                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(model.selectedSection == i ? Color.accentColor : .clear, lineWidth: 2))
+                        .frame(width: max(2, CGFloat((s.end - s.start) / duration) * w - 1), height: 16)
+                        .offset(x: CGFloat(s.start / duration) * w)
+                }
+                ForEach(shorts) { c in
+                    Capsule().fill(Color.pink.opacity(0.8)).frame(width: max(3, CGFloat(c.duration / duration) * w), height: 4)
+                        .offset(x: CGFloat(c.start / duration) * w, y: 19)
+                }
+            }
+        }
+        .frame(height: 24)
+        .contentShape(Rectangle())
+        .onTapGesture { open() }
+        .help("The whole song: each block is a picture (pale = no picture yet), the pink line under them shows the Shorts. Click to open the full timeline.")
     }
 }

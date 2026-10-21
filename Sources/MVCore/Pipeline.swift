@@ -440,8 +440,9 @@ public enum Pipeline {
         return notes.isEmpty ? nil : "“\(url.lastPathComponent)” " + notes.joined(separator: " and ") + "."
     }
 
-    /// Deletes any orphaned `section_*` image/thumbnail files in `full/` and `thumbs/` no longer referenced by any section in `plan`.
-    public static func cleanupUnreferencedImages(plan: Plan, work: URL) {
+    /// Deletes orphaned `section_*` files (pictures, thumbnails, clips, last frames) no longer referenced by any section in `plan`.
+    /// Files made in the last ten minutes are never touched: another task may be making them right now with its own copy of the plan.
+    public static func cleanupUnreferencedImages(plan: Plan, work: URL, minAge: TimeInterval = 600) {
         let allSecs = [plan.intro] + plan.sections
         let usedClips = Set(allSecs.flatMap(\.clips).flatMap { [$0.file, $0.lastFrame] })
         let usedFull = Set(allSecs.flatMap(\.candidates).flatMap { [$0.fullFile, $0.videoFile].compactMap { $0 } })
@@ -452,7 +453,8 @@ public enum Pipeline {
             guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
             for f in files where f.lastPathComponent.hasPrefix("section_") {
                 let rel = "\(sub)/\(f.lastPathComponent)"
-                if !used.contains(rel) { try? fm.removeItem(at: f) }
+                let made = (try? fm.attributesOfItem(atPath: f.path))?[.modificationDate] as? Date ?? .distantPast
+                if !used.contains(rel), Date().timeIntervalSince(made) > minAge { try? fm.removeItem(at: f) }
             }
         }
     }

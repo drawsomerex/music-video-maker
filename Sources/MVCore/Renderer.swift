@@ -58,12 +58,8 @@ public final class FrameComposer: @unchecked Sendable {
             let e = i + 1 < b.count ? b[i + 1] + D / 2 : totalDuration
             let c = all[i].selectedCandidate
             let sceneSeed = all[i].seed &+ UInt64(i)
-            var modeRng = SeededRNG(sceneSeed &+ 99)
-            // Default: sweep across the whole picture towards the subject (left→right if it sits on the right, else right→left), never the same direction twice running.
-            // Roughly one scene in five is a diagonal glide for variety.
-            var candidateMode = (c?.focusX ?? 0.5) >= 0.5 ? 2 : 3
-            if modeRng.next() % 5 == 0 { candidateMode = 4 }
-            else if candidateMode == prevMode { candidateMode = candidateMode == 2 ? 3 : 2 }
+            // The automatic camera alternates its direction from picture to picture (pictures with their own focal points always go 1 → 2).
+            var candidateMode = prevMode == 2 ? 3 : 2
             prevMode = candidateMode
             let sec = all[i]
             // What plays in this scene: generated clips (or an imported clip) once, then the last frame holds and the camera moves; or a single clip that repeats with a crossfade.
@@ -83,9 +79,16 @@ public final class FrameComposer: @unchecked Sendable {
             let hasTail = !segs.isEmpty
             if hasTail { candidateMode = 0 }
             var sceneBox: ImageBox? = boxes[i]
-            if hasTail, let lastImg = segs.last?.source.lastFrameImage() {
-                sceneBox = ImageBox(image: lastImg)
-                if tailFocal.isEmpty { tailFocal = ImageScorer.subjects(image: lastImg) }
+            if hasTail {
+                // the held frame: the clip's saved last picture when the whole clip plays (no video decoding), otherwise read from the video
+                let saved = sec.useClips ? sec.clips.last.flatMap { $0.trimEnd == nil && !$0.lastFrame.isEmpty ? work.appendingPathComponent($0.lastFrame) : nil } : nil
+                if let u = saved, FileManager.default.fileExists(atPath: u.path) {
+                    sceneBox = ImageBox(url: u, maxPixel: maxPx)
+                    if tailFocal.isEmpty { tailFocal = ImageScorer.subjects(fileURL: u) }
+                } else if let lastImg = segs.last?.source.lastFrameImage() {
+                    sceneBox = ImageBox(image: lastImg)
+                    if tailFocal.isEmpty { tailFocal = ImageScorer.subjects(image: lastImg) }
+                }
             }
             let scene = PhotoScene(box: sceneBox, a: a, b: max(e, a + 1), seed: sceneSeed,
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,

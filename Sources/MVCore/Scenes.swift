@@ -43,7 +43,8 @@ public struct CameraPath: Equatable {
 ///
 /// How this engine works:
 /// - Endpoints `(c0, z0)` and `(c1, z1)` are computed inside the exact valid crop domain for the image & viewport aspect ratios.
-/// - Timeline progress uses a blended cosine S-curve (`u = 0.28 * u0 + 0.72 * 0.5 * (1 - cos(π * u0))`) for gentle acceleration/deceleration.
+/// - The automatic camera makes one move at a constant speed with a short ease at each end (`autoMove`, `cruise`); a move chosen by hand
+///   uses a blended cosine S-curve (`u = 0.28 * u0 + 0.72 * 0.5 * (1 - cos(π * u0))`).
 /// - Zoom interpolates logarithmically (`z(u) = z0 * (z1 / z0)^u`) so perceived optical magnification speed is constant.
 /// - Center position couples with inverse zoom (`alpha = (1/z0 - 1/z(u)) / (1/z0 - 1/z1)`), guaranteeing that all four edges
 ///   of the crop rectangle move in straight lines and every intermediate frame stays 100% inside the image without clamping jumps.
@@ -63,11 +64,7 @@ final class PhotoScene {
     let vertical: Bool
     let energetic: Bool                 // true for punchy Shorts
     let camera: CameraPath?             // a move chosen by hand (nil = automatic)
-    let mode: Int                       // 0 = push-in, 1 = pull-out, 2 = pan L→R, 3 = pan R→L, 4 = diagonal glide
-    private let rndZoom: Double
-    private let rndPanX: Double
-    private let rndPanY: Double
-    private let diagFlip: Bool
+    let mode: Int                       // the automatic camera's direction: odd = the other way round (pull out instead of push in, right to left)
 
     init(box: ImageBox?, a: Double, b: Double, seed: UInt64, focus: CGPoint, vertical: Bool = false, shotInterval: Double? = nil, shake: Bool = false, calm: Bool = false, video: VideoClipSource? = nil, beats: [Double] = [], preferredMode: Int? = nil, camera: CameraPath? = nil) {
         self.camera = camera
@@ -81,7 +78,6 @@ final class PhotoScene {
         self.energetic = (shotInterval != nil && !calm)
 
         var rng = SeededRNG(seed &+ 99)
-        func unitRnd(_ r: inout SeededRNG) -> Double { Double(r.next() % 10000) / 10000.0 }
 
         if let pm = preferredMode {
             self.mode = ((pm % 5) + 5) % 5
@@ -89,13 +85,9 @@ final class PhotoScene {
             let m = Int(rng.next() % 5)
             self.mode = vertical ? [0, 2, 3, 1, 4][m] : m
         }
-        self.rndZoom = unitRnd(&rng)
-        self.rndPanX = unitRnd(&rng) - 0.5
-        self.rndPanY = unitRnd(&rng) - 0.5
-        self.diagFlip = Bool.random(using: &rng)
     }
 
-    /// Computes start `(c0, z0)` and end `(c1, z1)` camera states guaranteed to lie strictly within the image bounds
+    /// For a move chosen by hand: start `(c0, z0)` and end `(c1, z1)` camera states guaranteed to lie strictly within the image bounds
     /// for image size `(iw, ih)` and viewport size `(W, H)`.
     private func endpoints(iw: Double, ih: Double, W: Int, H: Int) -> (c0: CGPoint, z0: Double, c1: CGPoint, z1: Double) {
         let target = Double(W) / Double(H)
@@ -116,81 +108,9 @@ final class PhotoScene {
             )
         }
 
-        if let cam = camera {                    // the user's own move: exactly their two points, zoom chosen so both fit inside the picture
-            let z = cam.zooms(imageW: iw, imageH: ih, aspect: target)
-            return (clampCenter(cam.start, zoom: z.z0), z.z0, clampCenter(cam.end, zoom: z.z1), z.z1)
-        }
-
-        // Scale the move distance gently by section duration so short (5s) and long (16s) sections have similar, calm speed
-        let duration = max(2.0, b - a)
-        let durScale = min(1.15, max(0.55, duration / 12.0)) * (energetic ? 1.18 : 1.0)
-        let zoomDelta = (0.15 + 0.06 * rndZoom) * durScale
-
-        let z0: Double
-        let z1: Double
-        let raw0: CGPoint
-        let raw1: CGPoint
-
-        // Gentle subject anchor biased toward focus point without forcing extreme corners
-        let subj = CGPoint(
-            x: 0.5 + (focus.x - 0.5) * 0.85,
-            y: 0.5 + (focus.y - 0.5) * 0.80
-        )
-
-        switch mode {
-        case 0:
-            // Slow push-in toward subject focal point
-            z0 = 1.025
-            z1 = z0 + zoomDelta
-            raw0 = CGPoint(x: lerp(0.5, subj.x, 0.45), y: lerp(0.5, subj.y, 0.45))
-            raw1 = subj
-
-        case 1:
-            // Slow pull-back from subject focal point to wider framing
-            z1 = 1.025
-            z0 = z1 + zoomDelta
-            raw0 = subj
-            raw1 = CGPoint(x: lerp(0.5, subj.x, 0.45), y: lerp(0.5, subj.y, 0.45))
-
-        case 2, 3:
-            // Smooth horizontal pan across subject height with subtle zoom drift
-            // The default move: a quick, confident sweep across the whole picture, ending on the subject
-            let zLow = vertical ? 1.08 : 1.45
-            let zHigh = zLow + zoomDelta * (vertical ? 0.55 : 1.2)
-            let leftToRight = (mode == 2)
-            z0 = leftToRight ? zLow : zHigh
-            z1 = leftToRight ? zHigh : zLow
-
-            let availX0 = max(0.0, 0.5 - halfW0 / z0)
-            let availX1 = max(0.0, 0.5 - halfW0 / z1)
-            let maxPan = min(availX0, availX1)
-            let panRadius = vertical ? min(maxPan * 0.95, 0.40 * durScale) : (maxPan * 0.97)
-
-            // Sweep from edge to edge of what the zoom allows (centred), so the whole width of the picture passes by
-            let centerBiasX = 0.5
-            let startX = leftToRight ? (centerBiasX - panRadius) : (centerBiasX + panRadius)
-            let endX   = leftToRight ? (centerBiasX + panRadius) : (centerBiasX - panRadius)
-            let yDrift = 0.012 * rndPanY * durScale
-
-            raw0 = CGPoint(x: startX, y: subj.y - yDrift)
-            raw1 = CGPoint(x: endX, y: subj.y + yDrift)
-
-        default:
-            // Cinematic diagonal rostrum glide toward subject
-            z0 = 1.14
-            z1 = z0 + zoomDelta * 0.90
-            let dirX: Double = diagFlip ? 1.0 : -1.0
-            let availX = max(0.0, 0.5 - halfW0 / z0)
-            let availY = max(0.0, 0.5 - halfH0 / z0)
-            let dx = min(availX * 0.85, (vertical ? 0.14 : 0.09) * durScale) * dirX
-            let dy = min(availY * 0.85, 0.06 * durScale) * (rndPanY >= 0 ? 1.0 : -1.0)
-            raw0 = CGPoint(x: subj.x - dx, y: subj.y - dy)
-            raw1 = CGPoint(x: subj.x + dx * 0.5, y: subj.y + dy * 0.5)
-        }
-
-        let c0 = clampCenter(raw0, zoom: z0)
-        let c1 = clampCenter(raw1, zoom: z1)
-        return (c0, z0, c1, z1)
+        guard let cam = camera else { return (CGPoint(x: 0.5, y: 0.5), 1, CGPoint(x: 0.5, y: 0.5), 1) }     // only used for a move chosen by hand
+        let z = cam.zooms(imageW: iw, imageH: ih, aspect: target)            // exactly their two points, zoom chosen so both fit inside the picture
+        return (clampCenter(cam.start, zoom: z.z0), z.z0, clampCenter(cam.end, zoom: z.z1), z.z1)
     }
 
     func draw(t: Double, ctx: CGContext, W: Int, H: Int) {
@@ -265,8 +185,10 @@ final class PhotoScene {
     /// length. A short scene simply travels less far; a long scene travels as far as the picture allows and the speed eases to at most 40 % slower.
     struct AutoMove { var c0: CGPoint; var z0: Double; var c1: CGPoint; var z1: Double; var ramp: Double; var total: Double }
     private var moveCache: AutoMove?
+    private let moveLock = NSLock()                // frames are drawn in parallel: the move is worked out once, by one of them
 
     func autoMove(iw: Double, ih: Double, bw: Double, bh: Double, total: Double) -> AutoMove {
+        moveLock.lock(); defer { moveLock.unlock() }
         if let m = moveCache, abs(m.total - total) < 1e-6 { return m }
         let halfW0 = 0.5 * bw / iw, halfH0 = 0.5 * bh / ih
         func clampC(_ p: CGPoint, _ z: Double) -> CGPoint {
@@ -280,8 +202,10 @@ final class PhotoScene {
             return max(pan / vp, abs(log(z1 / z0)) / vz)
         }
         var subs = subjects.isEmpty ? [focus] : subjects
-        if !subjectsOrdered { subs.sort { $0.x < $1.x } }
-        if mode == 3 || mode == 1 { subs.reverse() }                       // alternate the direction of travel from scene to scene
+        if !subjectsOrdered {                                              // subjects found by the app: left to right, alternating the direction from scene to scene
+            subs.sort { $0.x < $1.x }
+            if mode == 3 || mode == 1 { subs.reverse() }
+        }
         let centre = CGPoint(x: 0.5, y: 0.5)
         var c0: CGPoint, z0: Double, c1: CGPoint, z1: Double
         if tail {                                                          // after a clip: from the full frame the clip ended on, in toward its main feature (leaning to the second)

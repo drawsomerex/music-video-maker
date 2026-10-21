@@ -143,6 +143,13 @@ enum Snapshots {
                 shot("s-song-page", sz(1000, 1000), LyricDividerView(), wait: 2)
                 NSApplication.shared.terminate(nil); return
             }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "layout" {          // the Pictures screen at a laptop window, the smallest window and full screen
+                model.lyrics = ""; model.analysis = nil; model.selectedSection = 1; model.stage = .plan
+                shot("l-pictures-1100x720", sz(1100, 720), RootView(), wait: 2.5)
+                shot("l-pictures-860x560", sz(860, 560), RootView(), wait: 2.5)
+                shot("l-pictures-1720x1080", sz(1720, 1080), RootView(), wait: 2.5)
+                NSApplication.shared.terminate(nil); return
+            }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "timeline" {
                 model.lyrics = ""; model.analysis = nil; model.selectedSection = 3
                 if model.currentShort == nil { model.addTimelineShort(at: 20) }

@@ -38,25 +38,25 @@ struct ShortsView: View {
                                 .foregroundStyle(on ? .white : .primary)
                         }
                         .buttonStyle(.plain)
-                        .help("\(c.name): \(clock(c.start)) to \(clock(c.end)). Press to work on this clip.")
-                        .contextMenu { Button("Delete this clip", role: .destructive) { model.deleteShort(c.id) } }
+                        .help("\(c.name): \(clock(c.start)) to \(clock(c.end)). Press to work on this Short.")
+                        .contextMenu { Button("Delete this Short", role: .destructive) { model.deleteShort(c.id) } }
                     }
                 }.padding(.vertical, 2)
             }
             Menu {
-                Button("Cut my song into clips for me (4–7 of about 30 s)") { model.autoMakeShorts(replaceExisting: true) }
-                Button("New clip (about 30 s from the first words)") { model.newShort() }
+                Button("Cut my song into Shorts for me (4–7 of about 30 s)") { model.autoMakeShorts(replaceExisting: true) }
+                Button("New Short (about 30 s from the first words)") { model.newShort() }
                 Button("Whole song (split into parts if over 3:00)") { model.newWholeSong() }
-            } label: { Label("Add a clip", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
-                .help("Add another clip: cut the song automatically, start one yourself, or use the whole song.")
+            } label: { Label("Add a Short", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
+                .help("Add another Short: cut the song automatically, start one yourself, or use the whole song.")
             if let id = model.selectedShort {
                 Button(role: .destructive) { model.deleteShort(id) } label: { Image(systemName: "trash") }
-                    .help("Deletes the selected clip from this list. Videos you already made are kept.")
+                    .help("Deletes the selected Short from this list. Videos you already made are kept.")
             }
             if let shorts = model.plan?.shorts, shorts.count > 1 {
-                Button { model.renderAllShorts() } label: { Label("Make all \(shorts.count) clips", systemImage: "film.stack") }
+                Button { model.renderAllShorts() } label: { Label("Make all \(shorts.count) Shorts", systemImage: "film.stack") }
                     .buttonStyle(.borderedProminent).disabled(model.shortProgress != nil)
-                    .help("Creates every clip in the list, one after another.")
+                    .help("Makes every Short in the list, one after another.")
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 8).background(.regularMaterial)
@@ -65,14 +65,14 @@ struct ShortsView: View {
     var empty: some View {
         VStack(spacing: 14) {
             Image(systemName: "rectangle.portrait.on.rectangle.portrait").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("Make short clips for YouTube Shorts").font(.title2.bold())
-            Text("Short vertical clips for phones, up to 3 minutes each. Let the app cut your song into 4 to 7 clips of about 30 seconds, or choose the exact lines yourself.")
+            Text("Make YouTube Shorts").font(.title2.bold())
+            Text("Short vertical videos for phones, up to 3 minutes each. Let the app cut your song into 4 to 7 Shorts of about 30 seconds, or choose the exact lines yourself.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 420)
             HStack(spacing: 10) {
-                Button { model.autoMakeShorts() } label: { Label("Cut my song into clips for me", systemImage: "sparkles").padding(.horizontal, 8) }.buttonStyle(.borderedProminent).controlSize(.large)
-                    .help("The app picks 4 to 7 clips of about 30 seconds, cut at natural pauses between verses. You can still change each one.")
+                Button { model.autoMakeShorts() } label: { Label("Cut my song into Shorts for me", systemImage: "sparkles").padding(.horizontal, 8) }.buttonStyle(.borderedProminent).controlSize(.large)
+                    .help("The app picks 4 to 7 Shorts of about 30 seconds, cut at natural pauses between verses. You can still change each one.")
                 Button { model.newShort() } label: { Label("Choose the lines myself", systemImage: "plus").padding(.horizontal, 8) }.controlSize(.large)
-                    .help("Starts one clip of about 30 seconds that you shape by picking lyric lines.")
+                    .help("Starts one Short of about 30 seconds that you shape by picking lyric lines.")
                 Button { model.newWholeSong() } label: { Label("Whole song", systemImage: "music.note.list").padding(.horizontal, 8) }.controlSize(.large)
                     .help("Turns the whole song into one vertical video. Songs over 3 minutes are split into the fewest equal parts, because Shorts can be at most 3 minutes.")
             }

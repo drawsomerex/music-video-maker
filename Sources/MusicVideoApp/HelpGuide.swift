@@ -12,7 +12,7 @@ struct HelpSection: Identifiable {
 enum HelpGuide {
     static let sections: [HelpSection] = [
         HelpSection(id: "overview", title: "What the app does", keywords: "start begin overview about how works make video steps process three", body: """
-        Music Video Maker turns a song and its lyrics into a finished music video (an MP4 file) and, if you want, short vertical clips for YouTube Shorts.
+        Music Video Maker turns a song and its lyrics into a finished music video (an MP4 file) and YouTube Shorts (short vertical videos).
         There are three steps, shown at the top of the window as Song, Pictures and Video:
         1. Song: choose your song file, type its title and paste your lyrics, then press "Plan my video". The app listens to the song, matches each lyric to the moment it is sung, divides the song into parts, and writes a picture idea for every part.
         2. Pictures: every part needs a picture. You can drag in your own pictures, or let the app draw them (this needs an OpenRouter key and costs a few cents per picture). You can preview the video.
@@ -52,9 +52,9 @@ enum HelpGuide {
         Splitting or joining pictures never changes audio, lyrics, or Shorts. Your raw lyrics are kept, including verse formatting. Bracketed stage directions are omitted from captions and picture ideas.
         To split a Short: on the Song page, open "Pictures & Shorts" and select its "Shorts" tab. Choose the Short, move the listening point inside it (at least half a second from either end), then press "Split at point".
         Shorts tab (also on the first page):
-        - "Add a Short" adds a 30-second clip at the listening point. "Suggest Shorts" adds suggestions based on lyric pauses. Shorts are created only on request and picture edits never create or rearrange them.
+        - "Add a Short" adds a 30-second Short at the listening point. "Suggest Shorts" adds suggestions based on lyric pauses. Shorts are created only on request and picture edits never create or rearrange them.
         - Rename a Short, use its Start and End sliders, or press "Play Short". "Keep whole words when placing cuts" places starts before a word and ends after it; turn it off for exact placement.
-        - "Split at point" replaces one Short with two independently editable clips meeting at that point. Choose a point at least half a second inside the Short.
+        - "Split at point" replaces one Short with two independently editable Shorts meeting at that point. Choose a point at least half a second inside the Short.
         - "Join with next Short" includes every moment between the first start and the last end. It is unavailable if the result exceeds 3 minutes; the tooltip explains why.
         - "Delete Short" removes only that Short.
         "Undo" and "Redo" reverse timeline, Short and artwork edits. Command-Z undoes a timeline edit when a text editor does not have focus. A completed drag is one edit and saves once. "Not saved — try again" means you must retry saving before closing.
@@ -134,9 +134,10 @@ enum HelpGuide {
         """),
         HelpSection(id: "shorts", title: "YouTube Shorts: what they are and how to start", keywords: "shorts youtube vertical short clips tiktok reels 9:16 phone clip 30 seconds minute whole song start begin make add tabs", body: """
         On the Pictures screen, switch from "Full video" to "YouTube Shorts" at the top. A Short is a vertical video (1080 by 1920) that can be at most 3 minutes long.
-        Your clips are tabs along the top of the Shorts page; press a tab to work on that clip. "Add a clip" (the plus) offers: "Cut my song into clips for me" (clips of about 30 seconds that start and end between the parts of your song), a new clip of about 30 seconds from the first words, or "Whole song" (the entire song as one vertical video, split into the fewest equal parts if it is longer than 3 minutes). The trash button deletes the selected clip. "Make all N clips" makes every clip, one after another.
-        The page fits on one screen. On the left: the clip's name, the length pill, the whole-song map, a close-up of the start or the end, and the play buttons. On the right: the vertical preview, the look, and "Make this clip".
-        Shorts are saved in the same folder as the main video, named "<song title> – <clip name>.mp4". Next to each there is a text file with a suggested title, description and hashtags, and a .json file with the clip's start and end times and the exact times of its words.
+        Your Shorts are tabs along the top of the Shorts page; press a tab to work on that Short. "Add a Short" (the plus) offers: "Cut my song into Shorts for me" (Shorts of about 30 seconds that start and end between the parts of your song), a new Short of about 30 seconds from the first words, or "Whole song" (the entire song as one vertical video, split into the fewest equal parts if it is longer than 3 minutes). The trash button deletes the selected Short. "Make all N Shorts" makes every Short, one after another.
+        In this app "clip" only ever means a video clip in a picture's place (HeyGen or one you drag in); Shorts are always called Shorts.
+        The page fits on one screen. On the left: the Short's name, the length pill, the whole-song map, a close-up of the start or the end, and the play buttons. On the right: the vertical preview, the look, and "Make this Short".
+        Shorts are saved in the same folder as the main video, named "<song title> – <Short name>.mp4". Next to each there is a text file with a suggested title, description and hashtags, and a .json file with the Short's start and end times and the exact times of its words.
         """),
         HelpSection(id: "shortsTimeline", title: "Shorts: finding the part of the song (the song map and Browse the words)", keywords: "shorts select choose find part timeline map box drag move edges words browse click card start here end here chorus verse whole part thirty seconds waveform scroll zoom", body: """
         The whole song: picture sections are numbered blocks. Press a block to listen without changing the Short. Clicking outside the bright box also listens without moving it. Below the blocks is the whole song as a waveform. The bright box with the coloured outline is your Short; everything outside it is dimmed. Drag the box to move your Short, or drag its left or right edge to change where it starts or ends. This map is rough: it moves freely while you drag and settles on the nearest word or beat when you let go.
@@ -167,8 +168,8 @@ enum HelpGuide {
         HelpSection(id: "shortsLook", title: "Shorts: choosing the look", keywords: "shorts look style lively simple title hook closing text calm punchy pill pop big sweep surprise colour color beat pulse different look variants suggest more options make 3 versions", body: """
         The "Look" rows on the right have: "Lively" (an opening title, a highlight that follows each word, smooth picture changes) or "Simple" (plain pictures with the words at the bottom).
         With Lively: "Title" (the opening title; your song title when left empty; the sparkle button asks the AI for a catchy one), "Words" (Pill, Pop, Big, Sweep or Surprise) and "Colour" (coloured dots, or Auto).
-        "More" has: Motion (Calm or Punchy), Beat pulse, Closing text, "Try a different look" (a new random look) and "Make 3 versions" (the same clip made three times with different looks).
-        "Make this clip" creates the finished vertical video.
+        "More" has: Motion (Calm or Punchy), Beat pulse, Closing text, "Try a different look" (a new random look) and "Make 3 versions" (the same Short made three times with different looks).
+        "Make this Short" creates the finished vertical video.
         """),
         HelpSection(id: "tips", title: "Mouseover tips and keyboard shortcuts", keywords: "tooltip tip hint mouseover hover point explain what does button keyboard shortcut space bar key L help", body: """
         Every button, switch, slider and picture in the app explains itself: rest the mouse pointer on it for about a second and a small yellow note appears saying what it does.
@@ -177,11 +178,11 @@ enum HelpGuide {
         """),
         HelpSection(id: "videoClips", title: "Using a video clip instead of a picture", keywords: "video clip movie mp4 mov footage instead of picture animated moving own video drag", body: """
         Any part (and the title card) can show a video clip instead of a still picture. Drag an MP4 or MOV file into the picture box on the Pictures screen, or click the box and choose the file.
-        The clip plays while that part is on screen. If the clip is shorter than the part it plays again from the start. It is cropped to fill the widescreen frame (or the tall Shorts frame). The clip's own sound is not used; your song keeps playing.
+        The clip plays once while that part is on screen; if it is shorter than the part, its last picture holds and the camera moves over it (or switch on "Repeat the clip" to loop it with a smooth crossfade). It is cropped to fill the widescreen frame (or the tall Shorts frame). The clip's own sound is not used; your song keeps playing.
         Choosing which part of the clip plays: under the picture box, the "Video clip" panel shows a preview picture, a "Play this part" button, a strip of pictures from the clip and two cards, "Start of the clip" (green) and "End of the clip" (red).
         To start the clip later: drag the green START marker to the right, or press "+0.1 s" or "+0.5 s" on the Start card. To stop it earlier: drag the red END marker to the left, or press "−0.1 s" or "−0.5 s" on the End card. Everything outside the markers is dimmed and not used.
-        To pick an exact moment: click a picture in the strip to look at that moment in the preview, then press "Start here" or "End here". "Play this part" shows the chosen stretch moving. "Use the whole clip" puts both markers back. By default the whole clip plays. If the chosen part is shorter than the song part it repeats like a professional video loop: the end of the clip dissolves into its beginning (about half a second), so there is no hard cut.
-        The camera moves do not apply to a video clip. The thumbnail in the list is a still frame from it. "Choose a different file" or "Remove" puts back a picture. Clips work in the full video, in Shorts and in the preview. Widescreen clips (16:9) look best.
+        To pick an exact moment: click a picture in the strip to look at that moment in the preview, then press "Start here" or "End here". "Play this part" shows the chosen stretch moving. "Use the whole clip" puts both markers back. By default the whole clip plays once. With "Repeat the clip" switched on, a part shorter than the song part repeats like a professional video loop: the end of the clip dissolves into its beginning, so there is no hard cut.
+        The camera does not move while the clip plays; your camera choice applies to the held last picture after it. The thumbnail in the list is a still frame from it. "Choose a different file" or "Remove" puts back a picture. Clips work in the full video, in Shorts and in the preview. Widescreen clips (16:9) look best.
         Clips are copied into the song's folder, so the original can be moved or deleted afterwards.
         """),
         HelpSection(id: "reportBug", title: "Reporting a problem and seeing if it is fixed", keywords: "bug report problem error broken not working tell author feedback fixed status help contact send", body: """

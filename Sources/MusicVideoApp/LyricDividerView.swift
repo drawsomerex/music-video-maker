@@ -56,7 +56,7 @@ struct SongTimelineEditor: View {
     var body: some View {
         ScrollViewReader { proxy in
             Group { if scrollable { ScrollView { content } } else { content } }
-                .disabled(model.busy || model.shortProgress != nil || model.stage == .rendering)
+                .disabled(model.busy || model.shortProgress != nil || model.stage == .rendering || model.videoJob != nil)
                 .onChange(of: picture) { _, new in withAnimation { proxy.scrollTo("pic\(new)", anchor: .top) } }
         }
     }

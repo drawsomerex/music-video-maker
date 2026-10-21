@@ -59,6 +59,9 @@ final class AppModel: ObservableObject {
 
     // Background task progress banner (shown whenever any background task runs)
     @Published var busy = false
+    @Published var videoJob: VideoJob?
+    var videoTask: Task<Void, Never>?
+    @Published var workingSection: Int?            // the picture being drawn (or whose idea is being rewritten) right now: only it is locked while a task runs
     @Published var doneNote: DoneNote?
     @Published var busyPhase = ""
     @Published var busyProgress = 0.0
@@ -294,7 +297,7 @@ final class AppModel: ObservableObject {
         return title != b.title || subject != b.subject || settingTheme != b.setting || lyrics != b.lyrics || (audioURL?.lastPathComponent ?? "") != b.audioName
     }
     func canGoToStep(_ n: Int) -> Bool {
-        if busy || stage == .working || stage == .rendering { return false }
+        if busy || stage == .working || stage == .rendering || videoJob != nil { return false }
         switch n { case 1: return true; case 2: return hasProject; case 3: return videoFile != nil; default: return false }
     }
     func goToStep(_ n: Int) {
@@ -389,6 +392,7 @@ final class AppModel: ObservableObject {
         commitPictures(sections)
     }
     func splitLongVerses() {
+        if plan != nil, refuseWhileWorking() { return }
         guard let t = timelineLines, let sections = previewSections else { return }
         checkpoint("Split long sections")
         var result = sections
@@ -663,9 +667,11 @@ final class AppModel: ObservableObject {
         let actionWord = isReroll ? "Rerolling" : "Generating"
         runBackground(initialPhase: "\(actionWord) \(label) with \(OpenRouter.imageModel)…") { [weak self] in
             guard let self, var p = self.plan else { return }
+            let before = p
+            self.workingSection = section; defer { self.workingSection = nil }
             self.busyHandler("\(actionWord) \(label) (16:9 Medium)…", 0.25)
             let gen = try await Pipeline.generateSectionImage(section: section, plan: &p, work: w, config: self.config)
-            self.plan = p
+            self.mergeTaskResult(p, startedFrom: before, section: section, artwork: true)
             if let rem = gen.creditsRemaining {
                 self.openRouterCredits = rem
             } else {
@@ -729,7 +735,7 @@ final class AppModel: ObservableObject {
         generateSectionsList(targets, work: w, titlePrefix: "Generating all \(targets.count) picture(s)")
     }
 
-    private func generateSectionsList(_ targetsIn: [Int], work w: URL, titlePrefix: String) {
+    private func generateSectionsList(_ targetsIn: [Int], work w: URL, titlePrefix: String, then: (@MainActor () async throws -> Void)? = nil) {
         // the style guide picture is made first, so every other picture can be drawn to match it
         var targets = targetsIn
         let guide = plan?.styleGuideSection ?? -1
@@ -740,17 +746,19 @@ final class AppModel: ObservableObject {
             var sessionSpent = 0.0
             var completed = 0
             var similar: [String] = []
+            defer { self.workingSection = nil }
             for (idx, sec) in targets.enumerated() {
                 try Task.checkCancellation()
                 guard var p = self.plan else { break }
+                let before = p
+                self.workingSection = sec
                 let label = sec < 0 ? "Title Card" : String(format: "Picture %02d", sec + 1)
                 self.busyHandler("\(idx + 1)/\(total): Generating \(label) (16:9 Medium)…", Double(idx) / Double(total))
                 let gen = try await Pipeline.generateSectionImage(section: sec, plan: &p, work: w, config: self.config)
                 sessionSpent += gen.costUSD
                 completed += 1
                 if p.sections.indices.contains(sec) || sec < 0, (sec < 0 ? p.intro : p.sections[sec]).selectedCandidate?.looksLikePrevious(Pipeline.previousPictureFile(plan: p, for: sec)) == true { similar.append(label) }
-                self.plan = p
-                self.selectedSection = sec
+                self.mergeTaskResult(p, startedFrom: before, section: sec, artwork: true)        // keeps any edits you made meanwhile; the selection is left alone
                 if let rem = gen.creditsRemaining {
                     self.openRouterCredits = rem
                 }
@@ -758,10 +766,9 @@ final class AppModel: ObservableObject {
                 self.busyHandler("\(idx + 1)/\(total): Saved \(label) (\(OpenRouter.formatUSD(gen.costUSD)))", Double(idx + 1) / Double(total))
             }
             self.refreshOpenRouterCredits(silent: true)
-            if let totalSong = self.plan?.totalGenerationCostUSD {
-                self.notice = "Generated \(completed) picture(s) for \(OpenRouter.formatUSD(sessionSpent)) · Song total: \(OpenRouter.formatUSD(totalSong))."
-                if !similar.isEmpty { self.notice! += "\n\nHeads-up: \(similar.joined(separator: ", ")) \(similar.count == 1 ? "has" : "have") almost the same framing as the picture before. Nothing was redrawn; look and press “Try another picture” if you want a different view." }
-            }
+            _ = (completed, sessionSpent)                                  // the green "Done" line at the top shows how many and what they cost
+            if !similar.isEmpty { self.notice = "Heads-up: \(similar.joined(separator: ", ")) \(similar.count == 1 ? "has" : "have") almost the same framing as the picture before. Nothing was redrawn; look and press “Try another picture” if you want a different view." }
+            try await then?()
         }
     }
 
@@ -959,11 +966,32 @@ final class AppModel: ObservableObject {
 
     func rewritePrompt(section: Int) {
         guard var p = plan else { return }
-        runBackground(initialPhase: "Writing another prompt take…") { [weak self] in
+        let before = p
+        runBackground(initialPhase: "Writing another picture idea…") { [weak self] in
             guard let self else { return }
+            self.workingSection = section; defer { self.workingSection = nil }
             try await Pipeline.rewritePrompt(plan: &p, section: section, config: self.config, progress: self.busyHandler)
-            self.plan = p; self.persist()
+            self.mergeTaskResult(p, startedFrom: before, section: section, idea: true)
         }
+    }
+
+    /// Long tasks work on a copy of the plan. This puts back only what the task changed (one picture's artwork, idea or clips, and the costs),
+    /// so anything you edited meanwhile is kept.
+    func mergeTaskResult(_ done: Plan, startedFrom before: Plan, section: Int, artwork: Bool = false, idea: Bool = false, clips: Bool = false) {
+        guard var cur = plan else { return }
+        let d: PhotoSection? = section < 0 ? done.intro : (done.sections.indices.contains(section) ? done.sections[section] : nil)
+        func apply(_ s: inout PhotoSection) {
+            guard let d else { return }
+            if artwork { s.candidates = d.candidates; s.selected = d.selected }
+            if idea { s.prompt = d.prompt; s.promptManual = d.promptManual; s.logicNote = d.logicNote; s.focal = d.focal }
+            if clips { s.clips = d.clips; s.useClips = d.useClips; s.repeatClips = d.repeatClips }
+        }
+        if section < 0 { apply(&cur.intro) } else if cur.sections.indices.contains(section), cur.sections.count == done.sections.count { apply(&cur.sections[section]) }
+        cur.totalGenerationCostUSD += done.totalGenerationCostUSD - before.totalGenerationCostUSD
+        cur.imagesGeneratedCount += done.imagesGeneratedCount - before.imagesGeneratedCount
+        cur.totalVideoCostUSD += done.totalVideoCostUSD - before.totalVideoCostUSD
+        if done.lastImageCostUSD != before.lastImageCostUSD { cur.lastImageCostUSD = done.lastImageCostUSD }
+        plan = cur; persist(); live.invalidate()
     }
 
     var canAddInstrumentalIntro: Bool { plan.map(Pipeline.needsInstrumentalIntro) ?? false }
@@ -989,23 +1017,23 @@ final class AppModel: ObservableObject {
         notice = "All \(p.sections.count + 1) prompts copied."
     }
 
+    /// The video (and its Shorts) being made right now. It runs in the strip at the top; the rest of the app stays usable.
+    struct VideoJob { var phase = "Preparing frames"; var progress = 0.0; var started = Date() }
     func render() {
-        guard var p = plan, let w = workDir else { return }
-        stage = .rendering; phase = "Preparing frames"; progress = 0; renderedShorts = []
+        guard videoJob == nil, var p = plan, let w = workDir else { return }
         let q = quality
         let alsoShorts = autoRenderShorts
         if alsoShorts && p.shorts.isEmpty { p.shorts = Pipeline.autoShorts(plan: p); plan = p; persist() }      // no Shorts yet: cut the song into Shorts automatically
-
-        checkpoint("Make video")
-        mainTask?.cancel()
-        mainTask = Task {
+        videoJob = VideoJob(); renderedShorts = []
+        videoTask?.cancel()
+        videoTask = Task {
             do {
                 let out = Pipeline.videoURL(plan: p, work: w, config: config)
                 let mainWeight = alsoShorts && !p.shorts.isEmpty ? 0.50 : 1.0
                 try await VideoRenderer.render(plan: p, work: w, output: out, settings: VideoSettings(height: q)) { [weak self] ph, f in
                     Task { @MainActor in
-                        self?.phase = alsoShorts ? "Main video · \(ph)" : ph
-                        self?.progress = f * mainWeight
+                        self?.videoJob?.phase = alsoShorts ? "Main video · \(ph)" : ph
+                        self?.videoJob?.progress = f * mainWeight
                     }
                 }
                 var shortURLs: [URL] = []
@@ -1017,36 +1045,43 @@ final class AppModel: ObservableObject {
                         let base = mainWeight + (1.0 - mainWeight) * (Double(i) / Double(count))
                         let span = (1.0 - mainWeight) / Double(count)
                         if c.hook.isEmpty {
-                            await MainActor.run {
-                                self.phase = "Short \(i + 1) of \(count) · Writing hook title…"
-                                self.progress = base + span * 0.08
-                            }
+                            videoJob?.phase = "Short \(i + 1) of \(count) · Writing the opening title…"; videoJob?.progress = base + span * 0.08
                             if let h = await Pipeline.writeHook(plan: p, clip: c, config: config), !h.isEmpty {
-                                c.hook = h
-                                p.shorts[i].hook = h
-                                await MainActor.run { self.plan = p; self.persist() }
+                                c.hook = h; p.shorts[i].hook = h
+                                if let k = plan?.shorts.firstIndex(where: { $0.id == c.id }), plan?.shorts[k].hook.isEmpty == true { plan?.shorts[k].hook = h; persist() }   // only the title is put back; your other edits stay
                             }
                         }
                         try Task.checkCancellation()
                         let sOut = try await Pipeline.renderShort(plan: p, work: w, clip: c, config: config) { [weak self] ph, f in
                             Task { @MainActor in
-                                self?.phase = "Short \(i + 1) of \(count) (\(c.name)) · \(ph)"
-                                self?.progress = base + span * (0.10 + 0.90 * f)
+                                self?.videoJob?.phase = "Short \(i + 1) of \(count) (\(c.name)) · \(ph)"
+                                self?.videoJob?.progress = base + span * (0.10 + 0.90 * f)
                             }
                         }
                         shortURLs.append(sOut)
                     }
                 }
                 renderedShorts = shortURLs
-                outputURL = out; stage = .done
+                outputURL = out; videoJob = nil
+                doneNote = DoneNote(text: "Your video is ready" + (shortURLs.isEmpty ? "" : " (and \(shortURLs.count) Short\(shortURLs.count == 1 ? "" : "s"))"), watch: true)
             } catch is CancellationError {
-                stage = .plan
+                videoJob = nil
             } catch {
                 if !Task.isCancelled { errorMessage = error.localizedDescription }
-                stage = .plan
+                videoJob = nil
             }
-            mainTask = nil
+            videoTask = nil
         }
+    }
+    func cancelVideo() { videoTask?.cancel(); videoTask = nil; videoJob = nil }
+
+    /// "Make my video" with pictures still missing: draw them first, then make the video (stops, without a video, if a drawing fails).
+    func drawMissingThenRender() {
+        guard let p0 = plan, let w = workDir else { return }
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        let targets = Pipeline.missing(p0)
+        guard !targets.isEmpty else { render(); return }
+        generateSectionsList(targets, work: w, titlePrefix: "Drawing \(targets.count) missing picture\(targets.count == 1 ? "" : "s"), then making the video") { [weak self] in self?.render() }
     }
 
     func reset() { clearTimelineSession(); stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = []; projectBaseline = nil }

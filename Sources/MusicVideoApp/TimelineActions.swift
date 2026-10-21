@@ -123,7 +123,14 @@ extension AppModel {
         selectedSection = min(selectedSection, sections.count - 1)
         live.invalidate()
     }
+    /// While a picture or clip is being made, the pictures must keep their places (the result is put back into the same picture).
+    var structureLocked: Bool { busy || clipJob != nil || workingSection != nil }
+    func refuseWhileWorking() -> Bool {
+        if structureLocked { snapDescription = "Wait until the picture or clip being made is finished, then split, join or move pictures."; notice = snapDescription }
+        return structureLocked
+    }
     func splitPicture(at time: Double) {
+        if plan != nil, refuseWhileWorking() { return }
         guard let t = timelineLines, let sections = previewSections else { return }
         let v = snappedTimelineTime(time, start: true)
         let result = TimelineEditor.split(sections, at: v, lines: t.lines)
@@ -137,11 +144,13 @@ extension AppModel {
         snapDescription = "New picture starts at \(preciseClock(v)). Audio and Shorts stay unchanged."
     }
     func joinPicture(before index: Int) {
+        if plan != nil, refuseWhileWorking() { return }
         guard let sections = previewSections, index > 0, sections.indices.contains(index) else { return }
         ensureDraftKey(); checkpoint("Join pictures"); commitPictures(TimelineEditor.join(sections, before: index))
         snapDescription = "Pictures joined. Audio and Shorts stay unchanged."
     }
     func restoreAutomaticPictures() {
+        if plan != nil, refuseWhileWorking() { return }
         guard let t = timelineLines else { return }
         ensureDraftKey(); checkpoint("Restore automatic picture divisions")
         let parsed = LyricAligner.parse(lyrics)
@@ -225,7 +234,20 @@ extension AppModel {
         if section == -1 { p.intro.selected = index } else { p.sections[section].selected = index }
         plan = p; draftSections = nil; live.invalidate(); persist()
     }
+    /// Throws away one saved version of a part's artwork (never the one in use). Undo brings it back; its files stay until the song is cleaned up later.
+    func deleteArtwork(_ index: Int, section: Int) {
+        guard var p = plan, section != workingSection else { return }
+        func drop(_ s: inout PhotoSection) {
+            guard s.candidates.indices.contains(index), index != s.selected else { return }
+            s.candidates.remove(at: index)
+            if s.selected > index { s.selected -= 1 }
+        }
+        checkpoint("Throw away a picture version")
+        if section < 0 { drop(&p.intro) } else if p.sections.indices.contains(section) { drop(&p.sections[section]) }
+        plan = p; persist()
+    }
     func reassignPicture(from source: Int, to destination: Int) {
+        if refuseWhileWorking() { return }
         guard var p = plan, source != destination, p.sections.indices.contains(source), p.sections.indices.contains(destination), let a = p.sections[source].selectedCandidate else { return }
         checkpoint("Move or swap pictures")
         let b = p.sections[destination].selectedCandidate

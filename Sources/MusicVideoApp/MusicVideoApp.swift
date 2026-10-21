@@ -61,7 +61,7 @@ struct MusicVideoApp: App {
                     if let f = fixed.first { model.notice = "Good news: the problem you reported (“\(f.title)”) is fixed." + (f.reply.isEmpty ? "" : "\n\n\(f.reply)") + "\n\nSee Help ▸ Report a Problem ▸ My reports." }
                 }
                 .onAppear { updater.beforeInstall = {
-                    guard !model.busy, !model.listening, model.stage != .rendering, model.stage != .working, model.shortProgress == nil, !model.timelineDragging else { throw MVError("Finish or cancel the current task before changing app versions.") }
+                    guard !model.busy, !model.listening, model.stage != .rendering, model.videoJob == nil, model.stage != .working, model.shortProgress == nil, !model.timelineDragging else { throw MVError("Finish or cancel the current task before changing app versions.") }
                     try await model.backupForVersionChange()
                 } }
                 .sheet(isPresented: $updater.showVersions) { VersionsSheet().environmentObject(updater) }

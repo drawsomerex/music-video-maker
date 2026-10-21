@@ -133,6 +133,7 @@ extension AppModel {
             let firstFrame = all.last?.lastFrame ?? sec0.selectedCandidate?.fullFile ?? ""
             let prompt = (k < shots.count ? shots[k] : sec0.prompt) + " Bright, well lit, smooth natural motion that obeys real-world physics, no text."
             guard var p = plan else { return }
+            let before = p
             var clip = try await Pipeline.makeClip(plan: &p, section: section, seconds: job.secondsList[k], prompt: prompt, firstFrame: firstFrame, offset: offset, work: w, config: config,
                                                    onPhase: { ph in Task { @MainActor in self.clipJob?.phase = ph } })
             if config.videoRealismCheck {
@@ -143,7 +144,7 @@ extension AppModel {
             // keep the new clip with the section (not yet used until you accept it)
             let shown = base + made + [clip]
             if section < 0 { p.intro.clips = shown; p.intro.useClips = true } else { p.sections[section].clips = shown; p.sections[section].useClips = true }      // a new clip is in use straight away
-            plan = p; persist(); live.invalidate()
+            mergeTaskResult(p, startedFrom: before, section: section, clips: true)          // edits you made while it was being made are kept
             refreshOpenRouterCredits(silent: true)
             let last = k == job.secondsList.count - 1
             if clipJob?.noWait == true { made.append(clip); edit(section) { $0.useClips = true }; k += 1; continue }

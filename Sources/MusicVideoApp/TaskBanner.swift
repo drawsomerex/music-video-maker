@@ -3,7 +3,7 @@
 import SwiftUI
 import MVCore
 
-struct DoneNote: Equatable { var id = UUID(); var text: String }
+struct DoneNote: Equatable { var id = UUID(); var text: String; var watch = false }      // watch: the finished video, with a button to open it (stays until closed)
 
 struct BannerRow: View {
     let title: String
@@ -59,6 +59,13 @@ struct TaskBanners: View {
                 }
                 Divider()
             }
+            if let v = model.videoJob {
+                BannerRow(title: "Making your video", detail: v.phase, fraction: v.progress, estimated: false, started: v.started,
+                          cancelHelp: "Stops making the video. Nothing else is lost.", cancel: { model.cancelVideo() })
+                Text("You can keep working. Changes you make now go into the next video you make.").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 48).padding(.bottom, 6)
+                Divider()
+            }
             if let sp = model.shortProgress {
                 BannerRow(title: model.shortPhase.isEmpty ? "Making Shorts…" : model.shortPhase, fraction: sp, estimated: false, started: model.shortStarted, cancel: { model.cancelShortRender() })
                 Divider()
@@ -67,11 +74,15 @@ struct TaskBanners: View {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     Text(d.text).font(.callout.weight(.semibold))
+                    if d.watch {
+                        Button { model.doneNote = nil; model.stage = .done } label: { Label("Watch it", systemImage: "play.fill") }.buttonStyle(.borderedProminent).controlSize(.small)
+                            .help("Opens the finished video, with buttons to show it in Finder and to share it.")
+                    }
                     Spacer()
                     Button { model.doneNote = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 20).padding(.vertical, 8).background(Color.green.opacity(0.10)).transition(.opacity)
-                .task(id: d.id) { try? await Task.sleep(nanoseconds: 7_000_000_000); if model.doneNote?.id == d.id { withAnimation { model.doneNote = nil } } }
+                .task(id: d.id) { if d.watch { return }; try? await Task.sleep(nanoseconds: 7_000_000_000); if model.doneNote?.id == d.id { withAnimation { model.doneNote = nil } } }
                 Divider()
             }
         }
@@ -79,6 +90,7 @@ struct TaskBanners: View {
         .animation(.smooth(duration: 0.25), value: model.busy)
         .animation(.smooth(duration: 0.25), value: model.clipJob?.waiting)
         .animation(.smooth(duration: 0.25), value: model.shortProgress == nil)
+        .animation(.smooth(duration: 0.25), value: model.videoJob == nil)
         .animation(.smooth(duration: 0.25), value: model.doneNote)
     }
 }

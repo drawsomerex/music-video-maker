@@ -66,7 +66,7 @@ struct QuickGuideView: View {
         ("sparkles", "Press “Plan my video”", "The app listens to your song and matches each lyric to the moment it is sung. It then splits the song into parts and suggests a picture for each one. This takes a minute or two."),
         ("photo.on.rectangle", "Add a picture for each part", "Click a part in the list on the left. Then either press “Make this picture” (needs an OpenRouter key, see Settings) or drag a picture you made yourself into the box. “Make all missing pictures” does every part at once."),
         ("play.rectangle", "Watch a preview", "Press “Preview” to watch the video before it is made. If the words are a little early or late, use the “Show sooner” and “Show later” buttons under the preview."),
-        ("film", "Press “Make my video”", "Your finished video is saved in your Music Videos folder. The last screen has buttons to show it in Finder and to share it. Short vertical clips for YouTube Shorts can be made too."),
+        ("film", "Press “Make my video”", "Your finished video is saved in your Music Videos folder. The last screen has buttons to show it in Finder and to share it. YouTube Shorts (short vertical videos) are made too."),
     ]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
