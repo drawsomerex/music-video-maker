@@ -136,4 +136,39 @@ final class TimelineEditorTests: XCTestCase {
         for t in [Double.nan, Double.infinity, -1, 0, 0.1, 4.9, 5, 6] { XCTAssertEqual(TimelineEditor.split(sections, at: t, lines: []).count, 1) }
         XCTAssertEqual(TimelineEditor.join(sections, before: 0).count, 1)
     }
+
+    func clip(_ file: String, seconds: Double, offset: Double, trimStart: Double = 0, trimEnd: Double? = nil) -> SectionClip {
+        var c = SectionClip(); c.file = file; c.seconds = seconds; c.offset = offset; c.trimStart = trimStart; c.trimEnd = trimEnd; return c
+    }
+    func testPaidClipsStayWithOnePictureWhenSplit() {
+        var a = section(0, 0, 20)
+        a.clips = [clip("clips/a.mp4", seconds: 10, offset: 0)]; a.useClips = true; a.repeatClips = true
+        let split = TimelineEditor.split([a], at: 12, lines: [])
+        XCTAssertEqual(split[0].clips.count, 1)
+        XCTAssertTrue(split[1].clips.isEmpty, "both halves must not play the same paid clip")
+        XCTAssertFalse(split[1].useClips)
+    }
+    func testJoinKeepsBothPicturesClipsOneAfterTheOther() {
+        var a = section(0, 0, 10), b = section(1, 10, 20)
+        a.clips = [clip("clips/a.mp4", seconds: 10, offset: 0)]; a.useClips = true
+        b.clips = [clip("clips/b.mp4", seconds: 10, offset: 0, trimStart: 2, trimEnd: 7)]; b.useClips = true
+        let joined = TimelineEditor.join([a, b], before: 1)
+        XCTAssertEqual(joined[0].clips.map(\.file), ["clips/a.mp4", "clips/b.mp4"])
+        XCTAssertEqual(joined[0].clips[1].offset, 10, accuracy: 0.001)
+        XCTAssertFalse(joined[0].repeatClips, "two clips never repeat")
+    }
+    func testClipPlaysOnlyTheChosenPartAndDefaultsDoNotLoop() {
+        let c = clip("clips/a.mp4", seconds: 10, offset: 0, trimStart: 2, trimEnd: 7)
+        XCTAssertEqual(c.playSeconds, 5, accuracy: 0.001)
+        XCTAssertEqual(clip("x", seconds: 10, offset: 0).playSeconds, 10, accuracy: 0.001)
+        XCTAssertFalse(section(0, 0, 10).repeatClips, "a clip never loops unless asked")
+        var cand = ImageCandidate(id: "a", provider: "local", thumbURL: "", fullURL: "", pageURL: "", width: 1, height: 1, credit: "", query: "", rank: 0)
+        cand.videoFile = "full/x.mov"
+        XCTAssertFalse(cand.videoRepeat, "an imported clip never loops unless asked")
+    }
+    func testOldPlansWithClipsStillOpen() throws {
+        let json = #"{"id":"c1","file":"clips/old.mp4","lastFrame":"frames/old.jpg","seconds":8,"offset":0,"prompt":"p","costUSD":0.3}"#
+        let c = try JSONDecoder().decode(SectionClip.self, from: Data(json.utf8))
+        XCTAssertEqual(c.trimStart, 0); XCTAssertNil(c.trimEnd); XCTAssertNil(c.focalAX)
+    }
 }

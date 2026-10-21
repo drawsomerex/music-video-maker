@@ -70,4 +70,23 @@ public enum OpenRouterVideo {
             if Date().timeIntervalSince(started) > 1200 { throw MVError("The clip is taking too long (job \(id)). It may still finish; check your OpenRouter activity.") }
         }
     }
+
+    public enum JobResult { case finished(Data, Double?), running, failed, unknown }
+
+    /// Looks once at a job that was ordered earlier: finished (the clip is downloaded), still running, failed, or not reachable right now.
+    public static func fetchFinished(jobID: String, apiKey: String) async -> JobResult {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, let url = URL(string: "https://openrouter.ai/api/v1/videos/\(jobID)") else { return .unknown }
+        var r = URLRequest(url: url); r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization"); r.timeoutInterval = 60
+        guard let (d, resp) = try? await URLSession.shared.data(for: r), (resp as? HTTPURLResponse)?.statusCode == 200, let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return .unknown }
+        switch j["status"] as? String ?? "" {
+        case "completed":
+            guard let urlStr = ((j["unsigned_urls"] as? [String])?.first ?? (j["urls"] as? [String])?.first), let u = URL(string: urlStr) else { return .unknown }
+            var dl = URLRequest(url: u); dl.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization"); dl.timeoutInterval = 300
+            guard let (data, _) = try? await URLSession.shared.data(for: dl), data.count > 10_000 else { return .unknown }
+            return .finished(data, ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue)
+        case "failed", "cancelled", "expired": return .failed
+        default: return .running
+        }
+    }
 }

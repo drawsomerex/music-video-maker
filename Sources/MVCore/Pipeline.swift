@@ -435,10 +435,11 @@ public enum Pipeline {
     /// Deletes any orphaned `section_*` image/thumbnail files in `full/` and `thumbs/` no longer referenced by any section in `plan`.
     public static func cleanupUnreferencedImages(plan: Plan, work: URL) {
         let allSecs = [plan.intro] + plan.sections
+        let usedClips = Set(allSecs.flatMap(\.clips).flatMap { [$0.file, $0.lastFrame] })
         let usedFull = Set(allSecs.flatMap(\.candidates).flatMap { [$0.fullFile, $0.videoFile].compactMap { $0 } })
         let usedThumb = Set(allSecs.flatMap(\.candidates).compactMap(\.thumbFile))
         let fm = FileManager.default
-        for (sub, used) in [("full", usedFull), ("thumbs", usedThumb)] {
+        for (sub, used) in [("full", usedFull), ("thumbs", usedThumb), ("clips", usedClips), ("frames", usedClips)] {
             let dir = work.appendingPathComponent(sub)
             guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
             for f in files where f.lastPathComponent.hasPrefix("section_") {

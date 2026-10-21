@@ -74,7 +74,7 @@ public final class FrameComposer: @unchecked Sendable {
                     repeatSource = VideoClipSource(url: work.appendingPathComponent(c1.file), maxPixel: maxPx, start: c1.trimStart, end: c1.trimEnd)
                 } else {
                     segs = sec.clips.map { ClipSegment(source: VideoClipSource(url: work.appendingPathComponent($0.file), maxPixel: maxPx, start: $0.trimStart, end: $0.trimEnd), offset: $0.offset, seconds: $0.playSeconds) }
-                    if let l = sec.clips.last, let ax = l.focalAX, let ay = l.focalAY, let bx = l.focalBX, let by = l.focalBY { tailFocal = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)] }
+                    if let l = sec.clips.last, l.trimEnd == nil, let ax = l.focalAX, let ay = l.focalAY, let bx = l.focalBX, let by = l.focalBY { tailFocal = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)] }
                 }
             } else if let c, let vf = c.videoFile {
                 let src = VideoClipSource(url: work.appendingPathComponent(vf), maxPixel: maxPx, start: c.videoStart, end: c.videoEnd)
@@ -94,7 +94,7 @@ public final class FrameComposer: @unchecked Sendable {
             if hasTail {
                 scene.clipTrack = segs; scene.tail = true
                 if let l = segs.last { scene.kbStart = a + l.offset + l.seconds }
-                scene.subjects = tailFocal; scene.subjectsOrdered = tailFocal.count == 2 && sec.clips.last?.focalAX != nil
+                scene.subjects = tailFocal; scene.subjectsOrdered = tailFocal.count == 2 && sec.clips.last?.focalAX != nil && sec.clips.last?.trimEnd == nil
             } else if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
                 scene.subjects = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)]; scene.subjectsOrdered = true        // the picture's own two focal points, 1 → 2
             } else {

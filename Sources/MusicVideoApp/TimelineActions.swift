@@ -56,6 +56,7 @@ extension AppModel {
             target.totalGenerationCostUSD = max(target.totalGenerationCostUSD, current.totalGenerationCostUSD)
             target.imagesGeneratedCount = max(target.imagesGeneratedCount, current.imagesGeneratedCount)
             target.lastImageCostUSD = current.lastImageCostUSD ?? target.lastImageCostUSD
+            target.totalVideoCostUSD = max(target.totalVideoCostUSD, current.totalVideoCostUSD)
             func keep(_ source: [ImageCandidate], in section: inout PhotoSection) {
                 for c in source where !section.candidates.contains(where: { $0.id == c.id }) { section.candidates.append(c) }
             }
@@ -63,6 +64,9 @@ extension AppModel {
             for i in target.sections.indices {
                 let assets = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.candidates)
                 keep(assets, in: &target.sections[i])
+                // generated video clips are paid for too: Undo may switch back to Ken Burns, but never loses a clip
+                let clipsHere = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.clips)
+                for c in clipsHere where !target.sections[i].clips.contains(where: { $0.id == c.id }) { target.sections[i].clips.append(c) }
             }
             restored = target
         }

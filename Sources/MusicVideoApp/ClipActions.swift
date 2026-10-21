@@ -4,7 +4,7 @@ import MVCore
 
 enum ClipDecision { case next, redo, stop, use, discard }
 
-struct ClipJob: Equatable {
+struct ClipJob {
     var section: Int
     var chain: Bool
     var secondsList: [Int]            // the clips still to make, in order (including the one in progress)
@@ -13,6 +13,15 @@ struct ClipJob: Equatable {
     var waiting = false               // a clip has just arrived: watch it, then choose
     var autoContinue = false          // back-to-back: make the rest without asking
     var failed: String?
+    var noWait = false                // bulk run: use each clip as soon as it arrives
+    var bulk: (n: Int, of: Int)? = nil
+    var started = Date()              // when the clip being made now was ordered
+    /// HeyGen does not report progress, so the bar is an estimate: it fills toward about 95 % over the typical time for this clip length, then jumps to 100 % when the clip arrives.
+    func estimatedFraction(now: Date) -> Double {
+        let seconds = Double(secondsList.indices.contains(index) ? secondsList[index] : 10)
+        let typical = 60 + 12 * seconds
+        return 0.95 * (1 - exp(-1.8 * max(0, now.timeIntervalSince(started)) / typical))
+    }
 }
 
 @MainActor
@@ -23,7 +32,7 @@ extension AppModel {
         let dur = section < 0 ? p.introDuration : (p.sections.indices.contains(section) ? p.sections[section].duration : 0)
         guard dur > 0 else { return [] }
         if !chain { return [OpenRouterVideo.clipSeconds(forSectionSeconds: dur)] }
-        let have = (section < 0 ? p.intro : p.sections[section]).clips.reduce(0) { $0 + $1.seconds }
+        let have = (section < 0 ? p.intro : p.sections[section]).clips.reduce(0) { $0 + $1.playSeconds }
         var out: [Int] = []; var left = Int(ceil(dur - have - 0.001))
         while left > 0 { let s = min(OpenRouterVideo.maxSeconds, max(OpenRouterVideo.minSeconds, left)); out.append(s); left -= s }
         return out
@@ -36,6 +45,27 @@ extension AppModel {
         guard var p = plan else { return }
         if i < 0 { f(&p.intro) } else if p.sections.indices.contains(i) { f(&p.sections[i]) }
         plan = p; persist(); live.invalidate()
+    }
+
+    /// Chooses which part of one generated clip plays; the clips after it slide up so there is no gap.
+    func setClipTrim(section: Int, clip id: String, start: Double, end: Double?) {
+        checkpoint("Trim video", coalesce: true)
+        edit(section) { s in
+            guard let i = s.clips.firstIndex(where: { $0.id == id }) else { return }
+            let len = max(0.5, s.clips[i].seconds), from = min(max(0, start), max(0, len - 0.5))
+            s.clips[i].trimStart = from
+            s.clips[i].trimEnd = end.map { min(len, max(from + 0.5, $0)) }
+            var t = s.clips.first?.offset ?? 0
+            for k in s.clips.indices { s.clips[k].offset = t; t += s.clips[k].playSeconds }
+        }
+    }
+
+    /// Repeat the clip (with a crossfade) instead of holding its last frame. Generated: only a single clip repeats; imported: the picture slot's clip.
+    func setClipRepeat(section: Int, on: Bool) {
+        checkpoint("Change repeat")
+        guard let s = sectionRef(section) else { return }
+        if s.useClips && !s.clips.isEmpty { edit(section) { $0.repeatClips = on && $0.clips.count == 1 } }
+        else { updateCandidate(section: section) { $0.videoRepeat = on } }
     }
 
     func setClipMode(section: Int, use: Bool) { checkpoint("Change motion"); edit(section) { $0.useClips = use && !$0.clips.isEmpty } }
@@ -55,13 +85,18 @@ extension AppModel {
         let secs = clipSeconds(section: section, chain: chain)
         guard !secs.isEmpty else { return }
         config = Config.load()
+        let spentBefore = plan?.totalVideoCostUSD ?? 0
         clipJob = ClipJob(section: section, chain: chain, secondsList: secs)
         clipTask = Task { [weak self] in
             guard let self else { return }
             do { try await self.runClips(section: section, chain: chain, work: w) }
             catch is CancellationError { }
             catch { self.clipJob?.failed = error.localizedDescription }
-            if self.clipJob?.failed == nil { self.clipJob = nil }
+            if self.clipJob?.failed == nil {
+                self.clipJob = nil
+                let spent = (self.plan?.totalVideoCostUSD ?? 0) - spentBefore
+                if spent > 0.0001 { self.doneNote = DoneNote(text: "Done — the video clip\(chain ? "s are" : " is") ready · cost \(OpenRouter.formatUSD(spent))") }
+            }
             self.clipTask = nil
         }
     }
@@ -92,9 +127,9 @@ extension AppModel {
         var k = 0
         while k < job.secondsList.count {
             try Task.checkCancellation()
-            clipJob?.index = k; clipJob?.waiting = false
+            clipJob?.index = k; clipJob?.waiting = false; clipJob?.started = Date()
             let all = base + made
-            let offset = all.reduce(0) { $0 + $1.seconds }
+            let offset = all.reduce(0) { $0 + $1.playSeconds }
             let firstFrame = all.last?.lastFrame ?? sec0.selectedCandidate?.fullFile ?? ""
             let prompt = (k < shots.count ? shots[k] : sec0.prompt) + " Bright, well lit, smooth natural motion that obeys real-world physics, no text."
             guard var p = plan else { return }
@@ -111,6 +146,7 @@ extension AppModel {
             plan = p; persist(); live.invalidate()
             refreshOpenRouterCredits(silent: true)
             let last = k == job.secondsList.count - 1
+            if clipJob?.noWait == true { made.append(clip); edit(section) { $0.useClips = true }; k += 1; continue }
             if chain && !last && clipJob?.autoContinue == true { made.append(clip); k += 1; continue }
             // watch it, then decide
             clipJob?.waiting = true; clipJob?.phase = ""
@@ -132,6 +168,61 @@ extension AppModel {
                 made.append(clip); edit(section) { $0.useClips = true }
                 k += 1
             }
+        }
+    }
+
+    /// Collects clips that were ordered (and paid for) but not saved because the app was closed while they were being made.
+    func recoverClips() {
+        guard hasOpenRouterKey, plan != nil, let w = workDir, !Pipeline.pendingClipJobs(work: w).isEmpty else { return }
+        config = Config.load()
+        Task {
+            var p = plan!
+            let before = p.totalVideoCostUSD
+            let notes = await Pipeline.recoverPendingClips(plan: &p, work: w, config: config)
+            guard !notes.isEmpty, var cur = plan, workDir == w else { return }
+            for i in p.sections.indices where cur.sections.indices.contains(i) { for c in p.sections[i].clips where !cur.sections[i].clips.contains(where: { $0.id == c.id }) { cur.sections[i].clips.append(c) } }
+            cur.totalVideoCostUSD += p.totalVideoCostUSD - before
+            plan = cur; persist(); live.invalidate(); notice = notes.joined(separator: "\n")
+        }
+    }
+
+    /// Sections (the opening included) that have a picture but no video clip yet and no imported video.
+    var clipTargets: [Int] {
+        guard let p = plan else { return [] }
+        var out: [Int] = []
+        if p.intro.selectedCandidate?.fullFile != nil, p.intro.selectedCandidate?.videoFile == nil, p.intro.clips.isEmpty, p.introDuration > 0 { out.append(-1) }
+        for (i, s) in p.sections.enumerated() where s.selectedCandidate?.fullFile != nil && s.selectedCandidate?.videoFile == nil && s.clips.isEmpty && s.duration > 0 { out.append(i) }
+        return out
+    }
+    var allClipsPriceUSD: Double { clipPriceUSD(clipTargets.flatMap { clipSeconds(section: $0, chain: false) }) }
+
+    /// One clip per picture that has none, one after the other, each used as soon as it arrives (you can still redo or trim any of them afterwards).
+    func startAllClips() {
+        guard clipJob == nil, plan != nil, let w = workDir else { return }
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        let targets = clipTargets
+        guard !targets.isEmpty else { return }
+        config = Config.load()
+        let spentBefore = plan?.totalVideoCostUSD ?? 0, price = allClipsPriceUSD
+        clipTask = Task { [weak self] in
+            guard let self else { return }
+            if let rem = try? await OpenRouter.fetchCredits(apiKey: self.config.openRouterKey).remaining {
+                self.openRouterCredits = rem
+                if rem < price { self.errorMessage = "Making every clip needs about \(OpenRouter.formatUSD(price)) of OpenRouter credit but only \(OpenRouter.formatCredits(rem)) is left. Add credit and try again."; self.clipTask = nil; return }
+            }
+            var made = 0
+            for (n, s) in targets.enumerated() {
+                if Task.isCancelled { break }
+                var j = ClipJob(section: s, chain: false, secondsList: self.clipSeconds(section: s, chain: false)); j.noWait = true; j.bulk = (n + 1, targets.count)
+                guard !j.secondsList.isEmpty else { continue }
+                self.clipJob = j
+                do { try await self.runClips(section: s, chain: false, work: w); made += 1 }
+                catch is CancellationError { break }
+                catch { self.clipJob?.failed = error.localizedDescription; self.clipTask = nil; return }
+            }
+            self.clipJob = nil; self.clipTask = nil
+            let spent = (self.plan?.totalVideoCostUSD ?? 0) - spentBefore
+            if made > 0 { self.doneNote = DoneNote(text: "Done — \(made) video clip\(made == 1 ? "" : "s") made · cost \(OpenRouter.formatUSD(spent))") }
         }
     }
 

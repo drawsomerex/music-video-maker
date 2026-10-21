@@ -7,6 +7,7 @@ public enum TimelineEditor {
         guard time.isFinite, let i = sections.firstIndex(where: { time >= $0.start + minimumSection && time <= $0.end - minimumSection }) else { return sections }
         var out = sections, right = sections[i]
         out[i].end = time; right.start = time
+        right.clips = []; right.useClips = false; right.repeatClips = false       // a paid video clip stays with the first half; both halves must not play it
         out[i].lineIDs = sections[i].lineIDs.filter { lines.indices.contains($0) && lines[$0].start < time }
         right.lineIDs = sections[i].lineIDs.filter { lines.indices.contains($0) && lines[$0].start >= time }
         out.insert(right, at: i + 1)
@@ -17,6 +18,12 @@ public enum TimelineEditor {
         var out = sections
         out[index - 1].end = out[index].end
         out[index - 1].lineIDs = Array(Set(out[index - 1].lineIDs + out[index].lineIDs)).sorted()
+        // video clips are paid for: the joined picture keeps both pictures' clips, one after the other
+        let covered = out[index - 1].clips.map { $0.offset + $0.playSeconds }.max() ?? 0
+        let moved: [SectionClip] = out[index].clips.map { var c = $0; c.offset += covered; return c }
+        out[index - 1].clips += moved
+        out[index - 1].useClips = out[index - 1].useClips || out[index].useClips
+        out[index - 1].repeatClips = out[index - 1].repeatClips && out[index - 1].clips.count == 1
         let selected = out[index - 1].selectedCandidate?.id
         let rightSelected = out[index].selectedCandidate
         var rightChoice = rightSelected.flatMap { candidate in out[index - 1].candidates.firstIndex(of: candidate) }

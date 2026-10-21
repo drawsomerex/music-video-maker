@@ -59,6 +59,7 @@ final class AppModel: ObservableObject {
 
     // Background task progress banner (shown whenever any background task runs)
     @Published var busy = false
+    @Published var doneNote: DoneNote?
     @Published var busyPhase = ""
     @Published var busyProgress = 0.0
     var busyStarted = Date()
@@ -419,9 +420,14 @@ final class AppModel: ObservableObject {
     private func runBackground(initialPhase: String, work: @escaping () async throws -> Void) {
         backgroundTask?.cancel()
         busy = true; busyStarted = Date(); busyPhase = initialPhase; busyProgress = 0.05
+        let spentBefore = (plan?.totalGenerationCostUSD ?? 0) + (plan?.totalVideoCostUSD ?? 0), title = initialPhase
         backgroundTask = Task {
             do {
                 try await work()
+                if !Task.isCancelled {
+                    let spent = (plan?.totalGenerationCostUSD ?? 0) + (plan?.totalVideoCostUSD ?? 0) - spentBefore
+                    doneNote = DoneNote(text: "Done — " + title.replacingOccurrences(of: "…", with: "") + (spent > 0.0001 ? " · cost \(OpenRouter.formatUSD(spent))" : ""))
+                }
             } catch is CancellationError {
                 // User cancelled
             } catch {
@@ -674,6 +680,17 @@ final class AppModel: ObservableObject {
         let dir = PictureLibrary.folder(config: config)
         if let n = name, FileManager.default.fileExists(atPath: dir.appendingPathComponent(n).path) { NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(n)]) }
         else { NSWorkspace.shared.open(dir) }
+    }
+
+    /// Copies the pictures of all earlier songs into the Pictures folder.
+    func backfillPictureLibrary() {
+        let cfg = config, open = workDir
+        runBackground(initialPhase: "Adding your earlier pictures to the Pictures folder…") { [weak self] in
+            guard let self else { return }
+            let handler = self.busyHandler
+            let r = await Task.detached(priority: .utility) { PictureLibrary.backfill(config: cfg, skipping: open, progress: handler) }.value
+            self.notice = r.added == 0 ? "Every earlier picture is already in the Pictures folder." : "Added \(r.added) picture\(r.added == 1 ? "" : "s") from \(r.songs) song\(r.songs == 1 ? "" : "s") to the Pictures folder." + (open != nil ? " (The song that is open now was skipped; close it and run this again to include it.)" : "")
+        }
     }
 
     func setStyleGuide(_ section: Int) {
@@ -1034,7 +1051,7 @@ final class AppModel: ObservableObject {
 
             plan = p; workDir = folder; title = p.title; subject = p.subject; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
             projectBaseline = nil; outputURL = nil; renderedShorts = []
-            stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true)
+            stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true); recoverClips()
         } catch { errorMessage = "Couldn't open that project: \(error.localizedDescription)" }
     }
 

@@ -36,7 +36,16 @@ final class LivePreview: ObservableObject {
     func load(plan: Plan, work: URL, clip: ShortClip?, audio: URL) async {
         guard !Task.isCancelled else { return }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        var bytes = (try? encoder.encode(plan)) ?? Data()
+        // Only what changes the picture: costs, notes, ideas and prices never rebuild the preview.
+        var quiet = plan
+        quiet.totalGenerationCostUSD = 0; quiet.imagesGeneratedCount = 0; quiet.lastImageCostUSD = nil; quiet.totalVideoCostUSD = 0; quiet.description = ""; quiet.style = ""
+        func calm(_ s: inout PhotoSection) {
+            s.prompt = ""; s.logicNote = nil; s.note = nil; s.focal = []; s.promptManual = false; s.queries = []
+            for k in s.candidates.indices { s.candidates[k].credit = ""; s.candidates[k].tags = ""; s.candidates[k].query = ""; s.candidates[k].libraryName = nil; s.candidates[k].focalNames = [] }
+            for k in s.clips.indices { s.clips[k].costUSD = 0; s.clips[k].warning = nil; s.clips[k].prompt = "" }
+        }
+        calm(&quiet.intro); for i in quiet.sections.indices { calm(&quiet.sections[i]) }
+        var bytes = (try? encoder.encode(quiet)) ?? Data()
         bytes.append((try? encoder.encode(clip)) ?? Data())
         bytes.append(Data((work.path + Transcriber.fileStamp(audio.path)).utf8))
         for section in [plan.intro] + plan.sections {

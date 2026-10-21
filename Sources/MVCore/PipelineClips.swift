@@ -20,17 +20,29 @@ extension Pipeline {
         return CGImageDestinationFinalize(dest) ? data as Data : nil
     }
 
-    /// Makes ONE clip of `seconds` from `firstFrame` (a file in the project folder). Saves it, its last frame and the cost; the caller adds it to the section.
-    public static func makeClip(plan: inout Plan, section index: Int, seconds: Int, prompt: String, firstFrame: String, offset: Double, work: URL, config: Config = .load(),
-                                onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> SectionClip {
-        guard let frame = firstFrameJPEG(file: work.appendingPathComponent(firstFrame)) else { throw MVError("Couldn't read the picture to start the clip from.") }
-        let result = try await OpenRouterVideo.generate(prompt: prompt, firstFrameJPEG: frame, seconds: seconds, apiKey: config.openRouterKey, onJob: onJob, onPhase: onPhase)
+    /// A clip that has been ordered (and so paid for) but not yet saved. It is written to disk the moment HeyGen accepts the order, so a clip is never lost
+    /// if the app is closed while it is being made.
+    public struct PendingClipJob: Codable { public var job: String; public var section: Int; public var seconds: Int; public var offset: Double; public var prompt: String; public var started: Date }
+    static func pendingURL(_ work: URL) -> URL { work.appendingPathComponent("pending_video_jobs.json") }
+    public static func pendingClipJobs(work: URL) -> [PendingClipJob] {
+        guard let d = try? Data(contentsOf: pendingURL(work)) else { return [] }
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        return (try? dec.decode([PendingClipJob].self, from: d)) ?? []
+    }
+    static func savePending(_ jobs: [PendingClipJob], work: URL) {
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        if jobs.isEmpty { try? FileManager.default.removeItem(at: pendingURL(work)) }
+        else if let d = try? enc.encode(jobs) { try? d.write(to: pendingURL(work), options: .atomic) }
+    }
+
+    /// Saves a finished clip into the project: the video, its last frame, the two most prominent features on that frame, and the cost.
+    static func finalizeClip(plan: inout Plan, section index: Int, data: Data, costUSD: Double?, jobID: String, seconds: Int, prompt: String, offset: Double, work: URL, config: Config) async throws -> SectionClip {
         let fm = FileManager.default
         try fm.createDirectory(at: work.appendingPathComponent("clips"), withIntermediateDirectories: true)
         try fm.createDirectory(at: work.appendingPathComponent("frames"), withIntermediateDirectories: true)
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = "clips/section_\(index + 1)_\(stamp).mp4", last = "frames/section_\(index + 1)_\(stamp)_last.jpg"
-        try result.data.write(to: work.appendingPathComponent(file))
+        try data.write(to: work.appendingPathComponent(file))
         let asset = AVURLAsset(url: work.appendingPathComponent(file))
         let dur = max(0.5, CMTimeGetSeconds(asset.duration))
         let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true; gen.requestedTimeToleranceBefore = .zero; gen.requestedTimeToleranceAfter = .zero
@@ -39,14 +51,52 @@ extension Pipeline {
         CGImageDestinationAddImage(dest, lastImg, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary); CGImageDestinationFinalize(dest)
         var c = SectionClip()
         c.file = file; c.lastFrame = last; c.seconds = dur; c.offset = offset; c.prompt = prompt
-        c.costUSD = result.costUSD ?? Double(seconds) * OpenRouterVideo.fallbackPricePerSecond
+        c.costUSD = costUSD ?? Double(seconds) * OpenRouterVideo.fallbackPricePerSecond
         plan.totalVideoCostUSD += c.costUSD
+        // the two most prominent features on the last frame (a cheap look at the picture, a fraction of a cent); the camera moves from the first to the second
+        if let loc = await locateFocalPoints(file: work.appendingPathComponent(last), names: [], config: config) {
+            c.focalAX = Double(loc.points[0].x); c.focalAY = Double(loc.points[0].y); c.focalBX = Double(loc.points[1].x); c.focalBY = Double(loc.points[1].y)
+            plan.totalVideoCostUSD += loc.cost
+        }
         // keep a record of every paid job, so a clip can always be traced on OpenRouter
-        let rec = "{\"time\":\"\(Date())\",\"section\":\(index),\"job\":\"\(result.jobID)\",\"seconds\":\(seconds),\"cost\":\(c.costUSD)}\n"
+        let rec = "{\"time\":\"\(Date())\",\"section\":\(index),\"job\":\"\(jobID)\",\"seconds\":\(seconds),\"cost\":\(c.costUSD)}\n"
         if let h = try? FileHandle(forWritingTo: work.appendingPathComponent("video_jobs.jsonl")) { h.seekToEndOfFile(); h.write(Data(rec.utf8)); try? h.close() }
         else { try? rec.write(to: work.appendingPathComponent("video_jobs.jsonl"), atomically: true, encoding: .utf8) }
         try savePlan(plan, work)
         return c
+    }
+
+    /// Makes ONE clip of `seconds` from `firstFrame` (a file in the project folder). Saves it, its last frame and the cost; the caller adds it to the section.
+    public static func makeClip(plan: inout Plan, section index: Int, seconds: Int, prompt: String, firstFrame: String, offset: Double, work: URL, config: Config = .load(),
+                                onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> SectionClip {
+        guard let frame = firstFrameJPEG(file: work.appendingPathComponent(firstFrame)) else { throw MVError("Couldn't read the picture to start the clip from.") }
+        let result = try await OpenRouterVideo.generate(prompt: prompt, firstFrameJPEG: frame, seconds: seconds, apiKey: config.openRouterKey, onJob: { id in
+            var jobs = pendingClipJobs(work: work); jobs.append(PendingClipJob(job: id, section: index, seconds: seconds, offset: offset, prompt: prompt, started: Date())); savePending(jobs, work: work)
+            onJob?(id)
+        }, onPhase: onPhase)
+        let c = try await finalizeClip(plan: &plan, section: index, data: result.data, costUSD: result.costUSD, jobID: result.jobID, seconds: seconds, prompt: prompt, offset: offset, work: work, config: config)
+        savePending(pendingClipJobs(work: work).filter { $0.job != result.jobID }, work: work)
+        return c
+    }
+
+    /// Clips that were ordered but never saved (the app was closed or crashed while they were being made): collects every one that has finished and adds it to its section.
+    /// Returns a plain sentence for each clip recovered. A section is not switched to video by this; the owner decides.
+    public static func recoverPendingClips(plan: inout Plan, work: URL, config: Config = .load()) async -> [String] {
+        var notes: [String] = []
+        var left = pendingClipJobs(work: work)
+        for job in pendingClipJobs(work: work) {
+            switch await OpenRouterVideo.fetchFinished(jobID: job.job, apiKey: config.openRouterKey) {
+            case .finished(let data, let cost):
+                guard job.section < plan.sections.count, let c = try? await finalizeClip(plan: &plan, section: job.section, data: data, costUSD: cost, jobID: job.job, seconds: job.seconds, prompt: job.prompt, offset: job.offset, work: work, config: config) else { continue }
+                if job.section < 0 { plan.intro.clips.append(c) } else { plan.sections[job.section].clips.append(c) }
+                left.removeAll { $0.job == job.job }
+                notes.append("A video clip for picture \(job.section + 1) that was still being made when the app closed has been saved (\(OpenRouter.formatUSD(c.costUSD))). Choose “Video clip” under that picture to use it.")
+            case .failed: left.removeAll { $0.job == job.job }
+            case .running, .unknown: if Date().timeIntervalSince(job.started) > 86_400 { left.removeAll { $0.job == job.job } }
+            }
+        }
+        savePending(left, work: work)
+        return notes
     }
 
     /// A cheap cloud vision check (about a tenth of a cent): five frames across the clip, looking only for physically impossible things.

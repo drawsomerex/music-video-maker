@@ -21,10 +21,11 @@ struct ClipPanel: View {
     let section: Int
     @State private var confirmChain: Bool?          // shows the price confirmation: false = one clip, true = whole section
     @State private var confirmDelete = false
+    @State private var toggled: Set<String> = []       // clips whose trim panel was flipped from its default (open for one clip, closed for several)
 
     var sec: PhotoSection { (section < 0 ? model.plan?.intro : model.plan?.sections[section]) ?? PhotoSection(id: 0, start: 0, end: 1, lineIDs: [], queries: [], candidates: [], selected: -1, seed: 0) }
     var work: URL? { model.workDir }
-    var coveredSeconds: Double { sec.clips.reduce(0) { $0 + $1.seconds } }
+    var coveredSeconds: Double { sec.clips.reduce(0) { $0 + $1.playSeconds } }
     var job: ClipJob? { model.clipJob?.section == section ? model.clipJob : nil }
 
     var body: some View {
@@ -92,9 +93,13 @@ struct ClipPanel: View {
                         if let w = c.warning { Label(w, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
                     }
                 }
+                DisclosureGroup(isExpanded: Binding(get: { (sec.clips.count == 1) != toggled.contains(c.id) }, set: { open in
+                    if open == (sec.clips.count == 1) { toggled.remove(c.id) } else { toggled.insert(c.id) } })) {
+                    VideoTrimView(section: section, clip: c, partLength: sec.duration).padding(.top, 6)
+                } label: { Label("Choose the part that plays" + (sec.clips.count == 1 ? " · repeat" : ""), systemImage: "scissors").font(.callout.weight(.semibold)) }
             }
             if coveredSeconds + 0.5 < sec.duration {
-                Text(sec.useClips ? "The clip plays for \(Int(coveredSeconds.rounded())) s, then the last frame holds and Ken Burns carries on for the remaining \(Int((sec.duration - coveredSeconds).rounded())) s." : "Switch to “Video clip” above to use it.")
+                Text(sec.useClips ? (sec.repeatClips && sec.clips.count == 1 ? "The clip repeats, blending into its own beginning, until this part of the song ends." : "The clip plays once for \(Int(coveredSeconds.rounded())) s, then the last frame holds and the camera moves between its main features for the remaining \(Int((sec.duration - coveredSeconds).rounded())) s.") : "Switch to “Video clip” above to use it.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {

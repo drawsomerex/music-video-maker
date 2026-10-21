@@ -19,7 +19,9 @@ struct PlanView: View {
         return plan.sections[idx]
     }
 
-    @State private var showTimeline = true
+    @State private var showTimeline = (NSScreen.main?.visibleFrame.height ?? 1000) > 850      // starts hidden on a small screen so the pictures keep the room
+    @State private var confirmAllPictures = false
+    @State private var confirmAllClips = false
     var timelinePanel: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -130,7 +132,11 @@ struct PlanView: View {
             Button("Edit timeline") { model.goToStep(1) }.help("Return to the first page to split or join pictures, music sections and independent Shorts.")
             Button { model.revealProject() } label: { if compact { Image(systemName: "folder") } else { Label("Show folder", systemImage: "folder") } }
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
-            Button { model.showPicturesFolder() } label: { if compact { Image(systemName: "photo.on.rectangle.angled") } else { Label("Pictures folder", systemImage: "photo.on.rectangle.angled") } }
+            Menu {
+                Button("Open the Pictures folder") { model.showPicturesFolder() }
+                Button("Add my earlier pictures to it…") { model.backfillPictureLibrary() }
+            } label: { if compact { Image(systemName: "photo.on.rectangle.angled") } else { Label("Pictures folder", systemImage: "photo.on.rectangle.angled") } }
+                .menuIndicator(.hidden).fixedSize()
                 .help("Opens the Pictures folder: every picture of every song (drawn by the app or added by you), named with its date, the song and an increasing number, so you can scroll through them.")
             HelpButton(screen: mode == 1 ? "Pictures screen, YouTube Shorts tab" : "Pictures screen")
             Button { model.reset() } label: { if compact { Image(systemName: "xmark.circle") } else { Label("Close", systemImage: "xmark.circle") } }
@@ -158,12 +164,16 @@ struct PlanView: View {
                 .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 300), spacing: 8)], alignment: .leading, spacing: 8) {
-                Button { model.generateAllMissingImages() } label: {
+                Button { if model.hasOpenRouterKey { confirmAllPictures = true } else { model.generateAllMissingImages() } } label: {
                     Label(model.missing.isEmpty ? "All pictures are ready" : "Make all missing pictures (\(model.missing.count))", systemImage: "wand.and.sparkles").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).disabled(model.missing.isEmpty || model.busy)
                 .help(model.hasOpenRouterKey ? "Draws a picture for every part that has none (about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total). You can watch the progress and cancel at any time."
                                              : "Draws the pictures for you. First add your OpenRouter key with the “Picture maker key” button.")
+                let clipCount = model.clipTargets.count
+                Button { confirmAllClips = true } label: { Label(clipCount == 0 ? "Every picture has a video clip" : "Make video clips for all pictures (\(clipCount))", systemImage: "film.stack").frame(maxWidth: .infinity) }
+                    .disabled(clipCount == 0 || model.busy || model.clipJob != nil)
+                    .help("Makes one HeyGen video clip for every picture that has none, one after another (about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total at list price). Ken Burns stays for the rest of each part. You see the price first.")
                 Button { showDescriptionSheet = true } label: { Label("Setting & description", systemImage: "text.alignleft").frame(maxWidth: .infinity) }
                     .help("Set the place and theme every picture follows, and read or change what the app thinks the song is about. Every picture idea is built from them.")
                 Button { showStyleSheet = true } label: { Label("Art style", systemImage: "paintpalette").frame(maxWidth: .infinity) }
@@ -176,6 +186,19 @@ struct PlanView: View {
             .buttonStyle(.bordered)
         }
         .padding(.horizontal, 20).padding(.vertical, 10).background(.regularMaterial)
+        .confirmationDialog("Make all the missing pictures?", isPresented: $confirmAllPictures, titleVisibility: .visible) {
+            Button("Make \(model.missing.count) picture\(model.missing.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.missingImagesCostUSD)))") { model.generateAllMissingImages() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(model.missing.count) picture\(model.missing.count == 1 ? "" : "s") at about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " Video clips are separate and only made when you ask.")
+        }
+        .confirmationDialog("Make a video clip for every picture?", isPresented: $confirmAllClips, titleVisibility: .visible) {
+            Button("Make \(model.clipTargets.count) clip\(model.clipTargets.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.allClipsPriceUSD)))") { model.startAllClips() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("One clip (5–15 s) for each of \(model.clipTargets.count) picture\(model.clipTargets.count == 1 ? "" : "s") that have none, at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second — about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total (half while their promotion runs)." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " Each clip plays once, then the camera moves over its last picture. Pictures that already have clips are skipped.")
+        }
+        .task { model.refreshVideoPrice() }
     }
 
     /// One plain sentence about what to do next, always visible above the pictures.
@@ -625,7 +648,7 @@ struct DropWell: View {
             if let c = sec.selectedCandidate {
                 if c.videoFile == nil, c.fullFile != nil { ClipPanel(section: section).frame(maxWidth: 1000, alignment: .leading) }
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
-                else { cameraControls(c).frame(maxWidth: 640, alignment: .leading) }
+                cameraControls(c).frame(maxWidth: 640, alignment: .leading)
                 HStack {
                     if let n = sec.selectedCandidate?.libraryName {
                         Button { model.showPicturesFolder(select: n) } label: { Label(n, systemImage: "photo.on.rectangle.angled").lineLimit(1).truncationMode(.middle) }.buttonStyle(.plain).foregroundStyle(.secondary)
@@ -673,6 +696,9 @@ struct DropWell: View {
 
     @ViewBuilder func cameraControls(_ c: ImageCandidate) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            if c.videoFile != nil || (model.plan.map { (section < 0 ? $0.intro : $0.sections[section]).useClips && !(section < 0 ? $0.intro : $0.sections[section]).clips.isEmpty } ?? false) {
+                Text("A video clip is in use: the clip plays first, then the camera below moves over its last picture.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 10) {
                 Text("Camera").font(.subheadline.weight(.semibold))
                 Button { model.useAutomaticCamera(section: section) } label: { Label("Automatic", systemImage: "wand.and.stars").frame(minWidth: 110) }

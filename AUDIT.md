@@ -1,7 +1,7 @@
 # Audit of the updates since 1.5.4 (written 2026-10-21)
 
 Plain-language record of what changed in each release and why, followed by a sweep for bugs, speed-ups and workflow ideas.
-Nothing in "Findings" has been fixed yet; the owner decides what to fix.
+The owner chose to fix everything in sections A, B and the workflow items below; see "Status" at the end.
 
 ## 1. What changed, release by release
 
@@ -58,3 +58,24 @@ Nothing in "Findings" has been fixed yet; the owner decides what to fix.
 ## 4. Not worth doing now
 * Making the cloud focal-point and realism checks run on the local model (the local model has no vision).
 * Splitting the 1,300-line `AppModel.swift` into smaller files (risky refactor, no user-visible gain).
+
+## 5. Status (updated at release)
+| Item | Result |
+|---|---|
+| A1 lost paid job | Fixed: the order is recorded when placed and collected on the next start |
+| A2 split duplicates clips | Fixed (clips stay with the first half) + unit test |
+| A3 join drops clips | Fixed (both pictures' clips kept, one after the other) + unit test |
+| A4 Undo / cost | Fixed (clips and video cost carried over) |
+| A5 Shorts clip offset | Fixed |
+| A6 orphan clip files | Fixed |
+| A7 release.sh conflict markers | Fixed (script refuses to publish) |
+| B8 clip default | Fixed: plays once, holds, camera feature 1 to 2; repeat only by switch with crossfade |
+| B9 all-pictures clips | Added with one price confirmation |
+| B10 back-fill | Added (Pictures folder menu) |
+| C11 preview rebuild | Fixed (quiet signature) |
+| C12–C14 | Not changed (measure first) |
+| D15 progress strip | Added (estimated bar for HeyGen) |
+| D16 timeline on small screens | Starts hidden |
+| D17 trim/repeat for generated clips | Added |
+| D18/D20 cost summary | Confirmation before Make all pictures and before all clips |
+| D19 export | Back-fill button only |

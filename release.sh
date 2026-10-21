@@ -19,6 +19,10 @@ while [ $# -gt 0 ]; do case "$1" in
 say() { printf "\n\033[1m▸ %s\033[0m\n" "$*"; }
 die() { printf "\n\033[31m✗ %s\033[0m\n" "$*" >&2; exit 1; }
 
+# Never publish from a half-finished merge or with conflict markers in any file (this once shipped release notes full of "<<<<<<<").
+if [ -f .git/MERGE_HEAD ] || [ -n "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then die "A git merge is not finished. Resolve the conflicts and commit, then run this again."; fi
+if git grep -lE '^(<{7}|>{7}) ' -- . ':!release.sh' ':!relay' >/dev/null 2>&1; then die "Conflict markers (<<<<<<< or >>>>>>>) are still in: $(git grep -lE '^(<{7}|>{7}) ' -- . ':!release.sh' ':!relay' | tr '\n' ' ')"; fi
+
 if [ "$DRY" = 0 ]; then
   command -v gh >/dev/null || die "Install the GitHub CLI first:  brew install gh   then   gh auth login"
   gh auth status >/dev/null 2>&1 || die "Not logged in to GitHub. Run:  gh auth login"

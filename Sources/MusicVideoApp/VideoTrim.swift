@@ -15,8 +15,33 @@ import AppKit
 struct VideoTrimView: View {
     @EnvironmentObject var model: AppModel
     let section: Int
-    let candidate: ImageCandidate
+    let file: String?                // the clip, relative to the project folder
+    let knownLength: Double?
+    let initialStart: Double
+    let initialEnd: Double?
+    let clipID: String?              // a generated clip's id; nil = the video dragged into the picture slot
     let partLength: Double
+
+    init(section: Int, candidate: ImageCandidate, partLength: Double) {
+        self.section = section; file = candidate.videoFile; knownLength = candidate.videoLength
+        initialStart = candidate.videoStart; initialEnd = candidate.videoEnd; clipID = nil; self.partLength = partLength
+    }
+    init(section: Int, clip: SectionClip, partLength: Double) {
+        self.section = section; file = clip.file; knownLength = clip.seconds
+        initialStart = clip.trimStart; initialEnd = clip.trimEnd; clipID = clip.id; self.partLength = partLength
+    }
+    /// Whether the clip repeats (with a crossfade) in this part of the song, read from the plan.
+    private var repeats: Bool {
+        guard let p = model.plan else { return false }
+        let s = section < 0 ? p.intro : (p.sections.indices.contains(section) ? p.sections[section] : nil)
+        guard let s else { return false }
+        return clipID != nil ? s.repeatClips : (s.selectedCandidate?.videoRepeat ?? false)
+    }
+    private var canRepeat: Bool {
+        guard clipID != nil, let p = model.plan else { return true }
+        let s = section < 0 ? p.intro : (p.sections.indices.contains(section) ? p.sections[section] : nil)
+        return (s?.clips.count ?? 0) == 1
+    }
 
     @State private var length = 0.0
     @State private var start = 0.0
@@ -30,7 +55,7 @@ struct VideoTrimView: View {
     @State private var grab: CGFloat?              // where the handle was when this drag began
     private var minLen: Double { min(0.5, max(0.001, length)) }
 
-    private var url: URL? { candidate.videoFile.flatMap { model.workDir?.appendingPathComponent($0) } }
+    private var url: URL? { file.flatMap { model.workDir?.appendingPathComponent($0) } }
     private var playsFor: Double { max(0, end - start) }
     private var isWhole: Bool { start <= 0.01 && end >= length - 0.01 }
 
@@ -41,12 +66,17 @@ struct VideoTrimView: View {
                 HStack(alignment: .top, spacing: 16) { previewBox.frame(width: 260); VStack(alignment: .leading, spacing: 12) { filmstrip; cards } }
                 VStack(alignment: .leading, spacing: 12) { HStack(alignment: .top, spacing: 14) { previewBox.frame(width: 240); Spacer(minLength: 0) }; filmstrip; cards }
             }
+            if canRepeat {
+                Toggle(isOn: Binding(get: { repeats }, set: { model.setClipRepeat(section: section, on: $0) })) { Text("Repeat the clip until this part of the song ends (with a smooth crossfade)") }
+                    .toggleStyle(.switch)
+                    .help("Off (the default): the clip plays once, then the last picture holds while the camera moves from one feature to another. On: the clip starts again each time it ends, blending into its own beginning.")
+            }
             Text(summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
-        .task(id: candidate.videoFile) { await load() }
+        .task(id: file) { await load() }
         .onDisappear { stopPlay() }
     }
 
@@ -176,7 +206,7 @@ struct VideoTrimView: View {
     var summary: String {
         var s = isWhole ? "The whole clip is used (\(String(format: "%.1f", playsFor)) seconds)." : "Using \(String(format: "%.1f", playsFor)) seconds of the \(String(format: "%.1f", length))-second clip: from \(clock(start)) to \(clock(end))."
         if partLength > 0 {
-            if playsFor + 0.3 < partLength { s += " This part of the song lasts \(Int(partLength.rounded())) seconds, so the clip repeats." }
+            if playsFor + 0.3 < partLength { s += repeats && canRepeat ? " This part of the song lasts \(Int(partLength.rounded())) seconds, so the clip repeats." : " This part of the song lasts \(Int(partLength.rounded())) seconds: the clip plays once, then the last picture holds and the camera moves between its main features." }
             else if playsFor > partLength + 0.3 { s += " This part of the song lasts \(Int(partLength.rounded())) seconds, so the end of the clip is not reached." }
         }
         return s
@@ -198,7 +228,10 @@ struct VideoTrimView: View {
         if isStart { start = max(0, min(t, end - minLen)); showFrame(at: start) }
         else { end = min(length, max(t, start + minLen)); showFrame(at: max(start, end - 0.05)) }
     }
-    func commit() { model.setVideoTrim(section: section, start: start, end: end >= length - 0.01 ? nil : end) }
+    func commit() {
+        let e: Double? = end >= length - 0.01 ? nil : end
+        if let id = clipID { model.setClipTrim(section: section, clip: id, start: start, end: e) } else { model.setVideoTrim(section: section, start: start, end: e) }
+    }
     func reset() { stopPlay(); start = 0; end = length; commit(); showFrame(at: 0) }
 
     func generator(max px: CGFloat = 640) -> AVAssetImageGenerator? {
@@ -233,10 +266,10 @@ struct VideoTrimView: View {
     func load() async {
         guard let u = url else { return }
         let asset = AVURLAsset(url: u)
-        var len = candidate.videoLength ?? 0
+        var len = knownLength ?? 0
         if len <= 0, let d = try? await asset.load(.duration) { len = CMTimeGetSeconds(d) }
         length = max(0.001, len.isFinite ? len : 0.001)
-        start = min(candidate.videoStart, length - minLen); end = min(candidate.videoEnd ?? length, length)
+        start = min(initialStart, length - minLen); end = min(initialEnd ?? length, length)
         if end <= start { end = length }
         showFrame(at: start)
         guard let g = generator(max: 240) else { return }

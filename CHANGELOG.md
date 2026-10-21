@@ -5,6 +5,21 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Fixed
+- **A video clip no longer loops by default.** It plays once, exactly as made; the last picture then holds and the camera eases from the full frame onto the most prominent feature and travels to the second most prominent (features are found on the clip's last frame; once back in a very long part). Looping is now an explicit switch, with a smooth crossfade into the beginning. This applies to HeyGen clips and to videos you drag in. The camera move added in 1.8.0 *over* the clip itself was removed.
+- **Video controls are back, and now cover generated clips too:** start/end trim with "Play this part", the repeat switch, and the camera controls ("Automatic" / "I choose the move", "Aim for me") stay available while a clip is in use. Trimming one clip in a back-to-back set closes the gap.
+- **Paid clips could be lost or duplicated.** Splitting a picture no longer plays the same clip in both halves; joining pictures keeps both pictures' clips; Undo brings clips and the video cost back; a Short that starts in the middle of a picture plays the clip from the right moment; clip files are cleaned up when pictures are joined or removed.
+- **A HeyGen clip is never lost if the app quits while it is being made:** the order is recorded the moment it is placed and collected on the next start.
+- Needless preview rebuilds after every cost update are gone (the preview only rebuilds when something you can see changes).
+- `release.sh` refuses to publish while a merge conflict is unresolved.
+
+### Added
+- **Progress strip at the very top of the window** for every long task, with a bar, elapsed time and Cancel; parallel tasks get a row each. A clip's bar is an estimate (HeyGen reports no progress). A green "Done — … cost $x" line shows afterwards.
+- **Make video clips for all pictures** (one price confirmation first, refused if your OpenRouter credit would not cover it), and a cost confirmation before "Make all missing pictures".
+- **Add my earlier pictures to the Pictures folder** (Pictures folder menu): copies pictures of songs made before 1.8.0, dated by when each was made.
+- The timeline starts hidden on a small screen.
+- `AUDIT.md`: what changed in each release since 1.5.4 and why, with the findings of a code sweep.
+
 ## [1.8.1] - 2026-10-21
 
 ### Changed

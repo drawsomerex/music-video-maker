@@ -9,7 +9,7 @@ struct RootView: View {
     var body: some View {
         VStack(spacing: 0) {
             UpdateStrip()
-            if model.busy { BackgroundTaskBanner().transition(.move(edge: .top).combined(with: .opacity)) }
+            TaskBanners()
             if !model.needsNativeSetup { CostBar() }
             screens.disabled(updater.isInstalling)
         }
