@@ -240,7 +240,7 @@ struct LoopView: View {
 
     // MARK: 4 long video
     var longVideoCard: some View {
-        card(4, "The long video", "A title screen that fades into the loop, the loop with the song repeating for as long as you choose, and a gentle fade-out at the very end.") {
+        card(4, "The long video", "A title screen that fades into the loop, the loop with the song repeating for as long as you choose, and a gentle fade-out at the very end. A YouTube thumbnail and a description written for search are made with it.") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Text("Length").font(.callout.weight(.semibold))
@@ -263,6 +263,9 @@ struct LoopView: View {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o)]) } label: { Label("Show the last video in Finder", systemImage: "folder") }
                     }
                 }
+                YouTubeFilesRow(files: p.thumbnail.flatMap { t in p.listing.map { (URL(fileURLWithPath: t), URL(fileURLWithPath: $0)) } }.flatMap { FileManager.default.fileExists(atPath: $0.0.path) ? $0 : nil },
+                                busy: model.loopJob?.title.hasPrefix("Writing the YouTube") == true) { model.loopMakeYouTube() }
+                    .disabled(working && model.loopJob?.title.hasPrefix("Writing the YouTube") != true)
             }
         }
     }

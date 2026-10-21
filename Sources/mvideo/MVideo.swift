@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -332,6 +332,9 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Where to save the video") var out: String?
         @Flag(help: "Only make the loop preview (one loop, no sound)") var previewOnly = false
         @Option(help: "Print what should move in this picture (and the clip instruction it gives), then stop") var describe: String?
+        @Flag(help: "Only make the YouTube thumbnail and description (beside where the video is saved)") var youtube = false
+        @Option(help: "Use this picture (copied in)") var picture: String?
+        @Option(help: "The scene, in words") var scene: String?
         func run() async throws {
             if let d = describe {
                 guard let r = await LoopVideo.describeMotion(file: URL(fileURLWithPath: (d as NSString).expandingTildeInPath)) else { throw MVError("No description came back.") }
@@ -350,7 +353,14 @@ struct MVideo: AsyncParsableCommand {
             if let c = clip { let name = "clip-cli." + URL(fileURLWithPath: c).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(name)); try fm.copyItem(at: URL(fileURLWithPath: c), to: dir.appendingPathComponent(name)); p.clip = name }
             if let t = title { p.screenTitle = t }
             p.hours = hours
+            if let pic = picture { let n = "picture-cli." + URL(fileURLWithPath: pic).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: pic), to: dir.appendingPathComponent(n)); p.picture = n }
+            if let sc = scene { p.scene = sc }
             LoopVideo.save(p, dir)
+            if youtube {
+                let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title) (looping).mp4")
+                try await LoopVideo.makeYouTubeFiles(&p, dir: dir, video: o)
+                print("✅ \(p.thumbnail ?? "")\n✅ \(p.listing ?? "")"); return
+            }
             guard let cl = p.clip else { throw MVError("No loop clip yet: give --clip.") }
             if previewOnly {
                 let o = dir.appendingPathComponent("loop-preview.mp4")
@@ -360,6 +370,20 @@ struct MVideo: AsyncParsableCommand {
             let t0 = Date()
             try await LoopVideo.render(p, dir: dir, output: o) { ph, f in print(String(format: "\r%3d%%  %@", Int(f * 100), ph), terminator: ""); fflush(stdout) }
             print(String(format: "\n✅ %@  (%.0fs)", o.path, Date().timeIntervalSince(t0)))
+        }
+    }
+
+    struct YouTube: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(commandName: "youtube", abstract: "Make the YouTube thumbnail and the search-friendly description for a lyric video project (beside the video).")
+        @Argument var work: String
+        func run() async throws {
+            let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
+            let plan = try Pipeline.loadPlan(w)
+            guard let f = plan.intro.selectedCandidate?.fullFile ?? plan.sections.compactMap({ $0.selectedCandidate?.fullFile }).first else { throw MVError("No picture yet.") }
+            let video = Pipeline.videoURL(plan: plan, work: w, config: Config.load())
+            let listing = await YouTubeKit.lyricListing(plan)
+            let r = try YouTubeKit.writeFiles(beside: video, picture: w.appendingPathComponent(f), thumbTitle: plan.title, badge: "Lyric video", line: plan.subject.isEmpty ? nil : plan.subject, listing: listing)
+            print("✅ \(r.thumbnail.path)\n✅ \(r.description.path)")
         }
     }
 

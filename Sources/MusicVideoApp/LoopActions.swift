@@ -65,6 +65,7 @@ extension AppModel {
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
+                    cur.thumbnail = done.thumbnail; cur.listing = done.listing
                     cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
                     loopProject = cur; LoopVideo.save(cur, d)
                 }
@@ -163,13 +164,21 @@ extension AppModel {
         let h = p.hours == p.hours.rounded() ? "\(Int(p.hours)) hour\(p.hours == 1 ? "" : "s")" : String(format: "%.1f hours", p.hours)
         return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h) (looping).mp4")
     }
+    /// Makes (or makes again) the YouTube thumbnail and description, before or after the long video.
+    func loopMakeYouTube() {
+        guard let p = loopProject else { return }
+        let out = loopOutputURL(p), cfg = Config.load()
+        runLoop("Writing the YouTube thumbnail and description…", estimate: 25) { p, d in var q = p; try await LoopVideo.makeYouTubeFiles(&q, dir: d, video: out, config: cfg); return q }
+    }
     func loopRender() {
         guard let p = loopProject else { return }
         let out = loopOutputURL(p)
         runLoop("Making the \(p.hours == p.hours.rounded() ? "\(Int(p.hours))-hour" : String(format: "%.1f-hour", p.hours)) looping video…") { [weak self] p, d in
             try await LoopVideo.render(p, dir: d, output: out) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = f } }
             var q = p; q.output = out.path
-            await MainActor.run { self?.doneNote = DoneNote(text: "Your looping video is ready (\(out.lastPathComponent))", reveal: out) }
+            await MainActor.run { self?.loopJob?.phase = "Writing the YouTube thumbnail and description…"; self?.loopJob?.progress = 0.99 }
+            try? await LoopVideo.makeYouTubeFiles(&q, dir: d, video: out, config: Config.load())
+            await MainActor.run { self?.doneNote = DoneNote(text: "Your looping video is ready (\(out.lastPathComponent)), with its YouTube thumbnail and description", reveal: out) }
             return q
         }
     }

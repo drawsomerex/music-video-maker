@@ -60,6 +60,8 @@ final class AppModel: ObservableObject {
     // Background task progress banner (shown whenever any background task runs)
     @Published var busy = false
     @Published var videoJob: VideoJob?
+    @Published var youtubeFiles: (thumbnail: URL, description: URL)?      // made next to the finished video
+    @Published var youtubeBusy = false
     // Looping long music video (its own workflow)
     @Published var loopProject: LoopProject?
     @Published var loopDir: URL?
@@ -1068,6 +1070,8 @@ final class AppModel: ObservableObject {
                     }
                 }
                 renderedShorts = shortURLs
+                videoJob?.phase = "Writing the YouTube thumbnail and description…"; videoJob?.progress = 0.99
+                await makeYouTubeFiles(plan: p, video: out)
                 outputURL = out; videoJob = nil
                 doneNote = DoneNote(text: "Your video is ready" + (shortURLs.isEmpty ? "" : " (and \(shortURLs.count) Short\(shortURLs.count == 1 ? "" : "s"))"), watch: true)
             } catch is CancellationError {
@@ -1079,6 +1083,20 @@ final class AppModel: ObservableObject {
             videoTask = nil
         }
     }
+    /// The thumbnail (the title card picture with the song title) and the search-friendly description, next to the video.
+    func makeYouTubeFiles(plan p: Plan, video: URL) async {
+        guard let w = workDir, let pic = (p.intro.selectedCandidate?.fullFile ?? p.sections.lazy.compactMap { $0.selectedCandidate?.fullFile }.first).map({ w.appendingPathComponent($0) }) else { return }
+        youtubeBusy = true; defer { youtubeBusy = false }
+        let cfg = config
+        let listing = await YouTubeKit.lyricListing(p, config: cfg)
+        let sub = p.subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let f = try? YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.title, badge: "Lyric video", line: sub.isEmpty ? nil : sub, listing: listing) { youtubeFiles = f }
+    }
+    func remakeYouTubeFiles() {
+        guard let p = plan, let v = outputURL else { return }
+        Task { await makeYouTubeFiles(plan: p, video: v) }
+    }
+
     func cancelVideo() { videoTask?.cancel(); videoTask = nil; videoJob = nil }
 
     /// "Make my video" with pictures still missing: draw them first, then make the video (stops, without a video, if a drawing fails).

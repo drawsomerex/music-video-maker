@@ -545,6 +545,7 @@ struct DoneView: View {
                     Button { model.reset() } label: { Label("Start a new video", systemImage: "plus") }.controlSize(.large)
                         .help("Starts over with a new song. This video stays saved in its folder.")
                 }
+                YouTubeFilesRow(files: model.youtubeFiles, busy: model.youtubeBusy) { model.remakeYouTubeFiles() }
             }
         }
         .padding(28)

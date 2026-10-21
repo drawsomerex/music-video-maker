@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **A YouTube thumbnail and a search-friendly description with every video.** Next to the finished video the app saves "<name> – thumbnail.jpg" (1280×720, under 2 MB: the picture with the title set on its quieter side, away from the people and main objects, plus a small badge such as "8 HOURS" or "Lyric video"; the bottom right stays clear for YouTube's length label) and "<name> – YouTube.txt" (title under 70 characters with the strongest search words first, a description with the keywords in the first two lines, chapters every hour for looping videos or the full lyrics for lyric videos, 15–25 tags that are true for the video, and 3 hashtags). Written on your Mac by the local model, free, with a careful fixed version if it is not available. The looping video screen and the Video screen show the thumbnail with "Copy title", "Copy description", "Copy tags" and "Make them again".
+
 ## [1.10.1] - 2026-10-21
 
 ### Added

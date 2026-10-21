@@ -30,10 +30,11 @@ public struct LoopProject: Codable, Equatable {
     public var hours = 1.0
     public var imagesUSD = 0.0, videoUSD = 0.0, pictureCount = 0
     public var output: String?                  // the last long video made (full path)
+    public var thumbnail: String?, listing: String?     // the YouTube thumbnail and description beside it (full paths)
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -47,6 +48,7 @@ public struct LoopProject: Codable, Equatable {
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
         imagesUSD = try c.decodeIfPresent(Double.self, forKey: .imagesUSD) ?? 0; videoUSD = try c.decodeIfPresent(Double.self, forKey: .videoUSD) ?? 0
         pictureCount = try c.decodeIfPresent(Int.self, forKey: .pictureCount) ?? 0; output = try c.decodeIfPresent(String.self, forKey: .output)
+        thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail); listing = try c.decodeIfPresent(String.self, forKey: .listing)
     }
 }
 
@@ -215,6 +217,25 @@ public enum LoopVideo {
         case .running: return "A loop clip ordered earlier is still being made by HeyGen; it is collected the next time you open this project."
         case .unknown: return nil
         }
+    }
+
+    // MARK: YouTube
+    /// The thumbnail and description for the long video `video` (it does not have to exist yet: they go where it is saved).
+    /// The thumbnail uses the picture; with only your own clip, its first frame.
+    public static func makeYouTubeFiles(_ p: inout LoopProject, dir: URL, video: URL, config: Config = .load()) async throws {
+        var source = p.picture.map { dir.appendingPathComponent($0) }
+        if source == nil, let c = p.clip {
+            let g = AVAssetImageGenerator(asset: AVURLAsset(url: dir.appendingPathComponent(c))); g.appliesPreferredTrackTransform = true
+            if let img = try? g.copyCGImage(at: .zero, actualTime: nil), let dest = CGImageDestinationCreateWithURL(dir.appendingPathComponent("thumbnail-source.jpg") as CFURL, "public.jpeg" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary); CGImageDestinationFinalize(dest)
+                source = dir.appendingPathComponent("thumbnail-source.jpg")
+            }
+        }
+        guard let pic = source else { throw MVError("Add the picture or the loop clip first: the thumbnail is made from it.") }
+        let listing = await YouTubeKit.loopListing(p, config: config)
+        let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.shownTitle, badge: YouTubeKit.hoursText(p.hours), line: "Study · Focus · Relax", listing: listing)
+        p.thumbnail = f.thumbnail.path; p.listing = f.description.path
+        save(p, dir)
     }
 
     // MARK: making the long video
