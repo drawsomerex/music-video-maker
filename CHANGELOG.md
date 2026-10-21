@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-21
+
 ### Added
 - **Framing warning (never an automatic redraw).** When a picture is drawn, a free check on your Mac compares its layout with the picture before it; if the framing is almost the same, an orange warning shows under the picture and in the "Make all" summary. You decide whether to keep it or press *Try another picture*.
 - **A named camera view in every drawn picture.** The prompt now asks for a specific view (low angle, aerial, wide, framed through something, over the shoulder, side-on, medium) that differs from the pictures on either side, instead of "a different angle".
