@@ -85,6 +85,7 @@ extension AppModel {
         }()
         let omlx = OMLX(config: config); try? await omlx.ensureReady()
         let shots = await PromptWriter(omlx: omlx).clipShots(idea: sec0.prompt, lyricsPerClip: perClip, title: p0.title, subject: p0.description, setting: p0.setting)
+        let wasUsing = sec0.useClips
         var base = sec0.clips                                  // clips already in the section stay when the whole section is continued
         if !chain { base = []; checkpoint("Make video clip") } else { checkpoint("Make video clips") }
         var made: [SectionClip] = []
@@ -106,7 +107,7 @@ extension AppModel {
             }
             // keep the new clip with the section (not yet used until you accept it)
             let shown = base + made + [clip]
-            if section < 0 { p.intro.clips = shown } else { p.sections[section].clips = shown }
+            if section < 0 { p.intro.clips = shown; p.intro.useClips = true } else { p.sections[section].clips = shown; p.sections[section].useClips = true }      // a new clip is in use straight away
             plan = p; persist(); live.invalidate()
             refreshOpenRouterCredits(silent: true)
             let last = k == job.secondsList.count - 1
@@ -122,7 +123,7 @@ extension AppModel {
                 if section < 0 { drop(&q.intro) } else { drop(&q.sections[section]) }
                 plan = q; persist(); continue
             case .discard:
-                var q = plan!; let drop = { (s: inout PhotoSection) in s.clips = Array(s.clips.prefix(base.count + made.count)) }
+                var q = plan!; let drop = { (s: inout PhotoSection) in s.clips = Array(s.clips.prefix(base.count + made.count)); s.useClips = !s.clips.isEmpty && (wasUsing || !made.isEmpty) }
                 if section < 0 { drop(&q.intro) } else { drop(&q.sections[section]) }
                 plan = q; persist(); live.invalidate(); return
             case .stop:

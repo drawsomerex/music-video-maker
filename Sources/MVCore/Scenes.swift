@@ -45,6 +45,8 @@ struct ClipSegment { let source: VideoClipSource; let offset: Double; let second
 final class PhotoScene {
     let box: ImageBox?
     var clipTrack: [ClipSegment] = []   // generated video clips played back to back from the start of the scene; afterwards the last frame (`box`) gets a Ken Burns push-in
+    var subjects: [CGPoint] = []        // the main subjects of the picture: the automatic camera travels from one to the next
+    var tail = false                    // this scene is the frame a video clip ended on: the camera starts wide (matching the clip) and moves in to the subjects
     var kbStart: Double = .nan          // when that Ken Burns begins (video time); NaN = at the start of the scene
     let video: VideoClipSource?          // a video clip that plays during this scene instead of a moving still picture
     let a: Double, b: Double            // video-time interval
@@ -220,20 +222,19 @@ final class PhotoScene {
         let bw = iw / ih > target ? ih * target : iw        // base cover rect
         let bh = bw / target
 
-        let ep = endpoints(iw: iw, ih: ih, W: W, H: H)
-
-        // Logarithmic (exponential) zoom interpolation for constant perceived optical magnification speed
-        let z = ep.z0 * pow(ep.z1 / ep.z0, u)
-
-        // Perspective-coupled center interpolation: guarantees every edge of the crop window moves linearly
-        // and never collides with the image boundary mid-shot.
-        let invZ0 = 1.0 / ep.z0
-        let invZ1 = 1.0 / ep.z1
-        let invZ  = 1.0 / z
-        let alpha = abs(invZ1 - invZ0) > 1e-5 ? (invZ - invZ0) / (invZ1 - invZ0) : u
-
-        let ncx = lerp(ep.c0.x, ep.c1.x, alpha)
-        let ncy = lerp(ep.c0.y, ep.c1.y, alpha)
+        var ncx = 0.5, ncy = 0.5, z = 1.0
+        if camera == nil {
+            (ncx, ncy, z) = autoState(t: t, kb0: kb0, iw: iw, ih: ih, bw: bw, bh: bh)
+        } else {
+            let ep = endpoints(iw: iw, ih: ih, W: W, H: H)
+            // Logarithmic (exponential) zoom interpolation for constant perceived optical magnification speed
+            z = ep.z0 * pow(ep.z1 / ep.z0, u)
+            // Perspective-coupled center interpolation: guarantees every edge of the crop window moves linearly
+            // and never collides with the image boundary mid-shot.
+            let invZ0 = 1.0 / ep.z0, invZ1 = 1.0 / ep.z1, invZ = 1.0 / z
+            let alpha = abs(invZ1 - invZ0) > 1e-5 ? (invZ - invZ0) / (invZ1 - invZ0) : u
+            ncx = lerp(ep.c0.x, ep.c1.x, alpha); ncy = lerp(ep.c0.y, ep.c1.y, alpha)
+        }
 
         let rw = bw / z, rh = bh / z
         var cx = ncx * iw, cy = ncy * ih
@@ -242,6 +243,43 @@ final class PhotoScene {
         let rx = cx - rw / 2, ry = cy - rh / 2
         let s = Double(W) / rw
         ctx.draw(img, in: CGRect(x: -rx * s, y: -(ih - (ry + rh)) * s, width: iw * s, height: ih * s))
+    }
+
+    /// The automatic camera: it always moves, from one subject to the next (or from a wide view in to the one subject), at a steady, visible pace.
+    /// Long scenes keep travelling back and forth between the subjects, so a scene is never left standing still.
+    private func autoState(t: Double, kb0: Double, iw: Double, ih: Double, bw: Double, bh: Double) -> (Double, Double, Double) {
+        let halfW0 = 0.5 * bw / iw, halfH0 = 0.5 * bh / ih
+        func clampC(_ p: CGPoint, _ z: Double) -> CGPoint {
+            let mx = max(0, (0.5 - halfW0 / z) * 0.996), my = max(0, (0.5 - halfH0 / z) * 0.996)
+            return CGPoint(x: min(0.5 + mx, max(0.5 - mx, p.x)), y: min(0.5 + my, max(0.5 - my, p.y)))
+        }
+        let tight = vertical ? 1.3 : 1.75, wide = vertical ? 1.0 : 1.1
+        var subs = subjects.isEmpty ? [focus] : subjects
+        subs.sort { $0.x < $1.x }
+        if mode == 3 || mode == 1 { subs.reverse() }                      // alternate the direction of travel from scene to scene
+        var keys: [(CGPoint, Double)]
+        if tail { keys = [(CGPoint(x: 0.5, y: 0.5), 1.0)] + subs.map { ($0, tight) } }
+        else if subs.count >= 2 { keys = subs.map { ($0, tight) } }
+        else {
+            let c = CGPoint(x: 0.5 + (subs[0].x - 0.5) * 0.25, y: 0.5 + (subs[0].y - 0.5) * 0.25)
+            keys = mode == 1 ? [(subs[0], tight), (c, wide)] : [(c, wide), (subs[0], tight)]
+        }
+        let total = max(0.5, b - (kb0.isNaN ? a : kb0))
+        let wanted = min(10, max(keys.count - 1, Int((total / 7).rounded())))      // legs of about 7 seconds
+        var path = [keys[0]]; var i = 0, step = 1
+        while path.count - 1 < wanted {
+            i += step
+            if i >= keys.count { i = keys.count - 2; step = -1 } else if i < 0 { i = 1; step = 1 }
+            path.append(keys[i])
+        }
+        let legs = path.count - 1, legDur = total / Double(legs)
+        let local = min(total, max(0, t - (kb0.isNaN ? a : kb0)))
+        let k = min(legs - 1, Int(local / legDur)), f = (local - Double(k) * legDur) / legDur
+        let e = 0.35 * f + 0.65 * (0.5 - 0.5 * cos(.pi * f))               // mostly smooth, never stopping dead between legs
+        let (p0, z0) = path[k], (p1, z1) = path[k + 1]
+        let z = z0 * pow(z1 / z0, e)
+        let c = clampC(CGPoint(x: lerp(Double(p0.x), Double(p1.x), e), y: lerp(Double(p0.y), Double(p1.y), e)), z)
+        return (Double(c.x), Double(c.y), z)
     }
 
     func drawGradient(_ ctx: CGContext, _ W: Int, _ H: Int, _ u: Double) {

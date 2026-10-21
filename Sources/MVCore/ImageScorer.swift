@@ -12,6 +12,38 @@ public struct ImageAnalysis {
 }
 
 public enum ImageScorer {
+    private static let subjectLock = NSLock()
+    nonisolated(unsafe) private static var subjectCache: [String: [CGPoint]] = [:]
+
+    /// The main subjects of a picture (people first, then other salient objects), as normalised points, origin top-left, at most 3, well apart from each other.
+    /// The automatic Ken Burns travels from one subject to the next. Results are cached per file.
+    public static func subjects(fileURL: URL) -> [CGPoint] {
+        let mod = ((try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let key = fileURL.path + "|\(mod)"
+        subjectLock.lock(); if let c = subjectCache[key] { subjectLock.unlock(); return c }; subjectLock.unlock()
+        var out: [CGPoint] = []
+        if let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+           let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 640] as CFDictionary) {
+            let handler = VNImageRequestHandler(cgImage: img, options: [:])
+            let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
+            let objects = VNGenerateObjectnessBasedSaliencyImageRequest()
+            try? handler.perform([people, objects])
+            var cands: [(CGPoint, Double)] = []
+            for p in (people.results ?? []).sorted(by: { $0.boundingBox.width * $0.boundingBox.height > $1.boundingBox.width * $1.boundingBox.height }).prefix(3) {
+                let b = p.boundingBox; if b.width * b.height > 0.01 { cands.append((CGPoint(x: b.midX, y: 1 - (b.minY + 0.72 * b.height)), 2 + Double(b.width * b.height))) }   // aim at the head and chest
+            }
+            for o in objects.results?.first?.salientObjects ?? [] {
+                let b = o.boundingBox; let area = Double(b.width * b.height)
+                if area > 0.015 && area < 0.8 { cands.append((CGPoint(x: b.midX, y: 1 - b.midY), area)) }
+            }
+            for (p, _) in cands.sorted(by: { $0.1 > $1.1 }) where out.count < 3 {
+                if !out.contains(where: { hypot($0.x - p.x, $0.y - p.y) < 0.18 }) { out.append(p) }
+            }
+        }
+        subjectLock.lock(); subjectCache[key] = out; subjectLock.unlock()
+        return out
+    }
+
     public static func analyze(fileURL: URL) -> ImageAnalysis? {
         guard let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
               let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,

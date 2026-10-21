@@ -47,7 +47,7 @@ public final class FrameComposer: @unchecked Sendable {
         bounds = b
         // A 16:9 picture shown in a 9:16 frame is cropped to its height, so it must be decoded ~H·zoom tall (long side ≈ that × 16/9).
         // Calm motion never zooms past ~1.45×, so it needs far fewer pixels (and megabytes) than punchy.
-        let maxPx = settings.vertical ? Int(Double(settings.height) * (dyn && !style.calm ? 1.7 : 1.45) * 16.0 / 9.0) : Int(Double(settings.width) * 1.42)
+        let maxPx = settings.vertical ? Int(Double(settings.height) * (dyn && !style.calm ? 1.7 : 1.45) * 16.0 / 9.0) : Int(Double(settings.width) * 1.85)
         let all = hasIntro ? [plan.intro] + plan.sections : plan.sections
         // Pictures are decoded lazily (when their section starts) and released afterwards; see `releaseImages`.
         let boxes: [ImageBox?] = all.map { s in s.selectedCandidate?.fullFile.map { ImageBox(url: work.appendingPathComponent($0), maxPixel: maxPx) } }
@@ -77,6 +77,10 @@ public final class FrameComposer: @unchecked Sendable {
                 scene.clipTrack = sec.clips.map { ClipSegment(source: VideoClipSource(url: work.appendingPathComponent($0.file), maxPixel: maxPx), offset: $0.offset, seconds: $0.seconds) }
                 if let last = sec.clips.last { scene.kbStart = a + last.offset + last.seconds }
             }
+            // the subjects the automatic camera travels between (people first); for the frame after a video clip, from the clip's last frame
+            let subjectFile = useClips ? sec.clips.last?.lastFrame : (c?.thumbFile ?? c?.fullFile)
+            scene.subjects = subjectFile.map { ImageScorer.subjects(fileURL: work.appendingPathComponent($0)) } ?? []
+            scene.tail = useClips
             sc.append(scene)
         }
         scenes = sc

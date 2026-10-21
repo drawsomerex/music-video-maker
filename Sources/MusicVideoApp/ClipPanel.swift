@@ -120,6 +120,7 @@ struct ClipPanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(j.chain ? "Clip \(j.index + 1) of \(j.secondsList.count) is ready — watch it" : "Your clip is ready — watch it").font(.callout.weight(.semibold))
                 ClipPlayer(url: w.appendingPathComponent(c.file)).frame(maxWidth: 420)
+                Text(j.chain ? "It is already in use. Redo it if you don't like it." : "It is already switched on, with Ken Burns carrying on after it. Redo or discard it if you don't like it.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let warn = c.warning { Label("Realism check: \(warn)", systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
                 Text("Cost: \(OpenRouter.formatUSD(c.costUSD))").font(.caption).foregroundStyle(.secondary)
                 let nextPrice = model.clipPriceUSD(Array(j.secondsList.dropFirst(j.index + 1).prefix(1)))
@@ -143,12 +144,12 @@ struct ClipPanel: View {
         let again = OpenRouter.formatUSD(model.clipPriceUSD([j.secondsList[min(j.index, j.secondsList.count - 1)]]))
         if j.chain {
             if j.index < j.secondsList.count - 1 {
-                Button { model.decideClip(.next) } label: { Label("Looks good — make the next (≈ \(OpenRouter.formatUSD(nextPrice)))", systemImage: "forward.fill") }.buttonStyle(.borderedProminent)
-            } else { Button { model.decideClip(.next) } label: { Label("Looks good — finish", systemImage: "checkmark") }.buttonStyle(.borderedProminent) }
+                Button { model.decideClip(.next) } label: { Label("Looks good — make the next (≈ \(OpenRouter.formatUSD(nextPrice)))", systemImage: "forward.fill") }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            } else { Button { model.decideClip(.next) } label: { Label("Looks good — finish", systemImage: "checkmark") }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
             Button { model.decideClip(.redo) } label: { Label("Redo this clip (≈ \(again))", systemImage: "arrow.counterclockwise") }
             Button { model.decideClip(.stop) } label: { Label("Stop here (keep these)", systemImage: "stop.fill") }
         } else {
-            Button { model.decideClip(.use) } label: { Label("Use this clip", systemImage: "checkmark") }.buttonStyle(.borderedProminent)
+            Button { model.decideClip(.use) } label: { Label("Use this clip", systemImage: "checkmark") }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             Button { model.decideClip(.redo) } label: { Label("Redo (≈ \(again))", systemImage: "arrow.counterclockwise") }
             Button { model.decideClip(.discard) } label: { Label("Discard", systemImage: "trash") }
         }
