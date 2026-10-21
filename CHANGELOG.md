@@ -5,6 +5,12 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Changed
+- **A smoother, more cinematic automatic Ken Burns.** Researched against how editing tools and documentary editors do it (a single move between a start and an end framing, constant speed with only a short ease at each end, restrained zoom). The automatic camera is now exactly **one steady move per picture in one direction**: it never goes up, then down, then across, and never comes back. The speed is the same in every picture (about 8% of the screen width per second across, about 4.5% per second closer): a short picture travels less far, a long one travels as far as the picture allows, a little slower. Pictures move from the first focal point to the second while closing in a little; a single subject gets a push-in (or pull-out). After a video clip the last frame starts on the full frame, exactly as the clip ended, and moves steadily in toward its main feature, leaning toward the second one. Shorts use a slightly faster speed. Moves you set yourself are unchanged. New tests check that every move is one-directional, constant in speed and stays inside the picture.
+
+### Fixed
+- **"All songs together" is a permanent record now.** What you have spent (pictures and video clips) is kept in a record outside the song folders, so it never goes down: not after an update, and not when a song is moved, re-planned or its folder is deleted. Songs already on disk are added to it automatically the first time. (A song whose folder was deleted before this version cannot be recovered.)
+
 ## [1.9.1] - 2026-10-21
 
 ### Added

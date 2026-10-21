@@ -15,7 +15,7 @@ struct CostBar: View {
         .frame(maxWidth: .infinity)
         .background(Color.green.opacity(0.10))
         .overlay(alignment: .bottom) { Divider() }
-        .task(id: "\(model.plan?.totalGenerationCostUSD ?? 0)|\(model.config.projectsFolder)|\(model.busy)") {
+        .task(id: "\(model.plan?.totalGenerationCostUSD ?? 0)|\(model.plan?.totalVideoCostUSD ?? 0)|\(model.config.projectsFolder)|\(model.busy)") {
             let root = model.config.projectsRoot
             all = await Task.detached(priority: .utility) { Pipeline.totalSpent(in: root) }.value
         }
@@ -35,7 +35,7 @@ struct CostBar: View {
                      help: "The estimated cost of drawing every picture that is still blank, at about \(OpenRouter.formatUSD(model.perImageCostUSD)) each.")
             }
             item(compact ? "All songs" : "All songs together", OpenRouter.formatUSD(all.usd), detail: all.songs > 1 ? "\(all.songs) songs" : nil,
-                 help: "Everything you have spent on pictures across all your songs.")
+                 help: "Everything you have spent on pictures and video clips across all your songs. It is kept in a permanent record, so it never goes down: not after an update, not when a song is moved or deleted.")
             if model.hasOpenRouterKey, let rem = model.openRouterCredits {
                 item(compact ? "Credit" : "Credit left", OpenRouter.formatCredits(rem), tint: rem < model.missingImagesCostUSD ? .orange : .green,
                      help: "What is left on your OpenRouter account. It turns orange when it is not enough to draw all the blank pictures.")

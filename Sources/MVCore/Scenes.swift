@@ -255,47 +255,100 @@ final class PhotoScene {
         ctx.draw(img, in: CGRect(x: -rx * s, y: -(ih - (ry + rh)) * s, width: iw * s, height: ih * s))
     }
 
-    /// The automatic camera: it always moves, from one subject to the next (or from a wide view in to the one subject), at a steady, visible pace.
-    /// Long scenes keep travelling back and forth between the subjects, so a scene is never left standing still.
-    private func autoState(t: Double, kb0: Double, iw: Double, ih: Double, bw: Double, bh: Double) -> (Double, Double, Double) {
+    /// The automatic camera: ONE steady move per scene, in one direction, never back and forth.
+    ///
+    /// What makes a Ken Burns move look cinematic rather than cheap (editing guides, Final Cut Pro's two-rectangle model, documentary practice):
+    /// - a single straight move from a start framing to an end framing (never up, then down, then across);
+    /// - a constant, moderate speed, with only a very short ease at each end so it never starts or stops abruptly;
+    /// - a restrained size: it pushes in (or pulls out) a modest amount, so the picture stays sharp.
+    /// So the speed is the same in every scene (about 8 % of the frame width per second across, about 4.5 % per second closer), whatever the scene's
+    /// length. A short scene simply travels less far; a long scene travels as far as the picture allows and the speed eases to at most 40 % slower.
+    struct AutoMove { var c0: CGPoint; var z0: Double; var c1: CGPoint; var z1: Double; var ramp: Double; var total: Double }
+    private var moveCache: AutoMove?
+
+    func autoMove(iw: Double, ih: Double, bw: Double, bh: Double, total: Double) -> AutoMove {
+        if let m = moveCache, abs(m.total - total) < 1e-6 { return m }
         let halfW0 = 0.5 * bw / iw, halfH0 = 0.5 * bh / ih
         func clampC(_ p: CGPoint, _ z: Double) -> CGPoint {
             let mx = max(0, (0.5 - halfW0 / z) * 0.996), my = max(0, (0.5 - halfH0 / z) * 0.996)
             return CGPoint(x: min(0.5 + mx, max(0.5 - mx, p.x)), y: min(0.5 + my, max(0.5 - my, p.y)))
         }
-        let tight = vertical ? 1.3 : 1.75, wide = vertical ? 1.0 : 1.1
+        let vp = energetic ? 0.11 : 0.08, vz = energetic ? 0.065 : 0.045       // top speeds: frame widths per second across, natural-log zoom per second
+        let zmax = tail ? 1.5 : (vertical ? 1.45 : 1.8), minFrac = 0.6
+        func need(_ c0: CGPoint, _ z0: Double, _ c1: CGPoint, _ z1: Double) -> Double {       // seconds this move takes at the top speed
+            let pan = hypot((c1.x - c0.x) * iw, (c1.y - c0.y) * ih) * ((z0 + z1) / 2) / bw        // how far the picture slides across the screen, in screen widths
+            return max(pan / vp, abs(log(z1 / z0)) / vz)
+        }
         var subs = subjects.isEmpty ? [focus] : subjects
         if !subjectsOrdered { subs.sort { $0.x < $1.x } }
-        if mode == 3 || mode == 1 { subs.reverse() }                      // alternate the direction of travel from scene to scene
-        let total = max(0.5, b - (kb0.isNaN ? a : kb0))
-        var path: [(CGPoint, Double)]; var durs: [Double]
-        if tail {
-            // after a video clip: the last frame holds, the camera eases in from the full frame onto the most prominent feature, then travels to the second
-            if subs.count == 1 { let f = subs[0]; subs.append(CGPoint(x: f.x < 0.5 ? min(0.85, f.x + 0.25) : max(0.15, f.x - 0.25), y: 0.5 + (f.y - 0.5) * 0.6)) }
-            let ease = min(1.6, total * 0.3), rest = max(0.2, total - ease)
-            path = [(CGPoint(x: 0.5, y: 0.5), 1.0), (subs[0], tight), (subs[1], tight)]; durs = [ease, rest]
-            if rest >= 11 { path.append((subs[0], tight)); durs = [ease, rest / 2, rest / 2] }       // once back, in a long scene
-        } else {
-            var keys: [(CGPoint, Double)]
-            if subs.count >= 2 { keys = subs.map { ($0, tight) } }
-            else {
-                let c = CGPoint(x: 0.5 + (subs[0].x - 0.5) * 0.25, y: 0.5 + (subs[0].y - 0.5) * 0.25)
-                keys = mode == 1 ? [(subs[0], tight), (c, wide)] : [(c, wide), (subs[0], tight)]
-            }
-            // One journey only: from one side to the other, and once back when there is time for it (never back and forth again).
-            if keys.count >= 3 { path = Array(keys.prefix(3)) }
-            else { path = keys; if total >= 11 { path.append(keys[0]) } }
-            durs = Array(repeating: total / Double(path.count - 1), count: path.count - 1)
+        if mode == 3 || mode == 1 { subs.reverse() }                       // alternate the direction of travel from scene to scene
+        let centre = CGPoint(x: 0.5, y: 0.5)
+        var c0: CGPoint, z0: Double, c1: CGPoint, z1: Double
+        if tail {                                                          // after a clip: from the full frame the clip ended on, in toward its main feature (leaning to the second)
+            let target = subs.count > 1 ? CGPoint(x: lerp(Double(subs[0].x), Double(subs[1].x), 0.35), y: lerp(Double(subs[0].y), Double(subs[1].y), 0.35)) : subs[0]
+            c0 = centre; z0 = 1.0; c1 = target; z1 = zmax * 0.92
+        } else if subs.count >= 2 {                                        // from one feature to the next, closing in a little as it goes
+            let lo = vertical ? 1.12 : 1.25, hi = vertical ? 1.35 : 1.6
+            c0 = subs[0]; z0 = lo; c1 = subs[1]; z1 = min(zmax, hi)
+        } else {                                                           // one subject: push in on it (or pull out from it)
+            let f = subs[0], wide = CGPoint(x: 0.5 + (f.x - 0.5) * 0.25, y: 0.5 + (f.y - 0.5) * 0.25)
+            let inward = (mode % 2 == 0)
+            let tight = min(zmax, vertical ? 1.4 : 1.6)
+            if inward { c0 = wide; z0 = 1.0; c1 = f; z1 = tight } else { c0 = f; z0 = tight; c1 = wide; z1 = 1.0 }
         }
-        let local = min(total, max(0, t - (kb0.isNaN ? a : kb0)))
-        var k = 0, acc = 0.0
-        while k < durs.count - 1 && local >= acc + durs[k] { acc += durs[k]; k += 1 }
-        let f = min(1, max(0, (local - acc) / max(0.001, durs[k])))
-        let e = 0.35 * f + 0.65 * (0.5 - 0.5 * cos(.pi * f))               // mostly smooth, never stopping dead between legs
-        let (p0, z0) = path[k], (p1, z1) = path[k + 1]
-        let z = z0 * pow(z1 / z0, e)
-        let c = clampC(CGPoint(x: lerp(Double(p0.x), Double(p1.x), e), y: lerp(Double(p0.y), Double(p1.y), e)), z)
-        return (Double(c.x), Double(c.y), z)
+        c0 = clampC(c0, z0); c1 = clampC(c1, z1)
+        let ramp = min(0.7, total * 0.1), moveTime = max(0.3, total - ramp)
+        let n = need(c0, z0, c1, z1)
+        func at(_ s: Double) -> (CGPoint, Double) {
+            let z = z0 * pow(z1 / z0, s)
+            return (CGPoint(x: c0.x + (c1.x - c0.x) * s, y: c0.y + (c1.y - c0.y) * s), z)
+        }
+        var s = 1.0
+        if n > moveTime { s = moveTime / n }                               // too far to cover at the top speed: travel as far as it goes, never faster
+        else if n < minFrac * moveTime {                                   // too short for the time: carry on in the same direction (as far as the picture allows) instead of crawling
+            if n < 1e-6 { z1 = min(zmax, z0 * exp(minFrac * moveTime * vz)); c1 = c0 }
+            else {
+                var want = min(4.0, (minFrac * moveTime) / n)
+                while want > 1.0 {
+                    let (c, z) = at(want)
+                    if z <= zmax + 1e-9 && z >= 1.0 - 1e-9 && abs(clampC(c, z).x - c.x) < 1e-9 && abs(clampC(c, z).y - c.y) < 1e-9 { break }
+                    want -= 0.1
+                }
+                s = max(1.0, want)
+            }
+        }
+        let (ce, ze) = at(s)
+        let end = (clampC(ce, ze), min(zmax, max(1.0, ze)))
+        let m = AutoMove(c0: c0, z0: z0, c1: end.0, z1: end.1, ramp: ramp, total: total)
+        moveCache = m
+        return m
+    }
+
+    /// Progress 0…1 of a move that cruises at one speed with a short ease in and out.
+    static func cruise(_ t: Double, total: Double, ramp: Double) -> Double {
+        let r = max(0.001, ramp), span = max(0.001, total - r)
+        let x = min(max(0, t), total)
+        let d: Double
+        if x < r { d = 0.5 * x * x / r } else if x <= total - r { d = 0.5 * r + (x - r) } else { d = span - 0.5 * (total - x) * (total - x) / r }
+        return min(1, max(0, d / span))
+    }
+
+    /// The camera (centre x, centre y, zoom) a moment into the move. Zoom grows by the same percentage every second; the centre is coupled to the zoom so the
+    /// picture slides across the screen at one steady speed and every edge of the view travels in a straight line, always inside the picture.
+    static func state(_ m: AutoMove, t: Double) -> (x: Double, y: Double, z: Double) {
+        let p = cruise(t, total: m.total, ramp: m.ramp)
+        let z = m.z0 * pow(m.z1 / m.z0, p)
+        let d = 1 / m.z0 - 1 / m.z1
+        let alpha = abs(d) > 1e-6 ? (1 / m.z0 - 1 / z) / d : p
+        return (Double(m.c0.x + (m.c1.x - m.c0.x) * alpha), Double(m.c0.y + (m.c1.y - m.c0.y) * alpha), z)
+    }
+
+    private func autoState(t: Double, kb0: Double, iw: Double, ih: Double, bw: Double, bh: Double) -> (Double, Double, Double) {
+        let k0 = kb0.isNaN ? a : kb0
+        let total = max(0.5, b - k0)
+        let m = autoMove(iw: iw, ih: ih, bw: bw, bh: bh, total: total)
+        let st = PhotoScene.state(m, t: t - k0)
+        return (st.x, st.y, st.z)
     }
 
     func drawGradient(_ ctx: CGContext, _ W: Int, _ H: Int, _ u: Double) {

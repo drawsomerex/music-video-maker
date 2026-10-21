@@ -57,4 +57,16 @@ final class FramingCheckTests: XCTestCase {
         XCTAssertEqual(Set(try fm.contentsOfDirectory(atPath: lib.path)), [pic, base + " clip 1.mp4", base + " clip 2.mp4"])
         XCTAssertEqual(PictureLibrary.backfill(plan: &plan, work: work), 0, "running it again adds nothing")
     }
+
+    func testSpendRecordOnlyGoesUpAndSurvivesDeletedSongs() throws {
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent("spend-\(UUID().uuidString).json")
+        setenv("MV_SPEND_FILE", f.path, 1); defer { unsetenv("MV_SPEND_FILE"); try? FileManager.default.removeItem(at: f) }
+        SpendLedger.record("path:/songs/a", .init(title: "A", path: "/songs/a", imagesUSD: 0.5, videoUSD: 0.2, pictures: 5))
+        SpendLedger.record("id-a", .init(title: "A", path: "/songs/a", imagesUSD: 0.6, videoUSD: 0.2, pictures: 6))    // the same song, now with an id: not counted twice
+        SpendLedger.record("id-b", .init(title: "B", path: "/songs/b", imagesUSD: 1.0, videoUSD: 0, pictures: 10))
+        XCTAssertEqual(SpendLedger.total().usd, 1.8, accuracy: 0.0001)
+        SpendLedger.record("id-b", .init(title: "B", path: "/songs/b", imagesUSD: 0.1, videoUSD: 0, pictures: 1))         // a re-plan that reset the song's own counter
+        XCTAssertEqual(SpendLedger.total().usd, 1.8, accuracy: 0.0001, "a smaller number never lowers the record")
+        XCTAssertEqual(SpendLedger.total().songs, 2)
+    }
 }

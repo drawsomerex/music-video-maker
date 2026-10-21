@@ -14,19 +14,20 @@ public enum Pipeline {
 
     public static let projectFileName = "project.mvproj"
     /// The save file. Older projects used plan.json; reading falls back to it.
-    /// Adds up what picture generation has cost across every song saved under `root` (each project keeps its own running total).
+    /// What you have spent across all songs (pictures and video clips): the permanent record, topped up from every song found under `root`
+    /// (songs made before the record existed are picked up here; a song whose folder is later deleted still counts).
     public static func totalSpent(in root: URL) -> (usd: Double, pictures: Int, songs: Int) {
-        var usd = 0.0, pics = 0, songs = 0
         let fm = FileManager.default
         for dir in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
             for sub in ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []) + [dir] {
                 let f = sub.appendingPathComponent(projectFileName)
                 guard let d = try? Data(contentsOf: f), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
-                let c = (o["totalGenerationCostUSD"] as? Double) ?? 0
-                usd += c; pics += (o["imagesGeneratedCount"] as? Int) ?? 0; if c > 0 { songs += 1 }
+                let id = (o["projectID"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "path:" + sub.path
+                SpendLedger.record(id, SpendLedger.Entry(title: (o["title"] as? String) ?? "", path: sub.path, imagesUSD: (o["totalGenerationCostUSD"] as? Double) ?? 0,
+                                                         videoUSD: (o["totalVideoCostUSD"] as? Double) ?? 0, pictures: (o["imagesGeneratedCount"] as? Int) ?? 0))
             }
         }
-        return (usd, pics, songs)
+        return SpendLedger.total()
     }
 
     public static func planURL(_ work: URL) -> URL { work.appendingPathComponent(projectFileName) }
@@ -69,7 +70,13 @@ public enum Pipeline {
         }
         return plan
     }
-    public static func savePlan(_ plan: Plan, _ work: URL) throws {
+    public static func savePlan(_ planIn: Plan, _ work: URL) throws {
+        var plan = planIn
+        if plan.projectID.isEmpty {                                  // older song: keep the identity it already has on disk, or give it one now
+            let onDisk = (try? Data(contentsOf: planURL(work))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["projectID"] as? String
+            plan.projectID = (onDisk?.isEmpty == false ? onDisk : nil) ?? UUID().uuidString
+        }
+        SpendLedger.record(plan.projectID, SpendLedger.Entry(title: plan.title, path: work.path, imagesUSD: plan.totalGenerationCostUSD, videoUSD: plan.totalVideoCostUSD, pictures: plan.imagesGeneratedCount))
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         try enc.encode(plan).write(to: planURL(work), options: .atomic)
         try? promptsMarkdown(plan).write(to: promptsURL(work), atomically: true, encoding: .utf8)

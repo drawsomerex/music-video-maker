@@ -198,6 +198,7 @@ public struct Plan: Codable {
     public var introDuration: Double
     public var audioOffset: Double        // silence before the song starts (title card pre-roll)
     public var alignmentCoverage: Double  // fraction of lyric words matched to the transcript
+    public var projectID: String = ""       // stable identity of the song, used by the permanent spend record
     public var shorts: [ShortClip] = []   // YouTube Shorts cut from this song
     public var timing: String = "windows"  // "exact" = true word timestamps; "windows" = inferred (±0.3 s)
     public var captionY: Double? = nil      // caption position for the full video (fraction of height from the bottom)
@@ -221,12 +222,13 @@ public struct Plan: Codable {
     public static let defaultCaptionShift = -0.06
 
     enum CodingKeys: String, CodingKey {
-        case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, shorts, timing, captionY
+        case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
         case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, totalVideoCostUSD
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         title = try c.decode(String.self, forKey: .title)
+        projectID = try c.decodeIfPresent(String.self, forKey: .projectID) ?? ""
         subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
         audioPath = try c.decodeIfPresent(String.self, forKey: .audioPath) ?? ""
         audioFile = try c.decodeIfPresent(String.self, forKey: .audioFile) ?? ""
