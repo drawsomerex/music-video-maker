@@ -669,6 +669,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Makes this picture the style guide: every picture drawn from now on is matched to it.
+    /// Opens the shared Pictures folder (every picture, named with its date, project and an increasing number).
+    func showPicturesFolder(select name: String? = nil) {
+        let dir = PictureLibrary.folder(config: config)
+        if let n = name, FileManager.default.fileExists(atPath: dir.appendingPathComponent(n).path) { NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(n)]) }
+        else { NSWorkspace.shared.open(dir) }
+    }
+
     func setStyleGuide(_ section: Int) {
         guard var p = plan else { return }
         checkpoint("Choose style guide picture")

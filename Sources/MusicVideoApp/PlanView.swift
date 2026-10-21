@@ -130,6 +130,8 @@ struct PlanView: View {
             Button("Edit timeline") { model.goToStep(1) }.help("Return to the first page to split or join pictures, music sections and independent Shorts.")
             Button { model.revealProject() } label: { if compact { Image(systemName: "folder") } else { Label("Show folder", systemImage: "folder") } }
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
+            Button { model.showPicturesFolder() } label: { if compact { Image(systemName: "photo.on.rectangle.angled") } else { Label("Pictures folder", systemImage: "photo.on.rectangle.angled") } }
+                .help("Opens the Pictures folder: every picture of every song (drawn by the app or added by you), named with its date, the song and an increasing number, so you can scroll through them.")
             HelpButton(screen: mode == 1 ? "Pictures screen, YouTube Shorts tab" : "Pictures screen")
             Button { model.reset() } label: { if compact { Image(systemName: "xmark.circle") } else { Label("Close", systemImage: "xmark.circle") } }
                 .help("Closes this song and returns to the start. Everything is already saved; use “Open earlier project” to come back.")
@@ -329,6 +331,10 @@ struct PlanView: View {
                             .help("The local AI checked that this picture follows the one before it, is physically possible and fits the song, and rewrote it. Edit the idea to keep your own words; edited ideas are never changed.")
                     } else if section.promptManual {
                         Label("Your own wording — the story check leaves it alone.", systemImage: "pencil").font(.callout).foregroundStyle(.secondary)
+                    }
+                    if section.focal.count >= 2 {
+                        Label("The camera moves from “\(section.focal[0])” to “\(section.focal[1])”", systemImage: "scope").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            .help("Every picture idea has two focal points. The automatic camera travels from the first to the second, and a video clip animates the first moving toward the second.")
                     }
                 }
 
@@ -621,6 +627,10 @@ struct DropWell: View {
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
                 else { cameraControls(c).frame(maxWidth: 640, alignment: .leading) }
                 HStack {
+                    if let n = sec.selectedCandidate?.libraryName {
+                        Button { model.showPicturesFolder(select: n) } label: { Label(n, systemImage: "photo.on.rectangle.angled").lineLimit(1).truncationMode(.middle) }.buttonStyle(.plain).foregroundStyle(.secondary)
+                            .help("This picture is also saved in your Pictures folder under this name. Click to show it in Finder.")
+                    }
                     if model.styleGuideSection == section {
                         Label("Style guide for all pictures", systemImage: "paintpalette.fill").font(.callout).foregroundStyle(.tint)
                             .help("Every other picture is drawn to match the look of this one (it adds about half a cent per picture).")

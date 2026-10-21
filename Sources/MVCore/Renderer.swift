@@ -75,12 +75,15 @@ public final class FrameComposer: @unchecked Sendable {
                                  video: useClips ? nil : c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx, start: c?.videoStart ?? 0, end: c?.videoEnd) }, beats: beats, preferredMode: candidateMode, camera: useClips ? nil : c?.cameraPath)
             if useClips {
                 scene.clipTrack = sec.clips.map { ClipSegment(source: VideoClipSource(url: work.appendingPathComponent($0.file), maxPixel: maxPx), offset: $0.offset, seconds: $0.seconds) }
-                if let last = sec.clips.last { scene.kbStart = a + last.offset + last.seconds }
+                scene.clipScene = true
             }
             // the subjects the automatic camera travels between (people first); for the frame after a video clip, from the clip's last frame
-            let subjectFile = useClips ? sec.clips.last?.lastFrame : (c?.thumbFile ?? c?.fullFile)
-            scene.subjects = subjectFile.map { ImageScorer.subjects(fileURL: work.appendingPathComponent($0)) } ?? []
-            scene.tail = useClips
+            if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
+                scene.subjects = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)]; scene.subjectsOrdered = true        // the picture's own two focal points, 1 → 2
+            } else {
+                let subjectFile = c?.thumbFile ?? c?.fullFile
+                scene.subjects = subjectFile.map { ImageScorer.subjects(fileURL: work.appendingPathComponent($0)) } ?? []
+            }
             sc.append(scene)
         }
         scenes = sc

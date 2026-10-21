@@ -84,7 +84,7 @@ extension AppModel {
             return out
         }()
         let omlx = OMLX(config: config); try? await omlx.ensureReady()
-        let shots = await PromptWriter(omlx: omlx).clipShots(idea: sec0.prompt, lyricsPerClip: perClip, title: p0.title, subject: p0.description, setting: p0.setting)
+        let shots = await PromptWriter(omlx: omlx).clipShots(idea: sec0.prompt, lyricsPerClip: perClip, title: p0.title, subject: p0.description, setting: p0.setting, focal: sec0.selectedCandidate?.focalNames.count == 2 ? sec0.selectedCandidate!.focalNames : sec0.focal)
         let wasUsing = sec0.useClips
         var base = sec0.clips                                  // clips already in the section stay when the whole section is continued
         if !chain { base = []; checkpoint("Make video clip") } else { checkpoint("Make video clips") }

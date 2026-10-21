@@ -195,7 +195,8 @@ public enum Pipeline {
         }
         try Task.checkCancellation()
         intro.prompt = written.prompts[-1] ?? "A wide establishing scene that captures the setting of \"\(title)\"."
-        for i in sections.indices { sections[i].prompt = written.prompts[sections[i].id] ?? "A scene illustrating: " + sections[i].lineIDs.map { lines[$0].text }.joined(separator: " / ") }
+        for i in sections.indices { sections[i].prompt = written.prompts[sections[i].id] ?? "A scene illustrating: " + sections[i].lineIDs.map { lines[$0].text }.joined(separator: " / "); sections[i].focal = written.focal[sections[i].id] ?? [] }
+        intro.focal = written.focal[-1] ?? []
 
         var plan = Plan(title: title, subject: subject, audioPath: audioPath,
                         audioFile: FileManager.default.fileExists(atPath: ownAudio.path) ? audioName : "", songDuration: duration, lines: lines, intro: intro, sections: sections, description: description, style: written.style, introDuration: introDur, audioOffset: offset,
@@ -206,6 +207,8 @@ public enum Pipeline {
         plan.setting = settingNote
         progress?("Checking that the story flows from picture to picture", 0.98)
         await logicPass(plan: &plan, omlx: omlx)
+        progress?("Choosing two focal points for every picture", 0.99)
+        await fillFocal(plan: &plan, omlx: omlx)
         plan.sourceLyrics = lyrics
         plan.pictureBoundaries = pictureBoundaries
         plan.shorts = shorts
@@ -282,7 +285,8 @@ public enum Pipeline {
         let style = plan.style.isEmpty ? "" : " Style: \(plan.style)"
         let setting = plan.setting.trimmingCharacters(in: .whitespacesAndNewlines)
         let stated = setting.isEmpty || s.prompt.lowercased().contains(setting.lowercased())
-        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(style) Bright, vivid, evenly lit with cheerful colours (never dark or gloomy). Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+        let comp = s.focal.count >= 2 ? " Composition: two distinct focal points placed apart in the frame, both clearly visible: \(s.focal[0]) and \(s.focal[1])." : ""
+        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(comp)\(style) Bright, vivid, evenly lit with cheerful colours (never dark or gloomy). Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
     }
 
     public static func promptsMarkdown(_ plan: Plan) -> String {
@@ -321,9 +325,16 @@ public enum Pipeline {
         let items = all.map { s in (id: s.id, prompt: s.prompt, lyrics: s.lineIDs.prefix(4).compactMap { plan.lines.indices.contains($0) ? plan.lines[$0].text : nil }.joined(separator: " / "), manual: s.promptManual) }
         let r = await PromptWriter(omlx: omlx).logicPass(items: items, only: only, title: plan.title, subject: plan.description, setting: plan.setting)
         for (i, p) in r.prompts {
-            if i == -1 { plan.intro.prompt = p; plan.intro.logicNote = r.notes[i] }
-            else if let k = plan.sections.firstIndex(where: { $0.id == i }) { plan.sections[k].prompt = p; plan.sections[k].logicNote = r.notes[i] }
+            if i == -1 { plan.intro.prompt = p; plan.intro.logicNote = r.notes[i]; plan.intro.focal = [] }
+            else if let k = plan.sections.firstIndex(where: { $0.id == i }) { plan.sections[k].prompt = p; plan.sections[k].logicNote = r.notes[i]; plan.sections[k].focal = [] }
         }
+    }
+
+    /// Makes sure every picture idea has two named focal points (asks the local model for any that are missing).
+    static func fillFocal(plan: inout Plan, omlx: OMLX) async {
+        let writer = PromptWriter(omlx: omlx)
+        if plan.intro.focal.count < 2, !plan.intro.prompt.isEmpty { plan.intro.focal = await writer.focalPoints(of: plan.intro.prompt) }
+        for i in plan.sections.indices where plan.sections[i].focal.count < 2 && !plan.sections[i].prompt.isEmpty { plan.sections[i].focal = await writer.focalPoints(of: plan.sections[i].prompt) }
     }
 
     /// Regenerates the style and every prompt from the (possibly edited) song description. Pictures already loaded are kept.
@@ -335,12 +346,13 @@ public enum Pipeline {
             progress?(p, 0.25 + 0.70 * f)
         }
         if !keepStyle || plan.style.isEmpty { plan.style = w.style }
-        if let p = w.prompts[-1] { plan.intro.prompt = p }
-        for i in plan.sections.indices { if let p = w.prompts[plan.sections[i].id] { plan.sections[i].prompt = p } }
+        if let p = w.prompts[-1] { plan.intro.prompt = p; plan.intro.focal = w.focal[-1] ?? [] }
+        for i in plan.sections.indices { if let p = w.prompts[plan.sections[i].id] { plan.sections[i].prompt = p; plan.sections[i].focal = w.focal[plan.sections[i].id] ?? [] } }
         plan.intro.promptManual = false; plan.intro.logicNote = nil
         for i in plan.sections.indices { plan.sections[i].promptManual = false; plan.sections[i].logicNote = nil }
         progress?("Checking that the story flows from picture to picture", 0.96)
         await logicPass(plan: &plan, omlx: omlx)
+        await fillFocal(plan: &plan, omlx: omlx)
         progress?("Done", 1.0)
     }
 
@@ -375,8 +387,10 @@ public enum Pipeline {
         let next = index + 1 < plan.sections.count ? plan.sections[index + 1].prompt : ""
         let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2, setting: plan.setting, previous: prev, next: next)
         if index < 0 { plan.intro.prompt = p; plan.intro.promptManual = false; plan.intro.logicNote = nil } else { plan.sections[index].prompt = p; plan.sections[index].promptManual = false; plan.sections[index].logicNote = nil }
+        if index < 0 { plan.intro.focal = [] } else { plan.sections[index].focal = [] }
         progress?("Checking that it follows the story", 0.8)
         await logicPass(plan: &plan, omlx: omlx, only: [s.id])
+        await fillFocal(plan: &plan, omlx: omlx)
         progress?("Done", 1.0)
     }
 
@@ -453,6 +467,7 @@ public enum Pipeline {
         CGImageDestinationAddImage(dest, t, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary); CGImageDestinationFinalize(dest)
         var c = ImageCandidate(id: "manual:\(UUID().uuidString)", provider: "Manual", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
         c.thumbFile = thumb; c.fullFile = full
+        c.libraryName = PictureLibrary.save(dst, title: plan.title)
         if let a = ImageScorer.analyze(fileURL: work.appendingPathComponent(thumb)) { c.focusX = Double(a.focus.x); c.focusY = Double(a.focus.y) }
         if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1 } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1 }
         cleanupUnreferencedImages(plan: plan, work: work)
@@ -499,7 +514,7 @@ public enum Pipeline {
     }
 
     /// The style guide picture (the title card unless you chose another) as a small JPEG, or nil when this IS the guide or it has no picture yet.
-    static func styleGuideJPEG(plan: Plan, for index: Int, work: URL) -> Data? {
+    public static func styleGuideJPEG(plan: Plan, for index: Int, work: URL) -> Data? {
         let g = plan.styleGuideSection ?? -1
         guard g != index else { return nil }
         let sec = g < 0 ? plan.intro : (plan.sections.indices.contains(g) ? plan.sections[g] : nil)
@@ -524,6 +539,18 @@ public enum Pipeline {
         defer { try? FileManager.default.removeItem(at: tmpURL) }
         try gen.data.write(to: tmpURL)
         _ = try attach(imageAt: tmpURL, section: index, plan: &plan, work: work)
+        // where are the two focal points in the finished picture? The automatic camera travels from the first to the second.
+        let secNow = index < 0 ? plan.intro : plan.sections[index]
+        if let file = secNow.selectedCandidate?.fullFile, let loc = await locateFocalPoints(file: work.appendingPathComponent(file), names: secNow.focal, config: config) {
+            func apply(_ s: inout PhotoSection) {
+                guard s.candidates.indices.contains(s.selected) else { return }
+                s.candidates[s.selected].focalAX = Double(loc.points[0].x); s.candidates[s.selected].focalAY = Double(loc.points[0].y)
+                s.candidates[s.selected].focalBX = Double(loc.points[1].x); s.candidates[s.selected].focalBY = Double(loc.points[1].y)
+                s.candidates[s.selected].focalNames = secNow.focal.count >= 2 ? secNow.focal : loc.names
+            }
+            if index < 0 { apply(&plan.intro) } else { apply(&plan.sections[index]) }
+            plan.totalGenerationCostUSD += loc.cost
+        }
 
         let label = "gpt-image-2.5-sunburst (\(OpenRouter.formatUSD(gen.costUSD)))"
         if index < 0 {

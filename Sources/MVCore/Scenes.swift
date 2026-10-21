@@ -53,7 +53,8 @@ final class PhotoScene {
     let box: ImageBox?
     var clipTrack: [ClipSegment] = []   // generated video clips played back to back from the start of the scene; afterwards the last frame (`box`) gets a Ken Burns push-in
     var subjects: [CGPoint] = []        // the main subjects of the picture: the automatic camera travels from one to the next
-    var tail = false                    // this scene is the frame a video clip ended on: the camera starts wide (matching the clip) and moves in to the subjects
+    var clipScene = false               // the scene plays a generated video clip first: the camera move runs across the clip and the frame it ends on, a little less zoomed
+    var subjectsOrdered = false         // the subjects are the picture's own focal points 1 → 2: travel in that order instead of left → right
     var kbStart: Double = .nan          // when that Ken Burns begins (video time); NaN = at the start of the scene
     let video: VideoClipSource?          // a video clip that plays during this scene instead of a moving still picture
     let a: Double, b: Double            // video-time interval
@@ -203,9 +204,13 @@ final class PhotoScene {
             let local = t - a
             if let seg = clipTrack.last(where: { local >= $0.offset - 0.001 }), local < seg.offset + seg.seconds, let frame = seg.source.frame(at: max(0, local - seg.offset)) {
                 let iw = Double(frame.width), ih = Double(frame.height), target = Double(W) / Double(H)
-                let rw = iw / ih > target ? ih * target : iw, rh = rw / target
+                let bw = iw / ih > target ? ih * target : iw, bh = bw / target
+                // the same subject-to-subject camera move runs over the clip (it keeps going on the last frame afterwards)
+                let (ncx, ncy, z) = autoState(t: t, kb0: a, iw: iw, ih: ih, bw: bw, bh: bh)
+                let rw = bw / z, rh = bh / z
+                let cx = min(max(ncx * iw, rw / 2), iw - rw / 2), cy = min(max(ncy * ih, rh / 2), ih - rh / 2)
                 let s = Double(W) / rw
-                ctx.draw(frame, in: CGRect(x: -(iw / 2 - rw / 2) * s, y: -(ih - (ih / 2 - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
+                ctx.draw(frame, in: CGRect(x: -(cx - rw / 2) * s, y: -(ih - (cy - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
                 return
             }
         }
@@ -260,13 +265,12 @@ final class PhotoScene {
             let mx = max(0, (0.5 - halfW0 / z) * 0.996), my = max(0, (0.5 - halfH0 / z) * 0.996)
             return CGPoint(x: min(0.5 + mx, max(0.5 - mx, p.x)), y: min(0.5 + my, max(0.5 - my, p.y)))
         }
-        let tight = vertical ? 1.3 : 1.75, wide = vertical ? 1.0 : 1.1
+        let tight = clipScene ? (vertical ? 1.2 : 1.35) : (vertical ? 1.3 : 1.75), wide = vertical ? 1.0 : 1.1
         var subs = subjects.isEmpty ? [focus] : subjects
-        subs.sort { $0.x < $1.x }
+        if !subjectsOrdered { subs.sort { $0.x < $1.x } }
         if mode == 3 || mode == 1 { subs.reverse() }                      // alternate the direction of travel from scene to scene
         var keys: [(CGPoint, Double)]
-        if tail { keys = [(CGPoint(x: 0.5, y: 0.5), 1.0)] + subs.map { ($0, tight) } }
-        else if subs.count >= 2 { keys = subs.map { ($0, tight) } }
+        if subs.count >= 2 { keys = subs.map { ($0, tight) } }
         else {
             let c = CGPoint(x: 0.5 + (subs[0].x - 0.5) * 0.25, y: 0.5 + (subs[0].y - 0.5) * 0.25)
             keys = mode == 1 ? [(subs[0], tight), (c, wide)] : [(c, wide), (subs[0], tight)]
