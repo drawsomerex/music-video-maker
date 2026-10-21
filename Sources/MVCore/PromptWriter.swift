@@ -109,7 +109,7 @@ public struct PromptWriter {
 
     /// Returns (style, prompt per section id). Section id −1 is the opening title card.
     /// Resilient to truncated or slightly malformed LLM JSON: salvages partial entries and fills any missing sections individually.
-    public func write(sections: [PhotoSection], lines: [LyricLine], title: String, subject: String, preferredStyle: String = "", setting: String = "", progress: ProgressHandler? = nil) async throws -> (style: String, prompts: [Int: String]) {
+    public func write(sections: [PhotoSection], lines: [LyricLine], title: String, subject: String, preferredStyle: String = "", setting: String = "", progress: ProgressHandler? = nil) async throws -> (style: String, prompts: [Int: String], focal: [Int: [String]]) {
         try Task.checkCancellation()
         let fixedStyle = preferredStyle.trimmingCharacters(in: .whitespacesAndNewlines)
         var body = """
@@ -120,7 +120,8 @@ public struct PromptWriter {
         2. For each numbered section write a vivid, concrete, self-contained image prompt (1–2 sentences, 25–45 words) depicting what that section's lyrics describe or evoke: \
         setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. The sections are CONSECUTIVE SCENES OF ONE STORY: each picture follows on from the picture before it (same world and people, time moving forward) and moves the narrative forward; never repeat or go back. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. Each section ends with a [look: …] hint (time of day, weather, camera view): use it, so the pictures look different from one another while staying in the same setting. EVERY section needs its own unique picture: a different subject, place within the story, composition or time of day — never repeat or lightly reword another section's prompt. Music-only sections (instrumental intro, breaks, outro) also get their own prompt tied to the song's world. \
         NO text, lettering, signs or logos in the image. Do not repeat the style line inside the prompts. Section -1 is the opening title-card background: an establishing scene for the whole song.
-        Reply with ONLY JSON: {"style":"...","sections":[{"i":-1,"prompt":"..."},{"i":0,"prompt":"..."}, ...]}
+        Every idea must contain TWO clearly different FOCAL POINTS placed apart in the frame (for example a main subject on one side and a second point of interest on the other side or in the distance); describe both in the idea. Focal points must be things you can SEE and point at (a person, an animal, a building, a machine, a boat, a tree), never light, weather or abstract qualities. A slow camera will travel from the first to the second.
+        Reply with ONLY JSON: {"style":"...","sections":[{"i":-1,"prompt":"...","focal":["first focal point","second focal point"]},{"i":0,"prompt":"...","focal":["...","..."]}, ...]}
 
         """
         let hints = PromptVariety.hints(count: sections.count)
@@ -128,6 +129,7 @@ public struct PromptWriter {
             body += "\(s.id): \(PromptWriter.context(for: s, lines: lines)) [look: \(hints[i])]\n"
         }
         var out: [Int: String] = [:]
+        var focals: [Int: [String]] = [:]
         var styleOut = fixedStyle
         if let reply = try? await omlx.chat(model: omlx.llm, parts: [.text(body)], maxTokens: 4000) {
             if let o = OMLX.json(from: reply) as? [String: Any], let arr = o["sections"] as? [[String: Any]] {
@@ -136,6 +138,7 @@ public struct PromptWriter {
                     if let i = e["i"] as? Int ?? Int("\(e["i"] ?? "")"), let p = e["prompt"] as? String {
                         let clean = p.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !clean.isEmpty { out[i] = clean }
+                        if let f = e["focal"] as? [String], f.count >= 2 { focals[i] = f.prefix(2).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } }
                     }
                 }
             } else {
@@ -171,7 +174,7 @@ public struct PromptWriter {
             }
             out[s.id] = PromptWriter.withSetting(p, setting)
         }
-        return (styleOut, out)
+        return (styleOut, out, focals)
     }
 
     /// Extracts style and section prompts from truncated or slightly malformed JSON / numbered text.
@@ -213,7 +216,7 @@ public struct PromptWriter {
         Look for this picture (use it): \(PromptVariety.hint())
         Current prompt: \(current)\(avoidText)
         \(previous.isEmpty ? "" : "Previous picture in the story (this one must FOLLOW ON from it and move the narrative forward): \(previous)\n")\(next.isEmpty ? "" : "Next picture in the story (do not pre-empt it): \(next)\n")
-        Write a different, vivid, concrete, self-contained image-generation prompt (1–2 sentences, 25–45 words) for this section. Wide or medium shot, no close-ups of faces, no text or logos. \
+        Write a different, vivid, concrete, self-contained image-generation prompt (1–2 sentences, 25–45 words) for this section. It must contain TWO clearly different focal points placed apart in the frame (a main subject and a second point of interest). Wide or medium shot, no close-ups of faces, no text or logos. \
         Reply with ONLY the prompt text.
         """
         var r = try await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 200).trimmingCharacters(in: CharacterSet(charactersIn: " \n\"“”"))
@@ -301,5 +304,17 @@ public struct PromptWriter {
             }
         }
         return (out, notes)
+    }
+
+    /// The two focal points of a picture idea (short noun phrases): the first is the main subject, the second a clearly different one. Local model.
+    public func focalPoints(of idea: String) async -> [String] {
+        let prompt = """
+        Picture idea: \(idea)
+        Name the TWO main focal points of this picture as short noun phrases (2–5 words each). They must be clearly different VISIBLE things (a person, animal, building, machine, tree, object), never light, weather or feelings, placed apart in the frame. If the idea names only one, choose a plausible second point of interest that belongs in the same scene.
+        Reply with ONLY JSON: {"focal":["first","second"]}
+        """
+        guard let reply = try? await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 80), let o = OMLX.json(from: reply) as? [String: Any],
+              let f = o["focal"] as? [String], f.count >= 2 else { return [] }
+        return f.prefix(2).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 }

@@ -14,6 +14,44 @@ enum EditorChecks {
         guard let root = Updater.env["MV_TEST_ROOT"], root.hasPrefix("/tmp/"), let p = model.plan, let work = model.workDir, work.path.hasPrefix(root), Updater.env["MV_TEST_PREFS"] != nil else {
             FileHandle.standardError.write(Data("FAIL scratch project and isolated preferences required\n".utf8)); return
         }
+        if Updater.env["MV_GEN_TEST"] != nil {
+            // Real-money check (under a cent): draw one missing picture end to end, with the style guide reference, focal points and the Pictures folder.
+            guard var plan = model.plan, let w = model.workDir, let idx = Pipeline.missing(plan).first(where: { $0 >= 0 }) else { return }
+            model.config = Config.load()
+            if plan.sections[idx].focal.count < 2 { plan.sections[idx].focal = ["a wooden oil derrick", "a horse-drawn wagon"] }
+            let gen = try? await Pipeline.generateSectionImage(section: idx, plan: &plan, work: w, config: model.config)
+            check(gen != nil, "a picture was drawn")
+            let c = plan.sections[idx].selectedCandidate
+            FileHandle.standardError.write(Data("GEN: cost \(gen?.costUSD ?? -1) | focal A (\(c?.focalAX ?? -1), \(c?.focalAY ?? -1)) B (\(c?.focalBX ?? -1), \(c?.focalBY ?? -1)) | library \(c?.libraryName ?? "nil") | guide used: \(Pipeline.styleGuideJPEG(plan: plan, for: idx, work: w) != nil)\n".utf8))
+            if c?.focalAX == nil, let f = c?.fullFile {
+                let again = await Pipeline.locateFocalPoints(file: w.appendingPathComponent(f), names: plan.sections[idx].focal, config: model.config)
+                FileHandle.standardError.write(Data("GEN retry locate: \(again.map { "\($0.points)" } ?? "nil") file \(f) exists \(FileManager.default.fileExists(atPath: w.appendingPathComponent(f).path))\n".utf8))
+            }
+            check(c?.focalAX != nil && c?.focalBX != nil, "both focal points were located")
+            check(c?.libraryName != nil && FileManager.default.fileExists(atPath: PictureLibrary.folder().appendingPathComponent(c?.libraryName ?? "x").path), "the picture is in the Pictures folder")
+            FileHandle.standardError.write(Data("GEN CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
+        if Updater.env["MV_FOCAL_TEST"] != nil {
+            model.config = Config.load()
+            if let sec = model.plan?.sections[1], let f = sec.selectedCandidate?.fullFile, let w = model.workDir {
+                let named = await Pipeline.locateFocalPoints(file: w.appendingPathComponent(f), names: ["the wooden derrick", "the group of workers"], config: model.config)
+                let free = await Pipeline.locateFocalPoints(file: w.appendingPathComponent(f), names: [], config: model.config)
+                FileHandle.standardError.write(Data("FOCAL named: \(named.map { "\($0.points) \($0.names) cost \($0.cost)" } ?? "nil")\nFOCAL free: \(free.map { "\($0.points) \($0.names) cost \($0.cost)" } ?? "nil")\n".utf8))
+                check(named != nil && free != nil, "both focal point lookups answered")
+            }
+            FileHandle.standardError.write(Data("FOCAL CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
+        if Updater.env["MV_LIBRARY_TEST"] != nil {
+            var cfg = Config(); cfg.projectsFolder = "/tmp/bt/lib"
+            let src = URL(fileURLWithPath: "/tmp/bt/sample.png"); try? FileManager.default.createDirectory(atPath: "/tmp/bt", withIntermediateDirectories: true); try? Data([1, 2, 3]).write(to: src)
+            let a1 = PictureLibrary.save(src, title: "Test Song", config: cfg), a2 = PictureLibrary.save(src, title: "Test Song", config: cfg), b1 = PictureLibrary.save(src, title: "Other Song 2", config: cfg)
+            FileHandle.standardError.write(Data("LIB: \(a1 ?? "nil") | \(a2 ?? "nil") | \(b1 ?? "nil")\n".utf8))
+            check(a1?.hasSuffix("Test Song 001.png") == true && a2?.hasSuffix("Test Song 002.png") == true, "numbers for a project only go up")
+            check(b1?.hasSuffix("Other Song 2 001.png") == true, "another project starts at 001")
+            try? FileManager.default.removeItem(atPath: "/tmp/bt/lib/Pictures/" + (a1 ?? "x"))
+            check(PictureLibrary.save(src, title: "Test Song", config: cfg)?.hasSuffix("Test Song 003.png") == true, "deleting a picture never reuses its number")
+            FileHandle.standardError.write(Data("LIB CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
         if Updater.env["MV_CLIP_TEST"] != nil {
             // Real-money check of the video clip flow on a scratch project: one single clip, watched and accepted through the same calls the buttons use.
             let sec = Int(Updater.env["MV_CLIP_TEST"] ?? "1") ?? 1

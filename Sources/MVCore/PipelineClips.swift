@@ -75,9 +75,45 @@ extension Pipeline {
     }
 }
 
+extension Pipeline {
+    /// Finds the two focal points in a finished picture with a cheap cloud vision call (about 0.03 cent). With `names` it locates those two things;
+    /// without, it picks two clearly different focal points itself. Coordinates are fractions across and down (origin top-left). Never throws; nil when it could not.
+    public static func locateFocalPoints(file: URL, names: [String], config: Config = .load()) async -> (points: [CGPoint], names: [String], cost: Double)? {
+        if let r = await locateOnce(file: file, names: names, config: config) { return r }
+        return await locateOnce(file: file, names: names, config: config)        // one more try: a cloud call can fail now and then
+    }
+
+    static func locateOnce(file: URL, names: [String], config: Config) async -> (points: [CGPoint], names: [String], cost: Double)? {
+        guard let img = loadImage(file, maxPixel: 768) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary); CGImageDestinationFinalize(dest)
+        let ask = names.count >= 2
+            ? "Find these two focal points in the picture and give the centre of each: 1) \(names[0]) 2) \(names[1])."
+            : "Choose the TWO main focal points of this picture: clearly different things, as far apart as the scene allows, and give the centre of each."
+        let text = ask + " Coordinates are fractions of the picture: x from the left edge (0) to the right edge (1), y from the top edge (0) to the bottom edge (1). Aim at the head and chest of a person, the middle of an object. Reply with ONLY JSON: {\"points\":[{\"name\":\"...\",\"x\":0.3,\"y\":0.5},{\"name\":\"...\",\"x\":0.7,\"y\":0.55}]}"
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
+        req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + (data as Data).base64EncodedString()]]]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0, "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
+        guard let (d, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first, let msg = (ch["message"] as? [String: Any])?["content"] as? String,
+              let o = OMLX.json(from: msg) as? [String: Any], let arr = o["points"] as? [[String: Any]], arr.count >= 2 else { return nil }
+        let cost = ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0
+        var pts: [CGPoint] = [], nm: [String] = []
+        for e in arr.prefix(2) {
+            guard let x = (e["x"] as? NSNumber)?.doubleValue, let y = (e["y"] as? NSNumber)?.doubleValue, (0...1).contains(x), (0...1).contains(y) else { return nil }
+            pts.append(CGPoint(x: min(0.92, max(0.08, x)), y: min(0.92, max(0.1, y)))); nm.append((e["name"] as? String) ?? "")
+        }
+        // two points on top of each other would give no movement: push the second away
+        if hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) < 0.15 { pts[1] = CGPoint(x: pts[0].x < 0.5 ? min(0.85, pts[0].x + 0.3) : max(0.15, pts[0].x - 0.3), y: pts[1].y) }
+        return (pts, nm, cost)
+    }
+}
+
 extension PromptWriter {
     /// Motion prompts (camera and action) for `lyricsPerClip.count` back-to-back clips that continue from the section's picture. Local model; falls back to the idea itself.
-    public func clipShots(idea: String, lyricsPerClip: [String], title: String, subject: String, setting: String = "") async -> [String] {
+    public func clipShots(idea: String, lyricsPerClip: [String], title: String, subject: String, setting: String = "", focal: [String] = []) async -> [String] {
         let n = lyricsPerClip.count
         let fallback = (0..<n).map { _ in "\(idea) A gentle, slow camera move; the same subject keeps moving naturally through the scene." }
         guard n >= 1 else { return [] }
@@ -85,7 +121,7 @@ extension PromptWriter {
         let prompt = """
         \(PromptWriter.theme(title: title, subject: subject))
         \(PromptWriter.settingBlock(setting))The first frame of the first clip is this picture: \(idea)
-        Write \(n) consecutive video clip prompts. Each clip starts exactly on the last frame of the one before, so every prompt CONTINUES the same scene: same subject, place, light and style; only the action and camera change, gradually, moving the story forward with the lyrics of that clip:
+        \(focal.count >= 2 ? "The picture has two focal points: 1) \(focal[0]) 2) \(focal[1]). The action and the camera move from the first focal point toward the second across the clips, animating the first focal point as it goes (a person walks or turns toward it, an animal moves, smoke or water drifts), and the second comes into focus at the end.\n" : "")Write \(n) consecutive video clip prompts. Each clip starts exactly on the last frame of the one before, so every prompt CONTINUES the same scene: same subject, place, light and style; only the action and camera change, gradually, moving the story forward with the lyrics of that clip:
         \(segs)
         Rules: 1–2 concrete sentences each about motion and camera. Everything must be physically possible (gravity, liquids, solid things, normal human and animal motion). Keep the subject in a medium or wide shot with the whole body in frame; no hand gestures, no close-ups, no crowds, no explosions. Bright and well lit. No text on screen.
         Reply with ONLY JSON: {"shots":["...","..."]} with exactly \(n) items.
