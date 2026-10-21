@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-21
+
 ### Added
 - **Looping long music video** — a separate workflow, chosen at the top of the first screen. One song (any length) and one 15-second scene that loops seamlessly, made into a 1, 3, 8 or 12 hour video (or any length from half an hour) for study or background music:
   - the song repeats without a gap (silence trimmed at both ends, its last 3 seconds blended into its beginning);
