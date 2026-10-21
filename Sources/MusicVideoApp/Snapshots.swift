@@ -109,6 +109,14 @@ enum Snapshots {
                 save("video-trim-narrow", CGSize(width: 440, height: 680), VideoTrimView(section: i, candidate: c, partLength: 14).padding())
             }
         }
+        if let i = model.plan?.sections.firstIndex(where: { !$0.clips.isEmpty }) {
+            save("clip-panel", CGSize(width: 900, height: 700), ClipPanel(section: i).padding())
+            model.clipJob = { var j = ClipJob(section: i, chain: true, secondsList: [10, 10, 5]); j.index = 1; j.phase = "HeyGen is making the clip…"; j.started = Date().addingTimeInterval(-70); return j }()
+            model.doneNote = DoneNote(text: "Done — drew 3 pictures · cost $0.12")
+            model.busy = true; model.busyPhase = "2/5: Generating a picture…"; model.busyProgress = 0.4
+            save("banners", CGSize(width: 1000, height: 190), TaskBanners())
+            model.busy = false; model.clipJob = nil; model.doneNote = nil
+        }
         if let gdir = ProcessInfo.processInfo.environment["MV_GALLERY"].map({ URL(fileURLWithPath: $0) }) {
             do {
             // "Real" screenshots: each screen is hosted in an offscreen window and drawn by AppKit, so lists, scroll views and menus appear as on screen.
