@@ -242,6 +242,7 @@ extension AppModel {
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
             var backup = p
             var files = Set(([p.intro] + p.sections).flatMap(\.candidates).flatMap { [$0.fullFile, $0.thumbFile, $0.videoFile].compactMap { $0 } })
+            for sec in [p.intro] + p.sections { for c in sec.clips { files.insert(c.file); files.insert(c.lastFrame) } }      // generated video clips are paid for: back them up too
             if !p.audioFile.isEmpty { files.insert(p.audioFile) }
             for file in files {
                 guard !file.hasPrefix("/"), !file.split(separator: "/").contains("..") else { throw MVError("A project media path is unsafe to back up.") }

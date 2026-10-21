@@ -169,6 +169,7 @@ struct ScaledTimeline: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(model.selectedSection == i ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: model.selectedSection == i ? 3 : 1))
                 .offset(x: s.start * pps + 1)
+                .onTapGesture(count: 2, coordinateSpace: .named("tl")) { p in model.splitPicture(at: p.x / pps); focused = true }
                 .onTapGesture { model.selectedSection = i; model.timelineCursor = s.start; selBorder = nil; onSelectPicture?(i); focused = true }
                 .help("Picture \(i + 1): \(preciseClock(s.start))–\(preciseClock(s.end)) (\(Int(s.duration.rounded())) s). Click to select; double-click empty space to add a border.")
             }
