@@ -143,6 +143,15 @@ enum Snapshots {
                 shot("s-song-page", sz(1000, 1000), LyricDividerView(), wait: 2)
                 NSApplication.shared.terminate(nil); return
             }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "loop", let d = ProcessInfo.processInfo.environment["MV_LOOP_DIR"] {   // the looping long music video screens
+                model.openLoop(URL(fileURLWithPath: d))
+                shot("loop-1100x720", sz(1100, 720), RootView(), wait: 3)
+                shot("loop-1720x1080", sz(1720, 1080), RootView(), wait: 3)
+                model.closeLoop(); UserDefaults.standard.set(1, forKey: "startKind")
+                shot("loop-start-1100x720", sz(1100, 720), RootView(), wait: 2)
+                UserDefaults.standard.set(0, forKey: "startKind")
+                NSApplication.shared.terminate(nil); return
+            }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "layout" {          // the Pictures screen at a laptop window, the smallest window and full screen
                 model.lyrics = ""; model.analysis = nil; model.selectedSection = 1; model.stage = .plan
                 shot("l-pictures-1100x720", sz(1100, 720), RootView(), wait: 2.5)

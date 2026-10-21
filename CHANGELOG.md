@@ -5,6 +5,33 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Looping long music video** — a separate workflow, chosen at the top of the first screen. One song (any length) and one 15-second scene that loops seamlessly, made into a 1, 3, 8 or 12 hour video (or any length from half an hour) for study or background music:
+  - the song repeats without a gap (silence trimmed at both ends, its last 3 seconds blended into its beginning);
+  - a title screen with your own title (the song title by default) fades into the loop;
+  - the picture is your own, or drawn from a scene you describe ("Suggest scenes" offers 10 calm scenes that loop well);
+  - the 15-second HeyGen clip is made with a still camera and gentle, repeating motion, and its end dissolves into its start; Standard 768p (≈ $0.54 list) or Sharp 2K (≈ $1.50 list); you can also loop your own video. The screen shows the loop playing exactly as it repeats;
+  - 1080p at about 1.7 GB per hour; the free disk space is checked first. Only about a minute of video is drawn, the rest is the same loop written again and again, so 12 hours takes about a quarter of an hour.
+- **Earlier versions as thumbnails** under each picture: click one to use it again, ✕ to throw it away (replaces the "Choose saved artwork" menu).
+- **"Draw the missing pictures, then make the video"** when you press "Make my video" with pictures missing.
+- Timeline: **More ▾** (Split long sections, Restore automatic divisions) and right-click a lyric line for **Start a new picture here**.
+
+### Changed
+- **The Pictures screen stays usable while pictures are drawn or ideas written.** Only the picture being worked on is locked, and the selection no longer jumps. Anything you edit meanwhile is kept (before, a long task could overwrite edits made while it ran).
+- **Making the video runs in the strip at the top** (Main video / Short 2 of 5, time, Cancel) while you keep working; a green "Your video is ready — Watch it" line appears when it is done instead of jumping to the Video screen.
+- **Small and full-screen windows:** the buttons above the pictures are one row (Make all missing pictures, Make video clips for all pictures, More ▾); the timeline folds into a slim strip of coloured blocks in a smaller window (your choice is remembered) and opens fully in a tall window; the picture scales with the window; a wide window puts the words and the idea beside the picture.
+- **"Shorts" are always called Shorts** ("Add a Short", "Make all 5 Shorts", "1080p + Shorts"); "clip" only means a video clip.
+- The "Edit timeline" button is gone: the Pictures screen's own timeline has every tool.
+- **Making a video with video clips is faster** (a test song went from 65 s to 42 s): each clip is now read from start to finish once instead of picture by picture.
+
+### Fixed
+- **Shorts captions no longer run off the sides.** Words stay inside the middle of the picture, clear of YouTube's buttons; a line that is still too wide (a very long word) is made smaller. A Short now has its own caption position and never borrows the main video's.
+- In the "Pill" caption style, the word the pink highlight has just left no longer turns dark against the picture.
+- A rare crash risk while making a video (the automatic camera's move was worked out by several drawing threads at once).
+- Pictures with their own two focal points always travel from the first to the second (half of them went the other way).
+- The frame held after a clip is taken from the clip's saved last picture (no video decoding every time the preview rebuilds).
+- Files made in the last ten minutes are never cleaned up, so a picture or clip being made while you drag in another can never be deleted.
+
 ## [1.9.2] - 2026-10-21
 
 ### Changed

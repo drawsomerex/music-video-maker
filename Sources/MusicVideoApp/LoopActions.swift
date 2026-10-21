@@ -1,5 +1,6 @@
 // Looping long music video: what the buttons on its screen do. Every long step runs in the strip at the top with a bar and Cancel.
 import SwiftUI
+import AVFoundation
 import MVCore
 
 struct LoopJob {
@@ -33,6 +34,9 @@ extension AppModel {
         do {
             let p = try LoopVideo.load(dir)
             loopProject = p; loopDir = dir; stage = .loop; remember(dir)
+            if p.songSeconds <= 0, !p.songFile.isEmpty {              // older or hand-made projects: work out the song's length
+                Task { let s = (try? await AVURLAsset(url: dir.appendingPathComponent(p.songFile)).load(.duration)).map(CMTimeGetSeconds) ?? 0; if s > 0 { editLoop { $0.songSeconds = s } } }
+            }
             refreshOpenRouterCredits(silent: true)
             if p.pendingJob != nil { recoverLoopClip() }
         } catch { errorMessage = "Couldn't open that looping video: \(error.localizedDescription)" }

@@ -24,7 +24,9 @@ struct CostBar: View {
     func row(compact: Bool) -> some View {
         HStack(spacing: compact ? 12 : 22) {
             Image(systemName: "dollarsign.circle.fill").foregroundStyle(.green)
-            if let p = model.plan {
+            if model.stage == .loop, let lp = model.loopProject {
+                item(compact ? "This video" : "Spent on this looping video", OpenRouter.formatUSD(lp.imagesUSD + lp.videoUSD), help: "What the picture and the loop clip for this looping video have cost (the cost OpenRouter reported).")
+            } else if let p = model.plan {
                 item(compact ? "This song" : "Spent on this song", OpenRouter.formatUSD(p.totalGenerationCostUSD), detail: p.imagesGeneratedCount > 0 ? "\(p.imagesGeneratedCount) pictures" : nil,
                      help: "What drawing pictures for this song has cost so far.")
                 if p.totalVideoCostUSD > 0 {

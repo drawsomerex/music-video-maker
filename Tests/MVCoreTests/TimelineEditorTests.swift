@@ -93,6 +93,8 @@ final class TimelineEditorTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Plan.self, from: JSONEncoder().encode(p))
         XCTAssertEqual(decoded.sourceLyrics, p.sourceLyrics)
         Pipeline.cleanupUnreferencedImages(plan: p, work: work)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: work.appendingPathComponent("full/section_unused.png").path), "a file made in the last ten minutes may belong to a task still running: it is kept")
+        Pipeline.cleanupUnreferencedImages(plan: p, work: work, minAge: 0)
         for file in files { XCTAssertTrue(FileManager.default.fileExists(atPath: work.appendingPathComponent(file).path)) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: work.appendingPathComponent("full/section_unused.png").path))
     }

@@ -42,13 +42,15 @@ struct LoopView: View {
             topBar
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    songCard
-                    pictureCard
-                    clipCard
-                    longVideoCard
+                ViewThatFits(in: .horizontal) {
+                    // full screen: song and picture on the left, the loop and the long video on the right
+                    HStack(alignment: .top, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 18) { songCard; pictureCard }.frame(width: 760)
+                        VStack(alignment: .leading, spacing: 18) { clipCard; longVideoCard }.frame(width: 760)
+                    }
+                    VStack(alignment: .leading, spacing: 18) { songCard; pictureCard; clipCard; longVideoCard }.frame(maxWidth: 980)
                 }
-                .padding(24).frame(maxWidth: 980).frame(maxWidth: .infinity)
+                .padding(24).frame(maxWidth: .infinity)
             }
         }
         .task { model.refreshVideoPrice() }
