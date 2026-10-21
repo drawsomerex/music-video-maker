@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-21
+
 ### Fixed
 - **A video clip no longer loops by default.** It plays once, exactly as made; the last picture then holds and the camera eases from the full frame onto the most prominent feature and travels to the second most prominent (features are found on the clip's last frame; once back in a very long part). Looping is now an explicit switch, with a smooth crossfade into the beginning. This applies to HeyGen clips and to videos you drag in. The camera move added in 1.8.0 *over* the clip itself was removed.
 - **Video controls are back, and now cover generated clips too:** start/end trim with "Play this part", the repeat switch, and the camera controls ("Automatic" / "I choose the move", "Aim for me") stay available while a clip is in use. Trimming one clip in a back-to-back set closes the gap.
