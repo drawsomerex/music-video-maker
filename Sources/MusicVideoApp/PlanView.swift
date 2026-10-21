@@ -134,7 +134,7 @@ struct PlanView: View {
                 .help("Opens this song's folder in Finder: the MP3, lyrics, pictures and finished videos.")
             Menu {
                 Button("Open the Pictures folder") { model.showPicturesFolder() }
-                Button("Add my earlier pictures to it…") { model.backfillPictureLibrary() }
+                Button("Add my earlier pictures and clips to it…") { model.backfillPictureLibrary() }
             } label: { if compact { Image(systemName: "photo.on.rectangle.angled") } else { Label("Pictures folder", systemImage: "photo.on.rectangle.angled") } }
                 .menuIndicator(.hidden).fixedSize()
                 .help("Opens the Pictures folder: every picture of every song (drawn by the app or added by you), named with its date, the song and an increasing number, so you can scroll through them.")
@@ -180,6 +180,10 @@ struct PlanView: View {
                     .help("Choose how all the pictures should look, such as oil painting, watercolor or anime.")
                 Button { model.showOpenRouterKeySheet = true } label: { Label(model.hasOpenRouterKey ? "Picture maker key & credit" : "Add picture maker key", systemImage: "key.fill").frame(maxWidth: .infinity) }
                     .help(model.hasOpenRouterKey ? "See your remaining OpenRouter credit, change your key, or make every picture again." : "Add your OpenRouter key so the app can draw the pictures for you. You can also skip this and drag in your own pictures.")
+                if plan.shorts.isEmpty {
+                    Button { model.autoMakeShorts() } label: { Label("Make Shorts automatically", systemImage: "sparkles").frame(maxWidth: .infinity) }
+                        .help("This song has no Shorts yet. Cuts it into Shorts of about 30 seconds at natural breaks (works on older projects too). You can change them on the Shorts page or the timeline.")
+                }
                 Button { model.copyAllPrompts() } label: { Label("Copy all picture ideas", systemImage: "doc.on.doc").frame(maxWidth: .infinity) }
                     .help("Copies every picture idea so you can paste them into another image maker.")
             }
@@ -424,7 +428,7 @@ struct PlanView: View {
             Toggle(isOn: $model.autoRenderShorts) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Also make short clips for YouTube Shorts").font(.subheadline.weight(.medium))
-                    Text("\(plan.shorts.isEmpty ? "Several" : "\(plan.shorts.count)") vertical clips of about 30 seconds each, cut between the parts of your song.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(plan.shorts.isEmpty ? "No Shorts yet: the app cuts your song into vertical clips of about 30 seconds at natural breaks and makes them with the video." : "\(plan.shorts.count) vertical clips, made with the video.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.checkbox).help("Also make the vertical clips when the main video is made. You can change the clips on the Shorts page.")
@@ -649,6 +653,17 @@ struct DropWell: View {
                 if c.videoFile == nil, c.fullFile != nil { ClipPanel(section: section).frame(maxWidth: 1000, alignment: .leading) }
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
                 cameraControls(c).frame(maxWidth: 640, alignment: .leading)
+                if c.looksLikePrevious(model.previousPictureFile(section: section)) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text("This picture has almost the same framing as the picture before it. Keep it if you like it, or press “Try another picture” for a different view.")
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10).frame(maxWidth: 640, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+                    .help("A free check compares where the light and dark areas and the edges sit in the two pictures. Nothing is redrawn automatically; you decide.")
+                }
                 HStack {
                     if let n = sec.selectedCandidate?.libraryName {
                         Button { model.showPicturesFolder(select: n) } label: { Label(n, systemImage: "photo.on.rectangle.angled").lineLimit(1).truncationMode(.middle) }.buttonStyle(.plain).foregroundStyle(.secondary)

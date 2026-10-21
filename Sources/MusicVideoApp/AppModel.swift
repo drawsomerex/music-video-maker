@@ -32,7 +32,7 @@ final class AppModel: ObservableObject {
     }
     @Published var workDir: URL?
     @Published var outputURL: URL?
-    @Published var autoRenderShorts = false
+    @Published var autoRenderShorts = true           // Shorts are made together with the video unless you untick it
     @Published var renderedShorts: [URL] = []
     @Published var errorMessage: String?
     @Published var notice: String?
@@ -599,7 +599,9 @@ final class AppModel: ObservableObject {
                 // the listening done earlier (words and their times) is reused, so the song is not heard twice
                 let cached = listenFolder.appendingPathComponent("transcript_words.json")
                 if FileManager.default.fileExists(atPath: cached.path) { try? FileManager.default.copyItem(at: cached, to: work.appendingPathComponent("transcript_words.json")) }
-                plan = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
+                var made = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
+                if made.shorts.isEmpty { made.shorts = Pipeline.autoShorts(plan: made); try? Pipeline.savePlan(made, work) }      // a new plan starts with suggested Shorts (drag, delete or add as you like)
+                plan = made
                 draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
@@ -682,14 +684,20 @@ final class AppModel: ObservableObject {
         else { NSWorkspace.shared.open(dir) }
     }
 
-    /// Copies the pictures of all earlier songs into the Pictures folder.
+    /// Copies the pictures and video clips of all earlier songs, and of the open song, into the Pictures folder.
     func backfillPictureLibrary() {
         let cfg = config, open = workDir
-        runBackground(initialPhase: "Adding your earlier pictures to the Pictures folder…") { [weak self] in
+        runBackground(initialPhase: "Adding your earlier pictures and clips to the Pictures folder…") { [weak self] in
             guard let self else { return }
             let handler = self.busyHandler
             let r = await Task.detached(priority: .utility) { PictureLibrary.backfill(config: cfg, skipping: open, progress: handler) }.value
-            self.notice = r.added == 0 ? "Every earlier picture is already in the Pictures folder." : "Added \(r.added) picture\(r.added == 1 ? "" : "s") from \(r.songs) song\(r.songs == 1 ? "" : "s") to the Pictures folder." + (open != nil ? " (The song that is open now was skipped; close it and run this again to include it.)" : "")
+            var added = r.added, songs = r.songs
+            if var p = self.plan, let w = open, self.workDir == w {            // the open song is done in memory, so nothing it holds is overwritten
+                handler("Adding the open song's pictures and clips…", 0.95)
+                let n = PictureLibrary.backfill(plan: &p, work: w, config: cfg)
+                if n > 0 { self.plan = p; self.persist(); added += n; songs += 1 }
+            }
+            self.notice = added == 0 ? "Every earlier picture and clip is already in the Pictures folder." : "Added \(added) picture\(added == 1 ? "" : "s") and clip\(added == 1 ? "" : "s") from \(songs) song\(songs == 1 ? "" : "s") to the Pictures folder."
         }
     }
 
@@ -731,6 +739,7 @@ final class AppModel: ObservableObject {
             let total = targets.count
             var sessionSpent = 0.0
             var completed = 0
+            var similar: [String] = []
             for (idx, sec) in targets.enumerated() {
                 try Task.checkCancellation()
                 guard var p = self.plan else { break }
@@ -739,6 +748,7 @@ final class AppModel: ObservableObject {
                 let gen = try await Pipeline.generateSectionImage(section: sec, plan: &p, work: w, config: self.config)
                 sessionSpent += gen.costUSD
                 completed += 1
+                if p.sections.indices.contains(sec) || sec < 0, (sec < 0 ? p.intro : p.sections[sec]).selectedCandidate?.looksLikePrevious(Pipeline.previousPictureFile(plan: p, for: sec)) == true { similar.append(label) }
                 self.plan = p
                 self.selectedSection = sec
                 if let rem = gen.creditsRemaining {
@@ -750,9 +760,13 @@ final class AppModel: ObservableObject {
             self.refreshOpenRouterCredits(silent: true)
             if let totalSong = self.plan?.totalGenerationCostUSD {
                 self.notice = "Generated \(completed) picture(s) for \(OpenRouter.formatUSD(sessionSpent)) · Song total: \(OpenRouter.formatUSD(totalSong))."
+                if !similar.isEmpty { self.notice! += "\n\nHeads-up: \(similar.joined(separator: ", ")) \(similar.count == 1 ? "has" : "have") almost the same framing as the picture before. Nothing was redrawn; look and press “Try another picture” if you want a different view." }
             }
         }
     }
+
+    /// The picture before this section's (the title card for the first section).
+    func previousPictureFile(section: Int) -> String? { plan.flatMap { Pipeline.previousPictureFile(plan: $0, for: section) } }
 
     func setPrompt(_ text: String, section: Int) {
         guard var p = plan, section == -1 || p.sections.indices.contains(section) else { return }
@@ -980,6 +994,7 @@ final class AppModel: ObservableObject {
         stage = .rendering; phase = "Preparing frames"; progress = 0; renderedShorts = []
         let q = quality
         let alsoShorts = autoRenderShorts
+        if alsoShorts && p.shorts.isEmpty { p.shorts = Pipeline.autoShorts(plan: p); plan = p; persist() }      // no Shorts yet: cut the song into Shorts automatically
 
         checkpoint("Make video")
         mainTask?.cancel()

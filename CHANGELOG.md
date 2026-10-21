@@ -5,6 +5,12 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Framing warning (never an automatic redraw).** When a picture is drawn, a free check on your Mac compares its layout with the picture before it; if the framing is almost the same, an orange warning shows under the picture and in the "Make all" summary. You decide whether to keep it or press *Try another picture*.
+- **A named camera view in every drawn picture.** The prompt now asks for a specific view (low angle, aerial, wide, framed through something, over the shoulder, side-on, medium) that differs from the pictures on either side, instead of "a different angle".
+- **Video clips are saved to the Pictures folder**, named after their picture ("2026-10-21 Song 007 clip 1.mp4"); videos you drag in are saved too. *Add my earlier pictures and clips to it…* now also copies old clips and includes the song that is open.
+- **Shorts are part of the video by default.** "Also make short clips" is ticked by default; a new plan starts with suggested Shorts; if a song has none when you press *Make my video*, they are cut automatically. *Make Shorts automatically* works on older and open projects.
+
 ## [1.9.0] - 2026-10-21
 
 ### Fixed

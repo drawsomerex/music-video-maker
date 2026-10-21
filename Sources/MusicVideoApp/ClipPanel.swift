@@ -90,6 +90,10 @@ struct ClipPanel: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(Int(c.seconds.rounded())) s clip · \(OpenRouter.formatUSD(c.costUSD))").font(.callout.weight(.semibold))
                         Text(c.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        if let n = c.libraryName {
+                            Button { model.showPicturesFolder(select: n) } label: { Label(n, systemImage: "photo.on.rectangle.angled").font(.caption).lineLimit(1).truncationMode(.middle) }.buttonStyle(.plain).foregroundStyle(.secondary)
+                                .help("This clip is also saved in your Pictures folder under this name. Click to show it in Finder.")
+                        }
                         if let w = c.warning { Label(w, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
                     }
                 }

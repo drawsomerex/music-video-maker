@@ -53,6 +53,9 @@ extension Pipeline {
         c.file = file; c.lastFrame = last; c.seconds = dur; c.offset = offset; c.prompt = prompt
         c.costUSD = costUSD ?? Double(seconds) * OpenRouterVideo.fallbackPricePerSecond
         plan.totalVideoCostUSD += c.costUSD
+        // a copy in the shared Pictures folder, named after the picture it was made from
+        let pic = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.libraryName
+        c.libraryName = PictureLibrary.saveClip(work.appendingPathComponent(file), pictureName: pic, title: plan.title, config: config)
         // the two most prominent features on the last frame (a cheap look at the picture, a fraction of a cent); the camera moves from the first to the second
         if let loc = await locateFocalPoints(file: work.appendingPathComponent(last), names: [], config: config) {
             c.focalAX = Double(loc.points[0].x); c.focalAY = Double(loc.points[0].y); c.focalBX = Double(loc.points[1].x); c.focalBY = Double(loc.points[1].y)

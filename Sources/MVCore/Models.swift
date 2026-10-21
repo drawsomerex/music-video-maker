@@ -48,12 +48,21 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     /// The two focal points of the picture (0…1 across and down, top-left origin): the automatic camera travels from the first to the second.
     public var focalAX: Double? = nil, focalAY: Double? = nil, focalBX: Double? = nil, focalBY: Double? = nil
     public var focalNames: [String] = []
+    /// Framing check (drawn pictures only): how alike this picture's layout is to the picture before it, and which picture that was. Only used to warn.
+    public var framingLuma: Double? = nil, framingEdge: Double? = nil
+    public var framingAgainst: String? = nil
+    public var cameraView: String? = nil          // the kind of camera view asked for when this picture was drawn (low, aerial, wide, …)
+    /// True when this picture was found to repeat the framing of `previousFile` (the picture before it as it is now).
+    public func looksLikePrevious(_ previousFile: String?) -> Bool {
+        guard let l = framingLuma, let e = framingEdge, let was = framingAgainst, was == previousFile else { return false }
+        return FramingCheck.tooSimilar(luma: l, edge: e)
+    }
     public var videoLength: Double? = nil      // length of the whole clip in seconds
     public var videoStart: Double = 0          // where in the clip it begins playing (seconds)
     public var videoRepeat: Bool = false       // an imported clip repeats (with a crossfade) instead of holding its last frame while the camera moves
     public var videoEnd: Double? = nil         // where it stops (nil = the end of the clip)
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -84,6 +93,8 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         focalAX = try c.decodeIfPresent(Double.self, forKey: .focalAX); focalAY = try c.decodeIfPresent(Double.self, forKey: .focalAY)
         focalBX = try c.decodeIfPresent(Double.self, forKey: .focalBX); focalBY = try c.decodeIfPresent(Double.self, forKey: .focalBY)
         focalNames = try c.decodeIfPresent([String].self, forKey: .focalNames) ?? []
+        framingLuma = try c.decodeIfPresent(Double.self, forKey: .framingLuma); framingEdge = try c.decodeIfPresent(Double.self, forKey: .framingEdge)
+        framingAgainst = try c.decodeIfPresent(String.self, forKey: .framingAgainst); cameraView = try c.decodeIfPresent(String.self, forKey: .cameraView)
     }
 
     public init(id: String, provider: String, thumbURL: String, fullURL: String, pageURL: String,
@@ -105,20 +116,21 @@ public struct SectionClip: Codable, Identifiable, Hashable {
     public var prompt: String = ""
     public var costUSD: Double = 0
     public var warning: String? = nil       // what the realism check noticed, if anything
+    public var libraryName: String? = nil   // the file name this clip has in the shared Pictures folder
     public var trimStart: Double = 0        // the part of the clip that is used: from … (seconds into the clip)
     public var trimEnd: Double? = nil       // … to … (nil = the end of the clip)
     public var focalAX: Double? = nil, focalAY: Double? = nil, focalBX: Double? = nil, focalBY: Double? = nil      // the two most prominent features on the clip's last frame
     /// How long the used part plays.
     public var playSeconds: Double { max(0.5, (trimEnd ?? seconds) - trimStart) }
     public init() {}
-    enum CodingKeys: String, CodingKey { case id, file, lastFrame, seconds, offset, prompt, costUSD, warning, trimStart, trimEnd, focalAX, focalAY, focalBX, focalBY }
+    enum CodingKeys: String, CodingKey { case id, file, lastFrame, seconds, offset, prompt, costUSD, warning, libraryName, trimStart, trimEnd, focalAX, focalAY, focalBX, focalBY }
     public init(from d: Decoder) throws {          // every field has a default, so clips saved by older versions still open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""; lastFrame = try c.decodeIfPresent(String.self, forKey: .lastFrame) ?? ""
         seconds = try c.decodeIfPresent(Double.self, forKey: .seconds) ?? 0; offset = try c.decodeIfPresent(Double.self, forKey: .offset) ?? 0
         prompt = try c.decodeIfPresent(String.self, forKey: .prompt) ?? ""; costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
-        warning = try c.decodeIfPresent(String.self, forKey: .warning)
+        warning = try c.decodeIfPresent(String.self, forKey: .warning); libraryName = try c.decodeIfPresent(String.self, forKey: .libraryName)
         trimStart = try c.decodeIfPresent(Double.self, forKey: .trimStart) ?? 0; trimEnd = try c.decodeIfPresent(Double.self, forKey: .trimEnd)
         focalAX = try c.decodeIfPresent(Double.self, forKey: .focalAX); focalAY = try c.decodeIfPresent(Double.self, forKey: .focalAY)
         focalBX = try c.decodeIfPresent(Double.self, forKey: .focalBX); focalBY = try c.decodeIfPresent(Double.self, forKey: .focalBY)

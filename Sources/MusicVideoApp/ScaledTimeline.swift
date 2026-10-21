@@ -76,6 +76,10 @@ struct ScaledTimeline: View {
             Spacer()
             Text("Drag a picture border · double-click to add one · select a border and press Delete to join").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer()
+            if model.timelineShorts.isEmpty {
+                Button { if model.plan != nil { model.autoMakeShorts() } else { model.suggestTimelineShorts() } } label: { Label("Make Shorts automatically", systemImage: "sparkles") }
+                    .help("Cuts the song into Shorts of about 30 seconds at natural breaks. You can drag, resize, delete or add Shorts afterwards. Your pictures are not changed.")
+            }
             Button { model.timelineZoom = max(1, model.timelineZoom / 1.5) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom out.")
             Button { model.timelineZoom = 1 } label: { Text("Fit the whole song") }.help("Shows the whole song at once.")
             Button { model.timelineZoom = min(40, model.timelineZoom * 1.5) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom in for precise placement.")

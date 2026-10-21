@@ -423,6 +423,7 @@ public enum Pipeline {
         writeJPEG(frame, poster, 0.92); writeJPEG(frame, thumb, 0.8)
         var c = ImageCandidate(id: "video:\(UUID().uuidString)", provider: "Video", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
         c.thumbFile = thumb; c.fullFile = poster; c.videoFile = vid; c.videoLength = secs
+        c.libraryName = PictureLibrary.save(dst, title: plan.title)
         if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1 } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1 }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
@@ -526,11 +527,38 @@ public enum Pipeline {
         return CGImageDestinationFinalize(dest) ? data as Data : nil
     }
 
+    /// The file of the picture before this one (the title card for the first section), if it has one.
+    public static func previousPictureFile(plan: Plan, for index: Int) -> String? {
+        guard index >= 0 else { return nil }
+        return (index == 0 ? plan.intro : plan.sections[index - 1]).selectedCandidate?.fullFile
+    }
+
+    /// Named camera views. A named view works far better than "a different angle"; the one used is never the one the neighbouring pictures used.
+    static let cameraViews: [(key: String, text: String)] = [
+        ("low", "a low angle from ground level, looking up at the scene"),
+        ("aerial", "an aerial view from high above, looking down on the scene"),
+        ("wide", "a wide establishing view from far away, the subjects small in the frame"),
+        ("framed", "seen through a foreground frame such as a doorway, a window or branches"),
+        ("behind", "over the shoulder of a person in the foreground, looking at the scene"),
+        ("profile", "a side-on view, with the subjects crossing the frame from one side to the other"),
+        ("medium", "a medium shot, close to the subjects, from a different side than before")]
+    /// The camera view for a picture drawn after `prev`: the idea's own shot type when it names one, otherwise a random named view that differs from the pictures on either side and from this picture's last try.
+    static func chooseCameraView(plan: Plan, for index: Int) -> (key: String, text: String?) {
+        let sec = index < 0 ? plan.intro : plan.sections[index]
+        let ideaKey = PromptWriter.shotType(sec.prompt)
+        if ideaKey != "other" { return (ideaKey, nil) }
+        let prev = index == 0 ? plan.intro : (index > 0 ? plan.sections[index - 1] : nil)
+        let next = index >= 0 && index + 1 < plan.sections.count ? plan.sections[index + 1] : nil
+        let avoid = Set([prev?.selectedCandidate?.cameraView, next?.selectedCandidate?.cameraView, sec.selectedCandidate?.cameraView].compactMap { $0 })
+        let pool = cameraViews.filter { !avoid.contains($0.key) }
+        let pick = (pool.isEmpty ? cameraViews : pool).randomElement()!
+        return (pick.key, pick.text)
+    }
+
     /// The picture before this one (the title card for the first section), as a small JPEG, or nil when there is none yet.
     public static func previousPictureJPEG(plan: Plan, for index: Int, work: URL) -> Data? {
         guard index >= 0 else { return nil }
-        let sec = index == 0 ? plan.intro : plan.sections[index - 1]
-        guard let file = sec.selectedCandidate?.fullFile, let img = loadImage(work.appendingPathComponent(file), maxPixel: 1024) else { return nil }
+        guard let file = previousPictureFile(plan: plan, for: index), let img = loadImage(work.appendingPathComponent(file), maxPixel: 1024) else { return nil }
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
@@ -547,6 +575,8 @@ public enum Pipeline {
         let prev = previousPictureJPEG(plan: plan, for: index, work: work)
         let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: prev != nil)
         let refs = [prev, guide].compactMap { $0 }
+        let view = prev != nil ? chooseCameraView(plan: plan, for: index) : nil
+        if let t = view?.text { prompt += " Camera for this picture: \(t)." }
         if prev != nil && guide != nil {
             prompt += " Two reference pictures are attached. The FIRST is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above. The SECOND only sets the overall art style."
         } else if prev != nil {
@@ -584,6 +614,19 @@ public enum Pipeline {
             plan.sections[index].candidates[plan.sections[index].selected].credit = label
         }
 
+        // does it repeat the framing of the picture before it? (free check; only a warning is shown, nothing is redrawn)
+        if let prevFile = previousPictureFile(plan: plan, for: index) {
+            let secNow = index < 0 ? plan.intro : plan.sections[index]
+            if let file = secNow.selectedCandidate?.fullFile, let a = loadImage(work.appendingPathComponent(prevFile), maxPixel: 256), let b = loadImage(work.appendingPathComponent(file), maxPixel: 256) {
+                let s = FramingCheck.score(a, b)
+                func apply(_ x: inout PhotoSection) {
+                    guard x.candidates.indices.contains(x.selected) else { return }
+                    x.candidates[x.selected].framingLuma = s.luma; x.candidates[x.selected].framingEdge = s.edge
+                    x.candidates[x.selected].framingAgainst = prevFile; x.candidates[x.selected].cameraView = view?.key
+                }
+                if index < 0 { apply(&plan.intro) } else { apply(&plan.sections[index]) }
+            }
+        }
         plan.totalGenerationCostUSD += gen.costUSD
         plan.imagesGeneratedCount += 1
         plan.lastImageCostUSD = gen.costUSD
