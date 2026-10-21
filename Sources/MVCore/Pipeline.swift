@@ -204,6 +204,8 @@ public enum Pipeline {
         plan.partStarts = cuts.sorted()
         plan.partsFromVerses = !explicitParts && !cuts.isEmpty
         plan.setting = settingNote
+        progress?("Checking that the story flows from picture to picture", 0.98)
+        await logicPass(plan: &plan, omlx: omlx)
         plan.sourceLyrics = lyrics
         plan.pictureBoundaries = pictureBoundaries
         plan.shorts = shorts
@@ -312,6 +314,18 @@ public enum Pipeline {
         progress?("Done", 1.0)
     }
 
+    /// The story logic pass (local model): fixes picture ideas that are physically impossible, do not follow on from the idea before, or do not fit the song.
+    /// Ideas you edited yourself are never changed. `only` restricts the fixing to some sections.
+    static func logicPass(plan: inout Plan, omlx: OMLX, only: Set<Int>? = nil) async {
+        let all = [plan.intro] + plan.sections
+        let items = all.map { s in (id: s.id, prompt: s.prompt, lyrics: s.lineIDs.prefix(4).compactMap { plan.lines.indices.contains($0) ? plan.lines[$0].text : nil }.joined(separator: " / "), manual: s.promptManual) }
+        let r = await PromptWriter(omlx: omlx).logicPass(items: items, only: only, title: plan.title, subject: plan.description, setting: plan.setting)
+        for (i, p) in r.prompts {
+            if i == -1 { plan.intro.prompt = p; plan.intro.logicNote = r.notes[i] }
+            else if let k = plan.sections.firstIndex(where: { $0.id == i }) { plan.sections[k].prompt = p; plan.sections[k].logicNote = r.notes[i] }
+        }
+    }
+
     /// Regenerates the style and every prompt from the (possibly edited) song description. Pictures already loaded are kept.
     public static func regeneratePrompts(plan: inout Plan, keepStyle: Bool = false, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
         progress?("Connecting to AI engine", 0.05)
@@ -323,6 +337,10 @@ public enum Pipeline {
         if !keepStyle || plan.style.isEmpty { plan.style = w.style }
         if let p = w.prompts[-1] { plan.intro.prompt = p }
         for i in plan.sections.indices { if let p = w.prompts[plan.sections[i].id] { plan.sections[i].prompt = p } }
+        plan.intro.promptManual = false; plan.intro.logicNote = nil
+        for i in plan.sections.indices { plan.sections[i].promptManual = false; plan.sections[i].logicNote = nil }
+        progress?("Checking that the story flows from picture to picture", 0.96)
+        await logicPass(plan: &plan, omlx: omlx)
         progress?("Done", 1.0)
     }
 
@@ -353,8 +371,12 @@ public enum Pipeline {
         let s = index < 0 ? plan.intro : plan.sections[index]
         progress?("Writing a fresh take for \(index < 0 ? "Title card" : "Section \(index + 1)")", 0.35)
         let others = ([plan.intro.prompt] + plan.sections.map(\.prompt)).filter { $0 != s.prompt }
-        let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2, setting: plan.setting)
-        if index < 0 { plan.intro.prompt = p } else { plan.sections[index].prompt = p }
+        let prev = index <= 0 ? (index < 0 ? "" : plan.intro.prompt) : plan.sections[index - 1].prompt
+        let next = index + 1 < plan.sections.count ? plan.sections[index + 1].prompt : ""
+        let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2, setting: plan.setting, previous: prev, next: next)
+        if index < 0 { plan.intro.prompt = p; plan.intro.promptManual = false; plan.intro.logicNote = nil } else { plan.sections[index].prompt = p; plan.sections[index].promptManual = false; plan.sections[index].logicNote = nil }
+        progress?("Checking that it follows the story", 0.8)
+        await logicPass(plan: &plan, omlx: omlx, only: [s.id])
         progress?("Done", 1.0)
     }
 
@@ -476,13 +498,27 @@ public enum Pipeline {
         return m
     }
 
+    /// The style guide picture (the title card unless you chose another) as a small JPEG, or nil when this IS the guide or it has no picture yet.
+    static func styleGuideJPEG(plan: Plan, for index: Int, work: URL) -> Data? {
+        let g = plan.styleGuideSection ?? -1
+        guard g != index else { return nil }
+        let sec = g < 0 ? plan.intro : (plan.sections.indices.contains(g) ? plan.sections[g] : nil)
+        guard let file = sec?.selectedCandidate?.fullFile, let img = loadImage(work.appendingPathComponent(file), maxPixel: 1024) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? data as Data : nil
+    }
+
     /// Generates a 16:9 Medium image for `section` (−1 = title card) via OpenRouter (`openai/gpt-image-2.5-sunburst`),
     /// attaches it to the project, and records the cost in `plan.totalGenerationCostUSD` (saved to `project.mvproj`).
     @discardableResult
     public static func generateSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
-        let prompt = fullPrompt(plan, section: index)
+        var prompt = fullPrompt(plan, section: index)
         let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est)
+        let ref = styleGuideJPEG(plan: plan, for: index, work: work)
+        if ref != nil { prompt += " Match the look, colours, lighting and painting style of the attached reference picture, but depict the scene described above." }
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEG: ref)
         let tmpName = String(format: "%02d_sunburst.%@", index + 1, gen.fileExtension)
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_\(tmpName)")
         defer { try? FileManager.default.removeItem(at: tmpURL) }

@@ -118,7 +118,7 @@ public struct PromptWriter {
         We are making a lyric music video. Use the song description below as the single source of truth for setting, era, mood and recurring subjects. A human will paste each prompt below into an AI image generator and load the pictures back in, so the images must look like they belong together.
         1. \(fixedStyle.isEmpty ? "Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), colour palette, lighting, era, mood. 20–35 words." : "Use the chosen visual style above for the \"style\" field.")
         2. For each numbered section write a vivid, concrete, self-contained image prompt (1–2 sentences, 25–45 words) depicting what that section's lyrics describe or evoke: \
-        setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. Each section ends with a [look: …] hint (time of day, weather, camera view): use it, so the pictures look different from one another while staying in the same setting. EVERY section needs its own unique picture: a different subject, place within the story, composition or time of day — never repeat or lightly reword another section's prompt. Music-only sections (instrumental intro, breaks, outro) also get their own prompt tied to the song's world. \
+        setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. The sections are CONSECUTIVE SCENES OF ONE STORY: each picture follows on from the picture before it (same world and people, time moving forward) and moves the narrative forward; never repeat or go back. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. Each section ends with a [look: …] hint (time of day, weather, camera view): use it, so the pictures look different from one another while staying in the same setting. EVERY section needs its own unique picture: a different subject, place within the story, composition or time of day — never repeat or lightly reword another section's prompt. Music-only sections (instrumental intro, breaks, outro) also get their own prompt tied to the song's world. \
         NO text, lettering, signs or logos in the image. Do not repeat the style line inside the prompts. Section -1 is the opening title-card background: an establishing scene for the whole song.
         Reply with ONLY JSON: {"style":"...","sections":[{"i":-1,"prompt":"..."},{"i":0,"prompt":"..."}, ...]}
 
@@ -203,7 +203,7 @@ public struct PromptWriter {
     }
 
     /// Rewrites one section's prompt (the user asked for another take).
-    public func rewrite(section: PhotoSection, lines: [LyricLine], title: String, subject: String, style: String, current: String, avoid: [String] = [], setting: String = "") async throws -> String {
+    public func rewrite(section: PhotoSection, lines: [LyricLine], title: String, subject: String, style: String, current: String, avoid: [String] = [], setting: String = "", previous: String = "", next: String = "") async throws -> String {
         let t = PromptWriter.context(for: section, lines: lines)
         let avoidText = avoid.isEmpty ? "" : "\nThese pictures already exist; the new one must clearly differ from every one of them in subject, place, composition and time of day:\n" + avoid.prefix(24).map { "- " + $0 }.joined(separator: "\n") + "\n"
         let prompt = """
@@ -212,7 +212,7 @@ public struct PromptWriter {
         Lyrics for this section: \(t)
         Look for this picture (use it): \(PromptVariety.hint())
         Current prompt: \(current)\(avoidText)
-
+        \(previous.isEmpty ? "" : "Previous picture in the story (this one must FOLLOW ON from it and move the narrative forward): \(previous)\n")\(next.isEmpty ? "" : "Next picture in the story (do not pre-empt it): \(next)\n")
         Write a different, vivid, concrete, self-contained image-generation prompt (1–2 sentences, 25–45 words) for this section. Wide or medium shot, no close-ups of faces, no text or logos. \
         Reply with ONLY the prompt text.
         """
@@ -221,14 +221,14 @@ public struct PromptWriter {
     }
 
     /// Like `rewrite`, but keeps asking until the result is clearly different from `others` (then, as a last resort, changes time of day / viewpoint).
-    public func rewriteDistinct(section: PhotoSection, lines: [LyricLine], title: String, subject: String, style: String, current: String, others: [String], salt: Int = 0, setting: String = "") async throws -> String {
+    public func rewriteDistinct(section: PhotoSection, lines: [LyricLine], title: String, subject: String, style: String, current: String, others: [String], salt: Int = 0, setting: String = "", previous: String = "", next: String = "") async throws -> String {
         var p = current
         var tries = 0
         let ign = PromptWriter.settingWords(setting)
         func clashes(_ t: String) -> Bool { t.isEmpty || others.contains { PromptWriter.similarity(t, $0, ignoring: ign) >= PromptWriter.clashThreshold } }
         repeat {
             try Task.checkCancellation()
-            if let r = try? await rewrite(section: section, lines: lines, title: title, subject: subject, style: style, current: p, avoid: others, setting: setting), !r.isEmpty { p = r }
+            if let r = try? await rewrite(section: section, lines: lines, title: title, subject: subject, style: style, current: p, avoid: others, setting: setting, previous: previous, next: next), !r.isEmpty { p = r }
             tries += 1
         } while clashes(p) && tries < 3
         if clashes(p) { p = p.trimmingCharacters(in: CharacterSet(charactersIn: ". ")) + ", " + PromptWriter.variations[(salt + others.count) % PromptWriter.variations.count] + "." }
@@ -266,5 +266,40 @@ public struct PromptWriter {
         HASHTAGS: <#Shorts plus 4–5 relevant hashtags, space-separated>
         """
         return try await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 300).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: story logic pass (local model)
+
+    /// The "logic pass": reads the picture ideas in order, with the lyrics of each section, and fixes any idea that is physically impossible,
+    /// does not follow on from the idea before it, or does not fit the song at that moment. Ideas you wrote yourself (`manual`) are never changed.
+    /// `only` limits the fixing to some sections (the others are shown as context). Returns the corrected prompts and a short note per changed section.
+    public func logicPass(items: [(id: Int, prompt: String, lyrics: String, manual: Bool)], only: Set<Int>? = nil, title: String, subject: String, setting: String = "") async -> (prompts: [Int: String], notes: [Int: String]) {
+        guard items.count >= 1 else { return ([:], [:]) }
+        let list = items.map { "\($0.id): \($0.prompt)\n   lyrics: \($0.lyrics.isEmpty ? "(music only)" : $0.lyrics)" }.joined(separator: "\n")
+        let canFix = items.filter { !$0.manual && (only == nil || only!.contains($0.id)) }.map { String($0.id) }.joined(separator: ", ")
+        guard !canFix.isEmpty else { return ([:], [:]) }
+        let prompt = """
+        \(PromptWriter.theme(title: title, subject: subject))
+        \(PromptWriter.settingBlock(setting))These are the picture ideas of a lyric music video, in story order. Each picture is the next scene of ONE story.
+        \(list)
+
+        Check the ideas numbered \(canFix) (the others are context only). An idea FAILS if (1) it shows something physically impossible, (2) it does not follow on from the idea before it (the place, people or time jump without reason), or (3) it does not fit the lyrics or the story of the song at that moment, or goes backwards in the story.
+        Rewrite ONLY failing ideas: 1–2 vivid, concrete sentences (25–45 words), same style as the others, bright and well lit, no close-ups of faces, no text. Keep ideas that are fine exactly as they are.
+        Most ideas are fine: only rewrite an idea that clearly fails, and then name the failed test. Reply with ONLY JSON: {"fixed":[{"i":3,"problem":"physics or continuity or story","why":"what exactly is wrong, in one short sentence","prompt":"the rewritten idea"}]}. If everything is fine reply {"fixed":[]}.
+        """
+        guard let reply = try? await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 1800), let o = OMLX.json(from: reply) as? [String: Any], let arr = o["fixed"] as? [[String: Any]] else { return ([:], [:]) }
+        var out: [Int: String] = [:], notes: [Int: String] = [:]
+        let allowed = Set(items.filter { !$0.manual && (only == nil || only!.contains($0.id)) }.map(\.id))
+        for e in arr {
+            guard let i = e["i"] as? Int ?? Int("\(e["i"] ?? "")"), allowed.contains(i), let p = e["prompt"] as? String,
+                  let problem = (e["problem"] as? String)?.lowercased(), ["physics", "continuity", "story"].contains(where: { problem.contains($0) }) else { continue }
+            let old = items.first(where: { $0.id == i })?.prompt ?? ""
+            let clean = PromptWriter.withSetting(p.trimmingCharacters(in: .whitespacesAndNewlines), setting)
+            if clean.count >= 20, PromptWriter.similarity(old, clean, ignoring: []) < 0.8 {           // a rewrite that barely differs is not a real fix
+                out[i] = clean
+                notes[i] = "[\(problem)] " + (e["why"] as? String ?? "adjusted to follow the story").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return (out, notes)
     }
 }

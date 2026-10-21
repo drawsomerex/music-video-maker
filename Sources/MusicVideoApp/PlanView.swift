@@ -311,6 +311,12 @@ struct PlanView: View {
                         .background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
                         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
                     Text("The picture is drawn from this idea plus the art style, in widescreen with no text.").font(.callout).foregroundStyle(.tertiary)
+                    if let n = section.logicNote, !n.isEmpty {
+                        Label("Story check changed this idea: \(n)", systemImage: "checkmark.seal").font(.callout).foregroundStyle(.blue).fixedSize(horizontal: false, vertical: true)
+                            .help("The local AI checked that this picture follows the one before it, is physically possible and fits the song, and rewrote it. Edit the idea to keep your own words; edited ideas are never changed.")
+                    } else if section.promptManual {
+                        Label("Your own wording — the story check leaves it alone.", systemImage: "pencil").font(.callout).foregroundStyle(.secondary)
+                    }
                 }
 
                 if selection >= 0, section.selectedCandidate != nil {
@@ -601,6 +607,13 @@ struct DropWell: View {
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
                 else { cameraControls(c).frame(maxWidth: 640, alignment: .leading) }
                 HStack {
+                    if model.styleGuideSection == section {
+                        Label("Style guide for all pictures", systemImage: "paintpalette.fill").font(.callout).foregroundStyle(.tint)
+                            .help("Every other picture is drawn to match the look of this one (it adds about half a cent per picture).")
+                    } else {
+                        Button { model.setStyleGuide(section) } label: { Label("Use as the style guide", systemImage: "paintpalette") }
+                            .help("Pictures drawn from now on are matched to the look of this picture (about half a cent extra each). The title card is the guide unless you choose another.")
+                    }
                     Spacer()
                     Button("Choose a different file…") { choose() }
                         .help("Replaces this picture with another file from your Mac.")

@@ -668,6 +668,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Makes this picture the style guide: every picture drawn from now on is matched to it.
+    func setStyleGuide(_ section: Int) {
+        guard var p = plan else { return }
+        checkpoint("Choose style guide picture")
+        p.styleGuideSection = section == -1 ? nil : section; plan = p; persist()
+    }
+    var styleGuideSection: Int { plan?.styleGuideSection ?? -1 }
+
     func generateAllMissingImages() {
         guard let p0 = plan, let w = workDir else { return }
         guard hasOpenRouterKey else {
@@ -689,7 +697,11 @@ final class AppModel: ObservableObject {
         generateSectionsList(targets, work: w, titlePrefix: "Generating all \(targets.count) picture(s)")
     }
 
-    private func generateSectionsList(_ targets: [Int], work w: URL, titlePrefix: String) {
+    private func generateSectionsList(_ targetsIn: [Int], work w: URL, titlePrefix: String) {
+        // the style guide picture is made first, so every other picture can be drawn to match it
+        var targets = targetsIn
+        let guide = plan?.styleGuideSection ?? -1
+        if let k = targets.firstIndex(of: guide), k > 0 { targets.remove(at: k); targets.insert(guide, at: 0) }
         runBackground(initialPhase: "\(titlePrefix) with \(OpenRouter.imageModel)…") { [weak self] in
             guard let self else { return }
             let total = targets.count
@@ -721,7 +733,7 @@ final class AppModel: ObservableObject {
     func setPrompt(_ text: String, section: Int) {
         guard var p = plan, section == -1 || p.sections.indices.contains(section) else { return }
         checkpoint("Edit picture idea", coalesce: true)
-        if section < 0 { p.intro.prompt = text } else { p.sections[section].prompt = text }
+        if section < 0 { p.intro.prompt = text; p.intro.promptManual = true; p.intro.logicNote = nil } else { p.sections[section].prompt = text; p.sections[section].promptManual = true; p.sections[section].logicNote = nil }
         plan = p; persist()
     }
 
