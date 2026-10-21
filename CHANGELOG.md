@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-21
+
 ### Added
 - **Looping video: "What moves".** For every new picture (yours or drawn) the app looks at it once (a fraction of a cent) and writes what should move and how, e.g. "waves rolling onto the shore, clouds drifting very slowly; the rocks, beach and trees stay still". You can edit it; it goes into the loop clip's instructions word for word, so your own pictures animate the right things.
 
