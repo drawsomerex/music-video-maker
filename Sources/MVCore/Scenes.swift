@@ -14,8 +14,15 @@ public struct CameraPath: Equatable {
         let bw = (iw / ih > aspect) ? (ih * aspect) : iw, bh = bw / aspect
         let halfW = 0.5 * (bw / max(1, iw)), halfH = 0.5 * (bh / max(1, ih))
         func need(_ p: CGPoint) -> Double { max(halfW / max(0.02, 0.5 - abs(p.x - 0.5)), halfH / max(0.02, 0.5 - abs(p.y - 0.5))) }
-        let level = min(max(max(need(start), need(end)) * 1.01, 1.10), 2.4)
-        switch zoom { case 0: return (level, level * 1.14); case 2: return (level * 1.14, level); default: return (level, level) }
+        // Your own move is made as big as the picture allows: the view is zoomed in as far as is sensible (up to 2.4x), so the move is easy to see.
+        // A larger zoom always keeps both points inside the picture, so the smallest zoom that fits is only the floor.
+        let floorZ = max(need(start), need(end)) * 1.01
+        let top = 2.4, nearBig = max(floorZ, 1.35)
+        switch zoom {
+        case 0: return (nearBig, top)                      // moves closer: from a fairly close view to the closest
+        case 2: return (top, nearBig)                      // moves wider: from the closest view out
+        default: let mid = max(floorZ, 1.8); return (mid, mid)       // stays level: a close, steady view that travels between the two points
+        }
     }
     /// The visible part of the picture (as fractions of its width/height) at the start (`end == false`) or end of the move.
     public func frame(imageW iw: Double, imageH ih: Double, aspect: Double, end atEnd: Bool) -> CGSize {
@@ -265,13 +272,11 @@ final class PhotoScene {
             keys = mode == 1 ? [(subs[0], tight), (c, wide)] : [(c, wide), (subs[0], tight)]
         }
         let total = max(0.5, b - (kb0.isNaN ? a : kb0))
-        let wanted = min(10, max(keys.count - 1, Int((total / 7).rounded())))      // legs of about 7 seconds
-        var path = [keys[0]]; var i = 0, step = 1
-        while path.count - 1 < wanted {
-            i += step
-            if i >= keys.count { i = keys.count - 2; step = -1 } else if i < 0 { i = 1; step = 1 }
-            path.append(keys[i])
-        }
+        // One journey only: from one side to the other, and once back when there is time for it (never back and forth again).
+        // Two subjects: A → B (and back to A in a long scene). Three or more: A → B → C, without returning.
+        var path: [(CGPoint, Double)]
+        if keys.count >= 3 { path = Array(keys.prefix(3)) }
+        else { path = keys; if total >= 11 { path.append(keys[0]) } }
         let legs = path.count - 1, legDur = total / Double(legs)
         let local = min(total, max(0, t - (kb0.isNaN ? a : kb0)))
         let k = min(legs - 1, Int(local / legDur)), f = (local - Double(k) * legDur) / legDur
