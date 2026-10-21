@@ -14,3 +14,7 @@ Output/
 .DS_Store
 .swiftpm/
 xcuserdata/
+
+# tool state that must never be published
+.wrangler/
+*.profraw
