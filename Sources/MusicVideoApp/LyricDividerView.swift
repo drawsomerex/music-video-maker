@@ -62,13 +62,7 @@ struct SongTimelineEditor: View {
     }
     var content: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack { history; Spacer(); zoom }
-                VStack(alignment: .leading) { history; zoom }
-            }
-            GeometryReader { area in
-                ScrollView(.horizontal) { timelineStrip.frame(width: max(1, area.size.width * model.timelineZoom), height: CGFloat(96 + model.timelineShorts.count * 30)) }
-            }.frame(height: CGFloat(96 + model.timelineShorts.count * 30))
+            ScaledTimeline(onSelectPicture: { picture = $0 })
             HStack {
                 Text("Listening point: \(preciseClock(model.timelineCursor))").monospacedDigit()
                 Spacer()

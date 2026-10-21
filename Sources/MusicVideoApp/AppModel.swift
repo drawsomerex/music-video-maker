@@ -339,7 +339,7 @@ final class AppModel: ObservableObject {
     /// The lyric lines with their times: from "Listen to the song first", or from the planned project when it is the same words.
     var timelineLines: (lines: [LyricLine], duration: Double)? {
         if let a = analysis, a.key == analysisKey { return (a.lines, a.duration) }
-        if let p = plan, hasProject, p.lines.map(\.text) == LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text) { return (p.lines, p.songDuration) }
+        if let p = plan, hasProject, LyricText.rows(lyrics).isEmpty || p.lines.map(\.text) == LyricText.rows(LyricText.clearDividers(lyrics)).map(\.text) { return (p.lines, p.songDuration) }
         return nil
     }
     /// The pictures the song would get right now (one per verse and per music break), or nil until the song has been listened to.

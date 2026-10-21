@@ -5,6 +5,12 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Picture ideas that move the story forward, checked by the AI on your Mac.** New ideas follow on from the previous picture's idea. After the ideas are first written and after every *Another idea*, a local "story check" fixes ideas that are physically impossible, don't follow on from the one before, or don't fit the song, and says what it changed. Ideas you edit yourself are never touched, and clicking a generate button doesn't run it.
+- **Style guide picture.** The title card (or any picture you choose with *Use as the style guide*) is sent as a reference with every other picture, so the whole video shares one look. Measured cost: about half a cent per picture.
+- **HeyGen video clips.** Ken Burns stays the default. Under each picture: *Make this a video clip* (5–15 s, the section's length), with the price shown first and the clip played back for you to approve, redo or discard; sections over 15 s hold the last frame and carry on with Ken Burns. *Make the whole section as video* chains clips back to back (each starting on the last frame of the one before), pausing after each so you can watch it. A cheap automatic check warns about physically impossible-looking clips (switch off in Settings). Real costs are shown in the green strip; the only limit is your OpenRouter credit.
+- **A true-to-scale timeline at the top of the Song and Pictures pages.** Ruler + waveform, lyric lines at their real times, purple music interludes, pictures with thumbnails and **draggable borders** (snapping to lyric lines; Option = no snap; double-click to add, Delete to join), and **draggable Shorts** (move, resize, add, delete).
+
 ## [1.6.2] - 2026-10-19
 
 ### Fixed

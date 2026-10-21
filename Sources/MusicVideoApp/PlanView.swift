@@ -19,6 +19,17 @@ struct PlanView: View {
         return plan.sections[idx]
     }
 
+    @State private var showTimeline = true
+    var timelinePanel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Button { withAnimation { showTimeline.toggle() } } label: { Label("Timeline", systemImage: showTimeline ? "chevron.down" : "chevron.right").font(.headline) }.buttonStyle(.plain)
+                    .help("The whole song on a true-to-scale timeline: drag the picture borders and the Shorts. Click to hide or show it.")
+                Spacer()
+            }
+            if showTimeline { ScaledTimeline() }
+        }.padding(.horizontal, 20).padding(.vertical, 8)
+    }
     var snapshot = false
     init(snapshot: Bool = false) { self.snapshot = snapshot }
 
@@ -41,6 +52,8 @@ struct PlanView: View {
             Divider()
             if mode == 0 {
                 styleBar
+                Divider()
+                timelinePanel
                 Divider()
                 HSplitView {
                     sidebar.frame(minWidth: 220, idealWidth: 300, maxWidth: 520)

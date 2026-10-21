@@ -129,6 +129,19 @@ enum Snapshots {
                 win.close()
             }
             func sz(_ w: CGFloat, _ h: CGFloat) -> CGSize { CGSize(width: w, height: h) }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "song", let p = model.plan {
+                model.lyrics = ""
+                _ = p
+                shot("s-song-page", sz(1000, 1000), LyricDividerView(), wait: 2)
+                NSApplication.shared.terminate(nil); return
+            }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "timeline" {
+                model.lyrics = ""; model.analysis = nil; model.selectedSection = 3
+                if model.currentShort == nil { model.addTimelineShort(at: 20) }
+                shot("t-pictures-page", sz(1400, 900), PlanView(), wait: 2)
+                shot("t-pictures-page-small", sz(900, 640), PlanView(), wait: 2)
+                NSApplication.shared.terminate(nil); return
+            }
             model.selectedSection = 0
             let vi = model.plan?.sections.firstIndex(where: { $0.selectedCandidate?.videoFile != nil }) ?? 4
             model.stage = .setup

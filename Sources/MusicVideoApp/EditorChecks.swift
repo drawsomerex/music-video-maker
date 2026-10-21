@@ -14,6 +14,28 @@ enum EditorChecks {
         guard let root = Updater.env["MV_TEST_ROOT"], root.hasPrefix("/tmp/"), let p = model.plan, let work = model.workDir, work.path.hasPrefix(root), Updater.env["MV_TEST_PREFS"] != nil else {
             FileHandle.standardError.write(Data("FAIL scratch project and isolated preferences required\n".utf8)); return
         }
+        if Updater.env["MV_CLIP_TEST"] != nil {
+            // Real-money check of the video clip flow on a scratch project: one single clip, watched and accepted through the same calls the buttons use.
+            let sec = Int(Updater.env["MV_CLIP_TEST"] ?? "1") ?? 1
+            model.config = Config.load()
+            let before = model.plan?.totalVideoCostUSD ?? 0
+            let secs = model.clipSeconds(section: sec, chain: false)
+            FileHandle.standardError.write(Data("CLIP TEST: section \(sec) → \(secs) s, list price \(String(format: "%.2f", model.clipPriceUSD(secs)))\n".utf8))
+            model.startClips(section: sec, chain: false)
+            var waited = 0
+            while model.clipJob?.waiting != true && model.clipJob?.failed == nil && waited < 900 { try? await Task.sleep(nanoseconds: 2_000_000_000); waited += 2 }
+            check(model.clipJob?.failed == nil, "the clip was made without an error" + (model.clipJob?.failed.map { ": " + $0 } ?? ""))
+            let made = model.plan.flatMap { sec < 0 ? $0.intro : $0.sections[sec] }?.clips ?? []
+            check(made.count == 1 && made[0].seconds > 4, "one clip of the right length was saved")
+            check(FileManager.default.fileExists(atPath: model.workDir!.appendingPathComponent(made.first?.file ?? "x").path), "the clip file exists")
+            check(FileManager.default.fileExists(atPath: model.workDir!.appendingPathComponent(made.first?.lastFrame ?? "x").path), "its last frame exists")
+            check((model.plan?.totalVideoCostUSD ?? 0) > before, "the cost was recorded: \(String(format: "%.4f", (model.plan?.totalVideoCostUSD ?? 0) - before))")
+            FileHandle.standardError.write(Data("CLIP WARNING: \(made.first?.warning ?? "none")\n".utf8))
+            model.decideClip(.use)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            check(model.plan.flatMap { sec < 0 ? $0.intro : $0.sections[sec] }?.useClips == true, "accepting the clip switches the section to video")
+            FileHandle.standardError.write(Data("CLIP CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
         if Updater.env["MV_REAL_SPLIT"] != nil {
             // The real flow on a real song's lines: listen only (no plan), many automatic pictures, then split inside one of them.
             let real = p
@@ -37,6 +59,18 @@ enum EditorChecks {
             model.draftSections = nil; model.draftKey = ""
             model.loadDraft()
             check(TimelineEditor.boundaries(model.previewSections ?? []) == keep, "saved cuts come back after listening again")
+            // dragging a border: only the two neighbours change, live, and one Undo step restores everything
+            let base = model.previewSections ?? []; let baseCuts = TimelineEditor.boundaries(base)
+            let bi = 4, orig = base[bi].start
+            model.beginTimelineDrag("Move picture border")
+            for dx in stride(from: 0.0, through: 3.0, by: 0.5) { model.moveBoundaryLive(bi, to: orig + dx) }
+            model.endBoundaryDrag()
+            var moved = baseCuts; moved[bi - 1] = orig + 3.0
+            check(zip(TimelineEditor.boundaries(model.previewSections ?? []), moved).allSatisfy { abs($0 - $1) < 0.001 }, "dragging a border moves only that border")
+            model.moveBoundaryLive(bi, to: 1e9)
+            check((model.previewSections ?? [])[bi].start < (model.previewSections ?? [])[bi].end, "a border cannot be dragged past its neighbour")
+            model.undoEdit()
+            check(TimelineEditor.boundaries(model.previewSections ?? []) == baseCuts, "undo of a drag restores the pictures exactly")
             model.undoEdit()
             check(TimelineEditor.boundaries(model.previewSections ?? []) == cuts, "undo returns exactly to the automatic pictures")
             FileHandle.standardError.write(Data("REAL SPLIT CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return

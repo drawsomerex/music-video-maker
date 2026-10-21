@@ -74,8 +74,42 @@ extension AppModel {
     }
     func undoEdit() { guard historyAvailable, let state = editUndo.popLast() else { return }; editRedo.append(snapshot(state.name)); restore(state) }
     func redoEdit() { guard historyAvailable, let state = editRedo.popLast() else { return }; editUndo.append(snapshot(state.name)); restore(state) }
-    func beginTimelineDrag() { guard !timelineDragging else { return }; checkpoint("Move Short boundary"); timelineDragging = true }
+    func beginTimelineDrag(_ name: String = "Move Short boundary") { guard !timelineDragging else { return }; checkpoint(name); timelineDragging = true }
     func endTimelineDrag() { timelineDragging = false; persist(); refreshPreview(at: 0) }
+
+    // MARK: dragging on the scaled timeline (live: no saving or preview rebuild until the mouse is released)
+    private var sectionsFollowPlan: Bool { plan.map { p in timelineLines?.lines.map(\.text) == p.lines.map(\.text) } ?? false }
+    /// Moves the border between picture `i-1` and picture `i` to `time`. The neighbours resize; nothing else changes.
+    func moveBoundaryLive(_ i: Int, to time: Double) {
+        guard let tl = timelineLines, var secs = previewSections, secs.indices.contains(i), i > 0 else { return }
+        let lo = secs[i - 1].start + TimelineEditor.minimumSection, hi = secs[i].end - TimelineEditor.minimumSection
+        guard hi > lo else { return }
+        let v = min(max(time, lo), hi)
+        secs[i - 1].end = v; secs[i].start = v
+        secs = TimelineEditor.assignLines(secs, lines: tl.lines)
+        if sectionsFollowPlan, var p = plan { p.sections = secs; p.pictureBoundaries = TimelineEditor.boundaries(secs); plan = p }
+        else { draftSections = secs }
+    }
+    func endBoundaryDrag() {
+        timelineDragging = false; checkpointRevision = nil
+        if sectionsFollowPlan { persist() } else { saveDraft() }
+        live.invalidate()
+    }
+    /// Moves or resizes a Short while dragging.
+    func moveShortLive(_ id: UUID, start: Double, end: Double) {
+        guard let t = timelineLines else { return }
+        var shorts = timelineShorts; guard let i = shorts.firstIndex(where: { $0.id == id }) else { return }
+        let old = shorts[i]; var c = old; c.start = start; c.end = end
+        shorts[i] = TimelineEditor.adjustedShort(c, from: old, duration: t.duration)
+        if sectionsFollowPlan, var p = plan { p.shorts = shorts; plan = p } else { draftShorts = shorts }
+    }
+    func addTimelineShort(at time: Double) {
+        guard let t = timelineLines else { return }
+        ensureDraftKey(); checkpoint("Add Short")
+        let start = min(max(0, time), max(0, t.duration - 2))
+        let c = ShortClip(name: "Short \(timelineShorts.count + 1)", start: start, end: min(t.duration, start + 30))
+        setTimelineShorts(timelineShorts + [c]); selectedShort = c.id
+    }
 
     func commitPictures(_ sections: [PhotoSection]) {
         ensureDraftKey()

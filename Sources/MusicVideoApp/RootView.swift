@@ -558,6 +558,8 @@ struct SettingsView: View {
             Section("Picture maker (optional)") {
                 SecureField("OpenRouter key (starts with sk-or-)", text: $model.config.openRouterKey)
                     .help("Paste your OpenRouter key here to let the app draw the pictures for you. Without a key you can still drag in pictures you made yourself. The key is saved privately on this Mac (in a file only your account can read) and is only ever sent to OpenRouter.")
+                Toggle("Check each video clip for impossible physics (about 0.1 cent)", isOn: $model.config.videoRealismCheck)
+                    .help("After a video clip is made, a small cloud AI looks at five frames and warns you if something looks physically impossible. It only warns; it never redoes a clip or spends anything else.")
                 LabeledContent("Credit left") {
                     HStack(spacing: 8) {
                         if model.checkingCredits {
@@ -615,6 +617,7 @@ struct SettingsView: View {
         .formStyle(.grouped).frame(width: 640, height: 600)
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
+        .onChange(of: model.config.videoRealismCheck) { save() }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
         .onChange(of: model.config.sttModel) { save() }.onChange(of: model.config.llmModel) { save() }
     }
