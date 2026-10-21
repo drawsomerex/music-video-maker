@@ -122,11 +122,14 @@ final class ImageBox: @unchecked Sendable {
     let url: URL?, maxPixel: Int
     private var img: CGImage?, loaded = false
     private let lock = NSLock()
+    private var fixed = false
     init(url: URL?, maxPixel: Int) { self.url = url; self.maxPixel = maxPixel }
+    /// A picture that is already in memory (for example the last frame of a video clip).
+    init(image: CGImage) { url = nil; maxPixel = 0; img = image; loaded = true; fixed = true }
     func get() -> CGImage? {
         lock.lock(); defer { lock.unlock() }
         if !loaded { img = url.flatMap { loadImage($0, maxPixel: maxPixel) }; loaded = true }
         return img
     }
-    func unload() { lock.lock(); img = nil; loaded = false; lock.unlock() }
+    func unload() { lock.lock(); if !fixed { img = nil; loaded = false }; lock.unlock() }
 }

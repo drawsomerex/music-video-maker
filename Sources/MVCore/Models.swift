@@ -50,9 +50,10 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var focalNames: [String] = []
     public var videoLength: Double? = nil      // length of the whole clip in seconds
     public var videoStart: Double = 0          // where in the clip it begins playing (seconds)
+    public var videoRepeat: Bool = false       // an imported clip repeats (with a crossfade) instead of holding its last frame while the camera moves
     public var videoEnd: Double? = nil         // where it stops (nil = the end of the clip)
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -78,6 +79,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         videoLength = try c.decodeIfPresent(Double.self, forKey: .videoLength)
         videoStart = try c.decodeIfPresent(Double.self, forKey: .videoStart) ?? 0
         videoEnd = try c.decodeIfPresent(Double.self, forKey: .videoEnd)
+        videoRepeat = try c.decodeIfPresent(Bool.self, forKey: .videoRepeat) ?? false
         libraryName = try c.decodeIfPresent(String.self, forKey: .libraryName)
         focalAX = try c.decodeIfPresent(Double.self, forKey: .focalAX); focalAY = try c.decodeIfPresent(Double.self, forKey: .focalAY)
         focalBX = try c.decodeIfPresent(Double.self, forKey: .focalBX); focalBY = try c.decodeIfPresent(Double.self, forKey: .focalBY)
@@ -103,7 +105,24 @@ public struct SectionClip: Codable, Identifiable, Hashable {
     public var prompt: String = ""
     public var costUSD: Double = 0
     public var warning: String? = nil       // what the realism check noticed, if anything
+    public var trimStart: Double = 0        // the part of the clip that is used: from … (seconds into the clip)
+    public var trimEnd: Double? = nil       // … to … (nil = the end of the clip)
+    public var focalAX: Double? = nil, focalAY: Double? = nil, focalBX: Double? = nil, focalBY: Double? = nil      // the two most prominent features on the clip's last frame
+    /// How long the used part plays.
+    public var playSeconds: Double { max(0.5, (trimEnd ?? seconds) - trimStart) }
     public init() {}
+    enum CodingKeys: String, CodingKey { case id, file, lastFrame, seconds, offset, prompt, costUSD, warning, trimStart, trimEnd, focalAX, focalAY, focalBX, focalBY }
+    public init(from d: Decoder) throws {          // every field has a default, so clips saved by older versions still open
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""; lastFrame = try c.decodeIfPresent(String.self, forKey: .lastFrame) ?? ""
+        seconds = try c.decodeIfPresent(Double.self, forKey: .seconds) ?? 0; offset = try c.decodeIfPresent(Double.self, forKey: .offset) ?? 0
+        prompt = try c.decodeIfPresent(String.self, forKey: .prompt) ?? ""; costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        warning = try c.decodeIfPresent(String.self, forKey: .warning)
+        trimStart = try c.decodeIfPresent(Double.self, forKey: .trimStart) ?? 0; trimEnd = try c.decodeIfPresent(Double.self, forKey: .trimEnd)
+        focalAX = try c.decodeIfPresent(Double.self, forKey: .focalAX); focalAY = try c.decodeIfPresent(Double.self, forKey: .focalAY)
+        focalBX = try c.decodeIfPresent(Double.self, forKey: .focalBX); focalBY = try c.decodeIfPresent(Double.self, forKey: .focalBY)
+    }
 }
 
 public struct PhotoSection: Codable, Identifiable {
@@ -119,11 +138,12 @@ public struct PhotoSection: Codable, Identifiable {
     public var repeatOf: Int? = nil        // index of an earlier section with the same lyrics (e.g. a repeated chorus)
     public var note: String? = nil
     public var clips: [SectionClip] = []     // generated video clips for this section
+    public var repeatClips: Bool = false     // a single clip repeats (with a crossfade) instead of holding its last frame and moving the camera
     public var useClips: Bool = false        // false = Ken Burns on the picture (the default); true = play the clips, then freeze and Ken Burns for the rest
     public var focal: [String] = []          // the two focal points named in the picture idea; the camera moves from the first to the second
     public var promptManual: Bool = false    // true once you edit the idea yourself: the story logic check never changes it
     public var logicNote: String? = nil      // what the story logic check changed in this idea (shown under the idea)
-    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, focal }
+    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id); start = try c.decode(Double.self, forKey: .start); end = try c.decode(Double.self, forKey: .end)
@@ -139,6 +159,7 @@ public struct PhotoSection: Codable, Identifiable {
         focal = try c.decodeIfPresent([String].self, forKey: .focal) ?? []
         clips = try c.decodeIfPresent([SectionClip].self, forKey: .clips) ?? []
         useClips = try c.decodeIfPresent(Bool.self, forKey: .useClips) ?? false
+        repeatClips = try c.decodeIfPresent(Bool.self, forKey: .repeatClips) ?? false
         logicNote = try c.decodeIfPresent(String.self, forKey: .logicNote)
     }
     public init(id: Int, start: Double, end: Double, lineIDs: [Int], queries: [String], candidates: [ImageCandidate], selected: Int, seed: UInt64) {

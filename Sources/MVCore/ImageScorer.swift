@@ -23,24 +23,36 @@ public enum ImageScorer {
         subjectLock.lock(); if let c = subjectCache[key] { subjectLock.unlock(); return c }; subjectLock.unlock()
         var out: [CGPoint] = []
         if let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-           let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 640] as CFDictionary) {
-            let handler = VNImageRequestHandler(cgImage: img, options: [:])
-            let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
-            let objects = VNGenerateObjectnessBasedSaliencyImageRequest()
-            try? handler.perform([people, objects])
-            var cands: [(CGPoint, Double)] = []
-            for p in (people.results ?? []).sorted(by: { $0.boundingBox.width * $0.boundingBox.height > $1.boundingBox.width * $1.boundingBox.height }).prefix(3) {
-                let b = p.boundingBox; if b.width * b.height > 0.01 { cands.append((CGPoint(x: b.midX, y: 1 - (b.minY + 0.72 * b.height)), 2 + Double(b.width * b.height))) }   // aim at the head and chest
-            }
-            for o in objects.results?.first?.salientObjects ?? [] {
-                let b = o.boundingBox; let area = Double(b.width * b.height)
-                if area > 0.015 && area < 0.8 { cands.append((CGPoint(x: b.midX, y: 1 - b.midY), area)) }
-            }
-            for (p, _) in cands.sorted(by: { $0.1 > $1.1 }) where out.count < 3 {
-                if !out.contains(where: { hypot($0.x - p.x, $0.y - p.y) < 0.18 }) { out.append(p) }
-            }
-        }
+           let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 640] as CFDictionary) { out = detect(img) }
         subjectLock.lock(); subjectCache[key] = out; subjectLock.unlock()
+        return out
+    }
+
+    /// The main subjects of a picture that is already in memory (for example the last frame of a clip).
+    public static func subjects(image: CGImage) -> [CGPoint] {
+        let scale = 640.0 / Double(max(image.width, image.height))
+        guard scale < 1, let ctx = CGContext(data: nil, width: Int(Double(image.width) * scale), height: Int(Double(image.height) * scale), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return detect(image) }
+        ctx.interpolationQuality = .medium; ctx.draw(image, in: CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+        return detect(ctx.makeImage() ?? image)
+    }
+
+    static func detect(_ img: CGImage) -> [CGPoint] {
+        var out: [CGPoint] = []
+        let handler = VNImageRequestHandler(cgImage: img, options: [:])
+        let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
+        let objects = VNGenerateObjectnessBasedSaliencyImageRequest()
+        try? handler.perform([people, objects])
+        var cands: [(CGPoint, Double)] = []
+        for p in (people.results ?? []).sorted(by: { $0.boundingBox.width * $0.boundingBox.height > $1.boundingBox.width * $1.boundingBox.height }).prefix(3) {
+            let b = p.boundingBox; if b.width * b.height > 0.01 { cands.append((CGPoint(x: b.midX, y: 1 - (b.minY + 0.72 * b.height)), 2 + Double(b.width * b.height))) }   // aim at the head and chest
+        }
+        for o in objects.results?.first?.salientObjects ?? [] {
+            let b = o.boundingBox; let area = Double(b.width * b.height)
+            if area > 0.015 && area < 0.8 { cands.append((CGPoint(x: b.midX, y: 1 - b.midY), area)) }
+        }
+        for (p, _) in cands.sorted(by: { $0.1 > $1.1 }) where out.count < 3 {
+            if !out.contains(where: { hypot($0.x - p.x, $0.y - p.y) < 0.18 }) { out.append(p) }
+        }
         return out
     }
 

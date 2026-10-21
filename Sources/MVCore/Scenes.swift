@@ -53,7 +53,7 @@ final class PhotoScene {
     let box: ImageBox?
     var clipTrack: [ClipSegment] = []   // generated video clips played back to back from the start of the scene; afterwards the last frame (`box`) gets a Ken Burns push-in
     var subjects: [CGPoint] = []        // the main subjects of the picture: the automatic camera travels from one to the next
-    var clipScene = false               // the scene plays a generated video clip first: the camera move runs across the clip and the frame it ends on, a little less zoomed
+    var tail = false                    // the scene plays a video clip first: after it the last frame holds and the camera moves between its two most prominent features
     var subjectsOrdered = false         // the subjects are the picture's own focal points 1 → 2: travel in that order instead of left → right
     var kbStart: Double = .nan          // when that Ken Burns begins (video time); NaN = at the start of the scene
     let video: VideoClipSource?          // a video clip that plays during this scene instead of a moving still picture
@@ -205,10 +205,8 @@ final class PhotoScene {
             if let seg = clipTrack.last(where: { local >= $0.offset - 0.001 }), local < seg.offset + seg.seconds, let frame = seg.source.frame(at: max(0, local - seg.offset)) {
                 let iw = Double(frame.width), ih = Double(frame.height), target = Double(W) / Double(H)
                 let bw = iw / ih > target ? ih * target : iw, bh = bw / target
-                // the same subject-to-subject camera move runs over the clip (it keeps going on the last frame afterwards)
-                let (ncx, ncy, z) = autoState(t: t, kb0: a, iw: iw, ih: ih, bw: bw, bh: bh)
-                let rw = bw / z, rh = bh / z
-                let cx = min(max(ncx * iw, rw / 2), iw - rw / 2), cy = min(max(ncy * ih, rh / 2), ih - rh / 2)
+                let rw = bw, rh = bh                                       // the clip plays exactly as made: a plain fill of the frame, no extra zoom
+                let cx = iw / 2, cy = ih / 2
                 let s = Double(W) / rw
                 ctx.draw(frame, in: CGRect(x: -(cx - rw / 2) * s, y: -(ih - (cy - rh / 2 + rh)) * s, width: iw * s, height: ih * s))
                 return
@@ -265,25 +263,34 @@ final class PhotoScene {
             let mx = max(0, (0.5 - halfW0 / z) * 0.996), my = max(0, (0.5 - halfH0 / z) * 0.996)
             return CGPoint(x: min(0.5 + mx, max(0.5 - mx, p.x)), y: min(0.5 + my, max(0.5 - my, p.y)))
         }
-        let tight = clipScene ? (vertical ? 1.2 : 1.35) : (vertical ? 1.3 : 1.75), wide = vertical ? 1.0 : 1.1
+        let tight = vertical ? 1.3 : 1.75, wide = vertical ? 1.0 : 1.1
         var subs = subjects.isEmpty ? [focus] : subjects
         if !subjectsOrdered { subs.sort { $0.x < $1.x } }
         if mode == 3 || mode == 1 { subs.reverse() }                      // alternate the direction of travel from scene to scene
-        var keys: [(CGPoint, Double)]
-        if subs.count >= 2 { keys = subs.map { ($0, tight) } }
-        else {
-            let c = CGPoint(x: 0.5 + (subs[0].x - 0.5) * 0.25, y: 0.5 + (subs[0].y - 0.5) * 0.25)
-            keys = mode == 1 ? [(subs[0], tight), (c, wide)] : [(c, wide), (subs[0], tight)]
-        }
         let total = max(0.5, b - (kb0.isNaN ? a : kb0))
-        // One journey only: from one side to the other, and once back when there is time for it (never back and forth again).
-        // Two subjects: A → B (and back to A in a long scene). Three or more: A → B → C, without returning.
-        var path: [(CGPoint, Double)]
-        if keys.count >= 3 { path = Array(keys.prefix(3)) }
-        else { path = keys; if total >= 11 { path.append(keys[0]) } }
-        let legs = path.count - 1, legDur = total / Double(legs)
+        var path: [(CGPoint, Double)]; var durs: [Double]
+        if tail {
+            // after a video clip: the last frame holds, the camera eases in from the full frame onto the most prominent feature, then travels to the second
+            if subs.count == 1 { let f = subs[0]; subs.append(CGPoint(x: f.x < 0.5 ? min(0.85, f.x + 0.25) : max(0.15, f.x - 0.25), y: 0.5 + (f.y - 0.5) * 0.6)) }
+            let ease = min(1.6, total * 0.3), rest = max(0.2, total - ease)
+            path = [(CGPoint(x: 0.5, y: 0.5), 1.0), (subs[0], tight), (subs[1], tight)]; durs = [ease, rest]
+            if rest >= 11 { path.append((subs[0], tight)); durs = [ease, rest / 2, rest / 2] }       // once back, in a long scene
+        } else {
+            var keys: [(CGPoint, Double)]
+            if subs.count >= 2 { keys = subs.map { ($0, tight) } }
+            else {
+                let c = CGPoint(x: 0.5 + (subs[0].x - 0.5) * 0.25, y: 0.5 + (subs[0].y - 0.5) * 0.25)
+                keys = mode == 1 ? [(subs[0], tight), (c, wide)] : [(c, wide), (subs[0], tight)]
+            }
+            // One journey only: from one side to the other, and once back when there is time for it (never back and forth again).
+            if keys.count >= 3 { path = Array(keys.prefix(3)) }
+            else { path = keys; if total >= 11 { path.append(keys[0]) } }
+            durs = Array(repeating: total / Double(path.count - 1), count: path.count - 1)
+        }
         let local = min(total, max(0, t - (kb0.isNaN ? a : kb0)))
-        let k = min(legs - 1, Int(local / legDur)), f = (local - Double(k) * legDur) / legDur
+        var k = 0, acc = 0.0
+        while k < durs.count - 1 && local >= acc + durs[k] { acc += durs[k]; k += 1 }
+        let f = min(1, max(0, (local - acc) / max(0.001, durs[k])))
         let e = 0.35 * f + 0.65 * (0.5 - 0.5 * cos(.pi * f))               // mostly smooth, never stopping dead between legs
         let (p0, z0) = path[k], (p1, z1) = path[k + 1]
         let z = z0 * pow(z1 / z0, e)

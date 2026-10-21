@@ -66,19 +66,36 @@ public final class FrameComposer: @unchecked Sendable {
             else if candidateMode == prevMode { candidateMode = candidateMode == 2 ? 3 : 2 }
             prevMode = candidateMode
             let sec = all[i]
-            let useClips = sec.useClips && !sec.clips.isEmpty
-            if useClips { candidateMode = 0 }                                  // after the clips the last frame holds, then a gentle push-in
-            let sceneBox: ImageBox? = useClips ? (sec.clips.last.map { ImageBox(url: work.appendingPathComponent($0.lastFrame), maxPixel: maxPx) } ?? boxes[i]) : boxes[i]
+            // What plays in this scene: generated clips (or an imported clip) once, then the last frame holds and the camera moves; or a single clip that repeats with a crossfade.
+            var segs: [ClipSegment] = [], repeatSource: VideoClipSource? = nil
+            var tailFocal: [CGPoint] = []
+            if sec.useClips && !sec.clips.isEmpty {
+                if sec.repeatClips && sec.clips.count == 1, let c1 = sec.clips.first {
+                    repeatSource = VideoClipSource(url: work.appendingPathComponent(c1.file), maxPixel: maxPx, start: c1.trimStart, end: c1.trimEnd)
+                } else {
+                    segs = sec.clips.map { ClipSegment(source: VideoClipSource(url: work.appendingPathComponent($0.file), maxPixel: maxPx, start: $0.trimStart, end: $0.trimEnd), offset: $0.offset, seconds: $0.playSeconds) }
+                    if let l = sec.clips.last, let ax = l.focalAX, let ay = l.focalAY, let bx = l.focalBX, let by = l.focalBY { tailFocal = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)] }
+                }
+            } else if let c, let vf = c.videoFile {
+                let src = VideoClipSource(url: work.appendingPathComponent(vf), maxPixel: maxPx, start: c.videoStart, end: c.videoEnd)
+                if c.videoRepeat { repeatSource = src } else { segs = [ClipSegment(source: src, offset: 0, seconds: src.playSeconds)] }
+            }
+            let hasTail = !segs.isEmpty
+            if hasTail { candidateMode = 0 }
+            var sceneBox: ImageBox? = boxes[i]
+            if hasTail, let lastImg = segs.last?.source.lastFrameImage() {
+                sceneBox = ImageBox(image: lastImg)
+                if tailFocal.isEmpty { tailFocal = ImageScorer.subjects(image: lastImg) }
+            }
             let scene = PhotoScene(box: sceneBox, a: a, b: max(e, a + 1), seed: sceneSeed,
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
                                  shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
-                                 video: useClips ? nil : c?.videoFile.map { VideoClipSource(url: work.appendingPathComponent($0), maxPixel: maxPx, start: c?.videoStart ?? 0, end: c?.videoEnd) }, beats: beats, preferredMode: candidateMode, camera: useClips ? nil : c?.cameraPath)
-            if useClips {
-                scene.clipTrack = sec.clips.map { ClipSegment(source: VideoClipSource(url: work.appendingPathComponent($0.file), maxPixel: maxPx), offset: $0.offset, seconds: $0.seconds) }
-                scene.clipScene = true
-            }
-            // the subjects the automatic camera travels between (people first); for the frame after a video clip, from the clip's last frame
-            if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
+                                 video: repeatSource, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath)
+            if hasTail {
+                scene.clipTrack = segs; scene.tail = true
+                if let l = segs.last { scene.kbStart = a + l.offset + l.seconds }
+                scene.subjects = tailFocal; scene.subjectsOrdered = tailFocal.count == 2 && sec.clips.last?.focalAX != nil
+            } else if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
                 scene.subjects = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)]; scene.subjectsOrdered = true        // the picture's own two focal points, 1 → 2
             } else {
                 let subjectFile = c?.thumbFile ?? c?.fullFile
@@ -118,7 +135,10 @@ public final class FrameComposer: @unchecked Sendable {
         q.songDuration = c.duration; q.audioOffset = 0; q.introDuration = 0
         q.lines = p.lines.map { l in var l = l; l.words = l.words.map { var w = $0; w.start -= c.start; w.end -= c.start; return w }; return l }
         q.sections = p.sections.filter { $0.end > c.start && $0.start < c.end }.map { s in
-            var s = s; s.start = max(s.start, c.start) - c.start; s.end = min(s.end, c.end) - c.start; return s }
+            var s = s
+            let skipped = max(0, c.start - s.start)                       // a Short that starts inside this section skips the first part of it, and so of its video clips
+            s.clips = s.clips.compactMap { var k = $0; k.offset -= skipped; return k.offset + k.playSeconds > 0.1 ? k : nil }
+            s.start = max(s.start, c.start) - c.start; s.end = min(s.end, c.end) - c.start; return s }
         if q.sections.isEmpty { q.sections = [p.sections.first ?? p.intro] }
         // No picture change in the first/last 3 s: the title and the ending sit on one steady picture.
         if q.sections.count > 1, q.sections[0].duration < 3.0 { q.sections.removeFirst(); q.sections[0].start = 0 }
