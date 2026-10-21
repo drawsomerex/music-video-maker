@@ -8,7 +8,7 @@ enum PromptVariety {
                           "with a rainbow in the distance", "bright and fresh", "with sunlight streaming through", "in glittering fresh snow under blue sky", "with sparkling light"]
     static let views = ["a wide establishing view", "a medium shot", "seen from a high vantage point", "seen low to the ground", "framed through an archway, doorway or window",
                         "a figure lit by the sun", "a detail of an everyday object that belongs to this place", "a long view down a street or path",
-                        "seen from behind a small group of people (no faces)", "a reflection in water or glass"]
+                        "seen from behind a small group of people (no faces)", "a reflection in water or glass", "a tiny figure dwarfed by a vast landscape", "a view from inside a tent, cabin or doorway looking out", "an extreme close view of a textured surface or object"]
 
     /// One hint per section: lists are dealt out in shuffled rounds, so neighbours never repeat and the same combination does not come back soon.
     static func hints(count: Int) -> [String] {

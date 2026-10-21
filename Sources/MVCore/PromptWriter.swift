@@ -95,6 +95,25 @@ public struct PromptWriter {
         return Double(x.intersection(y).count) / Double(x.union(y).count)
     }
     static let clashThreshold = 0.35
+    /// Neighbouring pictures must be dramatically different, so they are held to a much stricter limit than pictures far apart.
+    static let neighbourThreshold = 0.20
+
+    /// The kind of shot an idea describes: two pictures in a row may not be the same kind.
+    static func shotType(_ s: String) -> String {
+        let t = s.lowercased()
+        let table: [(String, [String])] = [("aerial", ["aerial", "overhead", "high vantage", "bird's-eye", "bird’s-eye", "from above"]), ("detail", ["close-up", "close up", "detail", "macro", "a boot", "hands "]),
+                                          ("silhouette", ["silhouette"]), ("framed", ["framed through", "through a doorway", "through a window", "through an arch", "through the branches"]),
+                                          ("reflection", ["reflection", "reflected"]), ("low", ["low-angle", "low angle", "ground level", "seen low", "from the ground"]),
+                                          ("wide", ["wide", "establishing", "panoram", "vista", "sweeping"]), ("medium", ["medium shot", "medium view"])]
+        for (name, keys) in table where keys.contains(where: { t.contains($0) }) { return name }
+        return "other"
+    }
+    static func tooCloseToNeighbour(_ p: String, _ prev: String, ignoring ign: Set<String>) -> Bool {
+        if prev.isEmpty { return false }
+        let a = shotType(p), b = shotType(prev)
+        if a != "other" && a == b { return true }
+        return similarity(p, prev, ignoring: ign) >= neighbourThreshold
+    }
 
     /// Small models sometimes start the prompt by repeating (the start of) the shared style line; drop that echo.
     static func stripStyleEcho(_ prompt: String, style: String) -> String {
@@ -118,7 +137,7 @@ public struct PromptWriter {
         We are making a lyric music video. Use the song description below as the single source of truth for setting, era, mood and recurring subjects. A human will paste each prompt below into an AI image generator and load the pictures back in, so the images must look like they belong together.
         1. \(fixedStyle.isEmpty ? "Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), colour palette, lighting, era, mood. 20–35 words." : "Use the chosen visual style above for the \"style\" field.")
         2. For each numbered section write a vivid, concrete, self-contained image prompt (1–2 sentences, 25–45 words) depicting what that section's lyrics describe or evoke: \
-        setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. The sections are CONSECUTIVE SCENES OF ONE STORY: each picture follows on from the picture before it (same world and people, time moving forward) and moves the narrative forward; never repeat or go back. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. Each section ends with a [look: …] hint (time of day, weather, camera view): use it, so the pictures look different from one another while staying in the same setting. EVERY section needs its own unique picture: a different subject, place within the story, composition or time of day — never repeat or lightly reword another section's prompt. Music-only sections (instrumental intro, breaks, outro) also get their own prompt tied to the song's world. \
+        setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. The sections are CONSECUTIVE SCENES OF ONE STORY: each picture follows on from the picture before it (same world, time moving forward) and moves the narrative forward; never repeat or go back. BUT every picture must look DRAMATICALLY DIFFERENT from the one before it: change the main subject, the kind of shot (alternate between a sweeping wide view, a low ground-level view, a high aerial view, a detail of an object, a view framed through something, a silhouette), the scale, the dominant colours and the time of day. Never two wide landscapes, or two pictures of the same subject, in a row. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. Each section ends with a [look: …] hint (time of day, weather, camera view): use it, so the pictures look different from one another while staying in the same setting. EVERY section needs its own unique picture: a different subject, place within the story, composition or time of day — never repeat or lightly reword another section's prompt. Music-only sections (instrumental intro, breaks, outro) also get their own prompt tied to the song's world. \
         NO text, lettering, signs or logos in the image. Do not repeat the style line inside the prompts. Section -1 is the opening title-card background: an establishing scene for the whole song.
         Every idea must contain TWO clearly different FOCAL POINTS placed apart in the frame (for example a main subject on one side and a second point of interest on the other side or in the distance); describe both in the idea. Focal points must be things you can SEE and point at (a person, an animal, a building, a machine, a boat, a tree), never light, weather or abstract qualities. A slow camera will travel from the first to the second.
         Reply with ONLY JSON: {"style":"...","sections":[{"i":-1,"prompt":"...","focal":["first focal point","second focal point"]},{"i":0,"prompt":"...","focal":["...","..."]}, ...]}
@@ -165,12 +184,13 @@ public struct PromptWriter {
         for (n, s) in sections.enumerated() {
             guard var p = out[s.id] else { continue }
             let ign = PromptWriter.settingWords(setting)
-            func clash() -> Bool { sections.contains { o in o.id != s.id && o.id < s.id && (out[o.id] ?? "").count > 0 && PromptWriter.similarity(p, out[o.id]!, ignoring: ign) >= PromptWriter.clashThreshold } }
+            let prevID = n == 0 ? -1 : sections[n - 1].id
+            func clash() -> Bool { PromptWriter.tooCloseToNeighbour(p, out[prevID] ?? "", ignoring: ign) || sections.contains { o in o.id != s.id && o.id < s.id && (out[o.id] ?? "").count > 0 && PromptWriter.similarity(p, out[o.id]!, ignoring: ign) >= PromptWriter.clashThreshold } }
             if clash() {
                 try Task.checkCancellation()
                 progress?("Making picture \(n + 1) different from the others…", Double(n) / Double(max(1, sections.count)))
                 let others = sections.filter { $0.id != s.id }.compactMap { out[$0.id] }
-                p = (try? await rewriteDistinct(section: s, lines: lines, title: title, subject: subject, style: styleOut, current: p, others: others, salt: n, setting: setting)) ?? p
+                p = (try? await rewriteDistinct(section: s, lines: lines, title: title, subject: subject, style: styleOut, current: p, others: others, salt: n, setting: setting, previous: out[prevID] ?? "")) ?? p
             }
             out[s.id] = PromptWriter.withSetting(p, setting)
         }
@@ -215,7 +235,7 @@ public struct PromptWriter {
         Lyrics for this section: \(t)
         Look for this picture (use it): \(PromptVariety.hint())
         Current prompt: \(current)\(avoidText)
-        \(previous.isEmpty ? "" : "Previous picture in the story (this one must FOLLOW ON from it and move the narrative forward): \(previous)\n")\(next.isEmpty ? "" : "Next picture in the story (do not pre-empt it): \(next)\n")
+        \(previous.isEmpty ? "" : "Previous picture in the story (this one must FOLLOW ON from it and move the story forward, yet look DRAMATICALLY DIFFERENT: a different main subject, a different kind of shot, a different scale, different dominant colours and time of day): \(previous)\n")\(next.isEmpty ? "" : "Next picture in the story (do not pre-empt it): \(next)\n")
         Write a different, vivid, concrete, self-contained image-generation prompt (1–2 sentences, 25–45 words) for this section. It must contain TWO clearly different focal points placed apart in the frame (a main subject and a second point of interest). Wide or medium shot, no close-ups of faces, no text or logos. \
         Reply with ONLY the prompt text.
         """
@@ -228,7 +248,7 @@ public struct PromptWriter {
         var p = current
         var tries = 0
         let ign = PromptWriter.settingWords(setting)
-        func clashes(_ t: String) -> Bool { t.isEmpty || others.contains { PromptWriter.similarity(t, $0, ignoring: ign) >= PromptWriter.clashThreshold } }
+        func clashes(_ t: String) -> Bool { t.isEmpty || PromptWriter.tooCloseToNeighbour(t, previous, ignoring: ign) || others.contains { PromptWriter.similarity(t, $0, ignoring: ign) >= PromptWriter.clashThreshold } }
         repeat {
             try Task.checkCancellation()
             if let r = try? await rewrite(section: section, lines: lines, title: title, subject: subject, style: style, current: p, avoid: others, setting: setting, previous: previous, next: next), !r.isEmpty { p = r }
@@ -286,16 +306,16 @@ public struct PromptWriter {
         \(PromptWriter.settingBlock(setting))These are the picture ideas of a lyric music video, in story order. Each picture is the next scene of ONE story.
         \(list)
 
-        Check the ideas numbered \(canFix) (the others are context only). An idea FAILS if (1) it shows something physically impossible, (2) it does not follow on from the idea before it (the place, people or time jump without reason), or (3) it does not fit the lyrics or the story of the song at that moment, or goes backwards in the story.
+        Check the ideas numbered \(canFix) (the others are context only). An idea FAILS if (1) it shows something physically impossible, (2) it does not follow on from the idea before it (the place, people or time jump without reason), or (3) it does not fit the lyrics or the story of the song at that moment, or goes backwards in the story, or (4) it looks too much like the idea before it (the same kind of subject, shot, scale or colours): neighbouring pictures must look dramatically different.
         Rewrite ONLY failing ideas: 1–2 vivid, concrete sentences (25–45 words), same style as the others, bright and well lit, no close-ups of faces, no text. Keep ideas that are fine exactly as they are.
-        Most ideas are fine: only rewrite an idea that clearly fails, and then name the failed test. Reply with ONLY JSON: {"fixed":[{"i":3,"problem":"physics or continuity or story","why":"what exactly is wrong, in one short sentence","prompt":"the rewritten idea"}]}. If everything is fine reply {"fixed":[]}.
+        Most ideas are fine: only rewrite an idea that clearly fails, and then name the failed test. Reply with ONLY JSON: {"fixed":[{"i":3,"problem":"physics or continuity or story or too-similar","why":"what exactly is wrong, in one short sentence","prompt":"the rewritten idea"}]}. If everything is fine reply {"fixed":[]}.
         """
         guard let reply = try? await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 1800), let o = OMLX.json(from: reply) as? [String: Any], let arr = o["fixed"] as? [[String: Any]] else { return ([:], [:]) }
         var out: [Int: String] = [:], notes: [Int: String] = [:]
         let allowed = Set(items.filter { !$0.manual && (only == nil || only!.contains($0.id)) }.map(\.id))
         for e in arr {
             guard let i = e["i"] as? Int ?? Int("\(e["i"] ?? "")"), allowed.contains(i), let p = e["prompt"] as? String,
-                  let problem = (e["problem"] as? String)?.lowercased(), ["physics", "continuity", "story"].contains(where: { problem.contains($0) }) else { continue }
+                  let problem = (e["problem"] as? String)?.lowercased(), ["physics", "continuity", "story", "similar"].contains(where: { problem.contains($0) }) else { continue }
             let old = items.first(where: { $0.id == i })?.prompt ?? ""
             let clean = PromptWriter.withSetting(p.trimmingCharacters(in: .whitespacesAndNewlines), setting)
             if clean.count >= 20, PromptWriter.similarity(old, clean, ignoring: []) < 0.8 {           // a rewrite that barely differs is not a real fix

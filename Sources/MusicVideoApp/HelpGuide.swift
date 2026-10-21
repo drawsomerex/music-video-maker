@@ -200,7 +200,7 @@ enum HelpGuide {
         """),
         HelpSection(id: "styleGuide", title: "The style guide picture", keywords: "style guide reference picture look consistent same style title card match", body: """
         Every picture the app draws is matched to the look of one picture, the style guide, so the whole video looks like it belongs together. The title card is the style guide unless you choose another. Under any picture, "Use as the style guide" makes that picture the guide; the picture that is the guide shows "Style guide for all pictures". "Make all missing pictures" makes the guide first.
-        Sending the guide picture with each request costs about half a cent more per picture (about 7 cents for 14 pictures). Pictures you drag in yourself are never changed.
+        Each new picture is also drawn from the picture before it: it keeps the same scene (place, people, objects, season) but shows it from a dramatically different camera angle and distance, and shows what its own idea describes. Sending a reference costs about half a cent each (a picture with both references costs about 1.9 cents in all). Pictures you drag in yourself are never changed.
         """),
         HelpSection(id: "heygenClips", title: "Video clips made by HeyGen (instead of Ken Burns)", keywords: "heygen video clip generate animate motion ken burns back to back whole section freeze price cost watch preview approve redo credit", body: """
         Every picture starts with Ken Burns (a slow pan and zoom), which is free. Under each picture, the "Motion" panel lets you make a video clip from the picture instead. Nothing is ever made automatically.

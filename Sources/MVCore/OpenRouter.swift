@@ -102,7 +102,7 @@ public enum OpenRouter {
     }
 
     /// Generates a single 16:9 Medium image using `openai/gpt-image-2.5-sunburst` via OpenRouter.
-    public static func generateImage(prompt: String, apiKey: String, fallbackCostEstimate: Double = defaultEstimatedCostPerImage, referenceJPEG: Data? = nil) async throws -> GeneratedImage {
+    public static func generateImage(prompt: String, apiKey: String, fallbackCostEstimate: Double = defaultEstimatedCostPerImage, referenceJPEGs: [Data] = []) async throws -> GeneratedImage {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first to generate images.") }
 
@@ -123,7 +123,7 @@ public enum OpenRouter {
             "quality": quality
         ]
         // the style guide picture: sent as a reference so the new picture matches its look (adds about half a cent)
-        if let ref = referenceJPEG { payload["input_references"] = [["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + ref.base64EncodedString()]]] }
+        if !referenceJPEGs.isEmpty { payload["input_references"] = referenceJPEGs.map { ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + $0.base64EncodedString()]] } }
         req.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let (data, resp) = try await URLSession.shared.data(for: req)

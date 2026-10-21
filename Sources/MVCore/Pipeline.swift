@@ -514,11 +514,22 @@ public enum Pipeline {
     }
 
     /// The style guide picture (the title card unless you chose another) as a small JPEG, or nil when this IS the guide or it has no picture yet.
-    public static func styleGuideJPEG(plan: Plan, for index: Int, work: URL) -> Data? {
+    public static func styleGuideJPEG(plan: Plan, for index: Int, work: URL, skippingPrevious: Bool = false) -> Data? {
         let g = plan.styleGuideSection ?? -1
-        guard g != index else { return nil }
+        guard g != index, !(skippingPrevious && g == index - 1) else { return nil }
         let sec = g < 0 ? plan.intro : (plan.sections.indices.contains(g) ? plan.sections[g] : nil)
         guard let file = sec?.selectedCandidate?.fullFile, let img = loadImage(work.appendingPathComponent(file), maxPixel: 1024) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? data as Data : nil
+    }
+
+    /// The picture before this one (the title card for the first section), as a small JPEG, or nil when there is none yet.
+    public static func previousPictureJPEG(plan: Plan, for index: Int, work: URL) -> Data? {
+        guard index >= 0 else { return nil }
+        let sec = index == 0 ? plan.intro : plan.sections[index - 1]
+        guard let file = sec.selectedCandidate?.fullFile, let img = loadImage(work.appendingPathComponent(file), maxPixel: 1024) else { return nil }
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
@@ -531,9 +542,18 @@ public enum Pipeline {
     public static func generateSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
         var prompt = fullPrompt(plan, section: index)
         let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
-        let ref = styleGuideJPEG(plan: plan, for: index, work: work)
-        if ref != nil { prompt += " Match the look, colours, lighting and painting style of the attached reference picture, but depict the scene described above." }
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEG: ref)
+        // References: the PREVIOUS picture (so this one shows the same scene from a new perspective) and the style guide (so the look stays the same).
+        let prev = previousPictureJPEG(plan: plan, for: index, work: work)
+        let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: prev != nil)
+        let refs = [prev, guide].compactMap { $0 }
+        if prev != nil && guide != nil {
+            prompt += " Two reference pictures are attached. The FIRST is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above. The SECOND only sets the overall art style."
+        } else if prev != nil {
+            prompt += " The attached reference is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above."
+        } else if guide != nil {
+            prompt += " Match ONLY the artistic style of the attached reference picture (technique, brushwork, rendering). Do NOT copy its subject or composition: show the scene described above."
+        }
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEGs: refs)
         let tmpName = String(format: "%02d_sunburst.%@", index + 1, gen.fileExtension)
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_\(tmpName)")
         defer { try? FileManager.default.removeItem(at: tmpURL) }
