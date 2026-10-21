@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-21
+
 ### Changed
 - **Each new picture is a new perspective on the same scene.** When a picture is drawn, the previous picture is sent as a reference: the new one keeps the same world (place, people, objects, season, art style) but shows it from a dramatically different camera angle, distance and framing, and shows what its own idea describes. The style guide is sent too when it is a different picture. Cost: about half a cent per reference (a typical picture with both is about 1.9 cents including the focal-point check).
 - **Neighbouring picture ideas must look dramatically different.** The idea writer is told to change the subject, kind of shot (wide, low, aerial, detail, framed, silhouette), scale, colours and time of day from one picture to the next; ideas whose kind of shot repeats or whose words are too close to the previous idea are rewritten, and the story check has a fourth test for "too similar to the idea before". More varied viewpoints were added to the random looks.
