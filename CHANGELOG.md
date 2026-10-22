@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-22
+
 ### Added
 - **Looping video: one song or a playlist of up to 100.** Step 1 is now "The music": add songs (or drag in many at once), drag to reorder, rename each (it starts as the file name). Songs are always played whole: the video plays them in order (and again from the top) until the length you choose is reached, and the song playing then finishes — so 60 minutes of songs that end at 61 minutes gives a 61-minute video. The exact length is shown before you make it.
 - **Between songs:** Seamless (tight 3-second blend; the usual for one song), Automatic (the usual for several: listens to each ending and beginning — overlaps a song that fades out, leaves a 2-second pause after a clean stop, never fades in a song that opens with a hit), Crossfade (2–12 s) or Album gaps (0.5–5 s).
