@@ -35,12 +35,10 @@ final class LoopAudioTests: XCTestCase {
     func testJoins() throws {
         let a = try analyses()
         let auto = LoopAudio.plan(analyses: a, transition: .automatic, crossfade: 6, gap: 2, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays
-        XCTAssertLessThan(auto[1].start, auto[0].end, "after a song that fades out, the next starts during the quiet fade")
-        XCTAssertGreaterThanOrEqual(auto[1].start, auto[0].end - a[0].quietTail - 0.001, "…but only once the first song is quiet: never two songs loud at once")
-        XCTAssertEqual(auto[1].fadeIn, 0, "a song that opens with a hit is never faded in")
-        // after a song that stops at full volume: about a second of breath before the next song's music
-        let musicEnds = auto[1].end - a[1].quietTail, nextMusic = auto[2].start + a[2].quietIntro
-        XCTAssertEqual(nextMusic - musicEnds, 1.0, accuracy: 0.3)
+        for (x, y) in zip(auto, auto.dropFirst()) {
+            XCTAssertEqual(y.start, x.end, accuracy: 0.0001, "back to back: the next song starts the moment the previous one ends")
+            XCTAssertEqual(x.fadeOut, 0); XCTAssertEqual(y.fadeIn, 0)
+        }
         let gaps = LoopAudio.plan(analyses: a, transition: .albumGaps, crossfade: 6, gap: 1.5, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays
         XCTAssertEqual(gaps[1].start, gaps[0].end + 1.5, accuracy: 0.001)
         let cf = LoopAudio.plan(analyses: a, transition: .crossfade, crossfade: 8, gap: 2, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays
@@ -76,5 +74,28 @@ final class LoopAudioTests: XCTestCase {
         }
         let one = LoopAudio.plan(analyses: [a[0]], transition: .seamless, crossfade: 6, gap: 2, evenVolume: true, shuffle: false, minimum: 36000, seed: 7, onePass: true)
         XCTAssertEqual(one.plays.count, 1); XCTAssertEqual(one.total, a[0].length + 3, accuracy: 0.001)
+    }
+
+    /// Back to back: inside the video, each song is exactly the song (times its volume match) from its first sound to its last.
+    func testBackToBackKeepsEverySecondOfEverySong() throws {
+        let a = try analyses()
+        let names = ["fades.wav", "hardstop.wav", "quiet.mp3"]
+        let plan = LoopAudio.plan(analyses: a, transition: .automatic, crossfade: 6, gap: 2, evenVolume: false, shuffle: false, minimum: 1, seed: 1, onePass: true)
+        let mixer = LoopAudio.Mixer(urls: names.map(url), plan: plan)
+        let total = Int(plan.songsEnd * 48000)
+        var mix = [Float](); var buf = [Float](repeating: 0, count: 4800 * 2)
+        var f = 0
+        while f < total { let n = min(4800, total - f); try mixer.fill(&buf, start: f, count: n); mix += buf.prefix(n * 2); f += n }
+        for p in plan.plays {
+            let src = try LoopAudio.decode(url(names[p.track]), from: p.from, to: p.to)
+            let s0 = Int((p.start * 48000).rounded())
+            var worst: Float = 0
+            let usable = min(src.count / 2, mix.count / 2 - s0, Int(p.length * 48000))
+            for j in stride(from: 200, to: usable - 200, by: 7) {          // all but the 2 ms at each edge
+                let d = abs(mix[(s0 + j) * 2] - min(0.95, src[j * 2]))
+                worst = max(worst, d)
+            }
+            XCTAssertLessThan(worst, 0.02, "\(names[p.track]) is in the video unchanged")
+        }
     }
 }

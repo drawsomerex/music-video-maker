@@ -53,7 +53,7 @@ public struct TrackAnalysis: Codable, Equatable {
 }
 
 public enum LoopTransition: String, Codable, CaseIterable { case seamless, automatic, crossfade, albumGaps
-    public var name: String { switch self { case .seamless: "Seamless"; case .automatic: "Automatic"; case .crossfade: "Crossfade"; case .albumGaps: "Album gaps" } }
+    public var name: String { switch self { case .seamless: "Seamless"; case .automatic: "Back to back"; case .crossfade: "Crossfade"; case .albumGaps: "Album gaps" } }
 }
 
 public enum LoopAudio {
@@ -218,14 +218,9 @@ public enum LoopAudio {
                     case .albumGaps:
                         p.start = prev.end + min(5, max(0.5, gap))
                     case .automatic:
-                        // like a careful album sequence: two songs are never loud at the same time. The next song's quiet opening may sit under the
-                        // previous song's quiet ending; between the end of one song's music and the start of the next there is about a second of breath.
-                        let breath = 1.0
-                        let loudEnd = prev.end - pa.quietTail                               // where the previous song's music really ends
-                        var s = loudEnd + breath - a.quietIntro                              // the next song's music starts one breath later
-                        s = max(s, prev.end - pa.quietTail)                                  // it may only start once the previous song is quiet
-                        p.start = s
-                        if s < prev.end { prev.fadeOut = prev.end - s }                      // the quiet tail fades away under the new song
+                        // back to back: every song plays in full, untouched (no fades, no overlap); the next starts the moment the previous one's sound ends
+                        p.start = prev.end
+                        _ = pa
                     }
                     plays[plays.count - 1] = prev
                 }
@@ -247,7 +242,6 @@ public enum LoopAudio {
         let plan: Plan
         private var cache: [(key: Int, samples: [Float])] = []     // trimmed songs, most recent last
         private var next = 0                                       // first play that may still sound
-        private var bass: [Int: (x: (Float, Float), y: (Float, Float))] = [:]     // high-pass memory per play, during its blends (the bass swap)
         public init(urls: [URL], plan: Plan) { self.urls = urls; self.plan = plan }
 
         private func samples(_ p: Play) throws -> [Float] {
@@ -271,24 +265,16 @@ public enum LoopAudio {
                 let fi = Int(p.fadeIn * r), fo = Int(p.fadeOut * r), g = Float(p.gain)
                 let lo = max(start, pStart), hi = min(start + count, pStart + n)
                 guard hi > lo else { continue }
-                var st = bass[index] ?? ((0, 0), (0, 0))
+                _ = index
                 for f in lo..<hi {
                     let j = f - pStart
                     var w: Float = g
-                    var cut = 0.0                                                 // bass swap: how far this play's bass is rolled off (0…1)
-                    if j < fi { let x = Double(j) / Double(fi); w *= Float(sin(smoothstep(x) * .pi / 2)); cut = max(cut, 1 - x) }
-                    if j >= n - fo { let x = Double(j - (n - fo)) / Double(max(1, fo)); w *= Float(cos(smoothstep(x) * .pi / 2)); cut = max(cut, x) }
-                    if j < 240 && p.fadeIn == 0 && !isFirst { w *= Float(j) / 240 }      // never a click where a song begins
-                    var L = s[j * 2], R = s[j * 2 + 1]
-                    if cut > 0.001 {                                              // a one-pole high pass, its corner rising to 300 Hz as the song leaves (or falling as it arrives)
-                        let fc = 20 + 280 * cut, rc = 1 / (2 * Double.pi * fc), a = Float(rc / (rc + 1 / r))
-                        let yl = a * (st.y.0 + L - st.x.0), yr = a * (st.y.1 + R - st.x.1)
-                        st.x = (L, R); st.y = (yl, yr); L = yl; R = yr
-                    } else { st.x = (L, R); st.y = (L, R) }
-                    out[(f - start) * 2] += L * w; out[(f - start) * 2 + 1] += R * w
+                    if j < fi { w *= Float(sin(Double(j) / Double(fi) * .pi / 2)) }                       // a plain equal-power crossfade (only when one is chosen)
+                    if j >= n - fo { w *= Float(cos(Double(j - (n - fo)) / Double(max(1, fo)) * .pi / 2)) }
+                    if j < 96 && p.fadeIn == 0 && !isFirst { w *= Float(j) / 96 }        // 2 ms, only so a song never starts with a click
+                    if j >= n - 96 && p.fadeOut == 0 { w *= Float(n - j) / 96 }
+                    out[(f - start) * 2] += s[j * 2] * w; out[(f - start) * 2 + 1] += s[j * 2 + 1] * w
                 }
-                bass[index] = st
-                if bass.count > 8 { bass = bass.filter { $0.key >= next } }
             }
             // safety limiter: a raised song or an overlap never clips
             for i in 0..<(count * 2) {
@@ -298,9 +284,6 @@ public enum LoopAudio {
         }
     }
 }
-
-/// An S-shaped 0…1 curve: changes slowly at both ends, so a blend never jumps in or drops out.
-@inline(__always) func smoothstep(_ x: Double) -> Double { let t = min(1, max(0, x)); return t * t * (3 - 2 * t) }
 
 extension Array {
     mutating func shuffleSeeded(_ rng: inout SeededRNG) {

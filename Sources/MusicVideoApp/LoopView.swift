@@ -153,7 +153,7 @@ struct LoopView: View {
                 Picker("", selection: Binding(get: { p.effectiveTransition }, set: { v in model.editLoop { $0.transition = v } })) {
                     ForEach(LoopTransition.allCases, id: \.self) { Text($0.name).tag($0) }
                 }.labelsHidden().fixedSize()
-                    .help("Seamless: a tight 3-second blend, no audible join. Automatic: like a careful album sequence — two songs are never loud at the same time; a quiet ending can sit under a quiet opening, with about a second of breath between the music of one song and the next. Crossfade: a DJ-style blend with a bass swap. Album gaps: a pause after every song.")
+                    .help("Back to back (the usual for several songs): every song plays in full, untouched, and the next one starts the moment it ends — you hear all of every song. Seamless: a 3-second blend (the usual for one song, so its end flows into its start). Crossfade: the end of one song blends into the start of the next over the seconds you choose. Album gaps: a pause after every song.")
                 if p.effectiveTransition == .crossfade {
                     Slider(value: Binding(get: { p.crossfade }, set: { v in model.editLoop { $0.crossfade = v } }), in: 2...12, step: 0.5).frame(maxWidth: 200)
                     Text(String(format: "%.1f s", p.crossfade)).font(.caption.monospacedDigit())

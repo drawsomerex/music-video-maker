@@ -5,6 +5,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Changed
+- **Looping video: "Back to back" replaces Automatic and is the default for several songs.** Every song plays in full and untouched — no fades, no overlap, no filtering — and the next one starts the moment the previous one's sound ends, so you hear all of every song. (Projects that used Automatic now play back to back.)
+- **Crossfade is a plain crossfade again** (the length you choose, equal-power), without the bass swap or S-curves.
+
 ## [1.15.1] - 2026-10-22
 
 ### Fixed
