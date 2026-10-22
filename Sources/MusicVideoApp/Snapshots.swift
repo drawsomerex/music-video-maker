@@ -143,6 +143,18 @@ enum Snapshots {
                 shot("s-song-page", sz(1000, 1000), LyricDividerView(), wait: 2)
                 NSApplication.shared.terminate(nil); return
             }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "zoom", let u = ProcessInfo.processInfo.environment["MV_ZOOM_VIDEO"].map({ URL(fileURLWithPath: $0) }) {   // the full-screen viewer
+                func rep(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
+                let v = ZoomVideoView(player: AVPlayer(url: u)); v.frame = CGRect(x: 0, y: 0, width: 1600, height: 900); v.layout()
+                rep("fit: \(v.playerLayer.frame)")
+                v.zoom(by: 2, at: CGPoint(x: 400, y: 225)); rep("zoom 2x at (400,225): \(v.playerLayer.frame) scale \(v.scale)")
+                v.move(dx: 5000, dy: 0); rep("dragged far right (stops at the left edge): \(v.playerLayer.frame)")
+                v.zoom(by: 100); rep("zoom past the limit: scale \(v.scale)")
+                v.zoom(by: 0.001); rep("zoom out past fit: \(v.playerLayer.frame) scale \(v.scale)")
+                let m = ZoomModel(player: AVPlayer(url: u), looper: nil); m.scale = 2.5
+                shot("zoom-screen", sz(1600, 900), ZoomPlayerScreen(model: m, title: "The loop", close: {}), wait: 2)
+                NSApplication.shared.terminate(nil); return
+            }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "loop", let d = ProcessInfo.processInfo.environment["MV_LOOP_DIR"] {   // the looping long music video screens
                 shot("projects", sz(1100, 720), ProjectsView(), wait: 3)
                 model.openLoop(URL(fileURLWithPath: d))

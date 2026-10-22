@@ -2,6 +2,7 @@
 import Foundation
 import AVFoundation
 import CoreGraphics
+import Accelerate
 
 final class VideoClipSource: @unchecked Sendable {
     private let asset: AVURLAsset
@@ -16,6 +17,8 @@ final class VideoClipSource: @unchecked Sendable {
     private var reader: AVAssetReader?, output: AVAssetReaderTrackOutput?
     private var recent: [(t: Double, img: CGImage)] = []        // the last second or so of decoded pictures, oldest first
     private var readerAtEnd = false
+    /// The colour lock of a looping clip: a gain for red, green and blue by time in the file, applied to each picture as it is read (nil = none).
+    var gain: ((Double) -> SIMD3<Float>)?
 
     init(url: URL, maxPixel: Int, start: Double = 0, end: Double? = nil) {
         asset = AVURLAsset(url: url)
@@ -62,7 +65,17 @@ final class VideoClipSource: @unchecked Sendable {
         // the video's own colour space (Rec. 709 and its tone curve), so the picture looks exactly as when it is picked out on its own
         let attachments = CVBufferCopyAttachments(pb, .shouldPropagate)
         let space = attachments.flatMap { CVImageBufferCreateColorSpaceFromAttachments($0)?.takeRetainedValue() } ?? CGColorSpace(name: CGColorSpace.itur_709) ?? CGColorSpaceCreateDeviceRGB()
-        guard let base = CVPixelBufferGetBaseAddress(pb), let provider = CGDataProvider(data: Data(bytes: base, count: bpr * h) as CFData),
+        guard let base = CVPixelBufferGetBaseAddress(pb) else { return }
+        var bytes = Data(bytes: base, count: bpr * h)
+        if let g = gain?(t), g != SIMD3(repeating: 1) {
+            func table(_ k: Float) -> [UInt8] { (0..<256).map { UInt8(max(0, min(255, (Float($0) * k).rounded()))) } }
+            let blue = table(g.z), green = table(g.y), red = table(g.x)                 // the bytes are blue, green, red, unused
+            bytes.withUnsafeMutableBytes { raw in
+                var buf = vImage_Buffer(data: raw.baseAddress, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: bpr)
+                _ = vImageTableLookUp_ARGB8888(&buf, &buf, blue, green, red, nil, vImage_Flags(kvImageNoFlags))
+            }
+        }
+        guard let provider = CGDataProvider(data: bytes as CFData),
               let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bpr, space: space,
                                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
                                 provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { return }

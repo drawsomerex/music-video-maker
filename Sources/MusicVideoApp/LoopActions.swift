@@ -82,8 +82,17 @@ extension AppModel {
             refreshOpenRouterCredits(silent: true)
             if p.pendingJob != nil { recoverLoopClip() }
             loopListen()
-            var q = p                                                   // clips made before the mirror/cut check existed are checked once now
-            if LoopVideo.checkIfNeeded(&q, dir: dir) { loopProject = q; if q.clipWarning != nil, let c = q.clip { loopMakePreview(c) } }
+            // clips made before the checks, or rated before the slow dissolve and the colour lock, are checked once now (in the background)
+            let check = Task.detached(priority: .userInitiated) { () -> LoopProject? in var q = p; return LoopVideo.checkIfNeeded(&q, dir: dir) ? q : nil }
+            Task { [weak self] in
+                guard let q = await check.value, let self, self.loopDir == dir, let c = q.clip else { return }
+                self.editLoop { cur in
+                    guard cur.clip == c else { return }
+                    if cur.trims[c] == p.trims[c] { cur.trims[c] = q.trims[c] }           // unless you moved the markers meanwhile
+                    cur.loopScores[c] = q.loopScores[c]; cur.loopDrift[c] = q.loopDrift[c]; cur.clipWarning = q.clipWarning
+                }
+                self.loopMakePreview(c)                                    // the preview as the loop now looks (full size)
+            }
         } catch { errorMessage = "Couldn't open that looping video: \(error.localizedDescription)" }
     }
 
@@ -110,7 +119,7 @@ extension AppModel {
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
-                    cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores
+                    cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
                     cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
                     loopProject = cur; LoopVideo.save(cur, d)
@@ -175,11 +184,13 @@ extension AppModel {
         }
     }
     func loopUseClip(_ url: URL) {
-        guard var p = loopProject, let d = loopDir else { return }
-        do {
-            try LoopVideo.addClip(&p, dir: d, file: url, config: config); loopProject = p
-            if let c = p.clip { loopMakePreview(c) }
-        } catch { errorMessage = error.localizedDescription }
+        guard loopProject != nil else { return }
+        let cfg = config
+        runLoop("Checking the clip and making the loop preview…", estimate: 20) { p, d in
+            let q = try await Task.detached(priority: .userInitiated) { var q = p; try LoopVideo.addClip(&q, dir: d, file: url, config: cfg); return q }.value
+            if let c = q.clip { try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4"), trim: q.trim) }
+            return q
+        }
     }
     func loopChooseClip() {
         let o = NSOpenPanel(); o.allowedContentTypes = [.movie]; o.message = "Choose a video clip to loop"
@@ -196,16 +207,21 @@ extension AppModel {
     /// Searches the clip again for its best loop (the markers are moved there).
     func loopFindBestLoop() {
         guard let c = loopProject?.clip else { return }
-        runLoop("Finding the best loop…") { p, d in var q = p; LoopVideo.applyBestLoop(&q, clip: c, dir: d); LoopVideo.save(q, d)
+        runLoop("Finding the best loop…") { p, d in
+            let q = await Task.detached(priority: .userInitiated) { var q = p; LoopVideo.applyBestLoop(&q, clip: c, dir: d); LoopVideo.save(q, d); return q }.value
             try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4"), trim: q.trim); return q }
     }
     func loopSetTrim(start: Double, end: Double?) {
         guard let c = loopProject?.clip else { return }
-        editLoop { $0.trims[c] = ClipTrim(start: start, end: end, blend: $0.trims[c]?.blend) }
+        editLoop { $0.trims[c] = ClipTrim(start: start, end: end, blend: $0.trims[c]?.blend, clean: $0.trims[c]?.clean) }
         loopPreviewTask?.cancel()
         loopPreviewTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 900_000_000)
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, let p = self.loopProject, let d = self.loopDir else { return }
+            // the rating for the part you chose
+            let rated = await Task.detached(priority: .userInitiated) { var q = p; LoopVideo.rateLoop(&q, clip: c, dir: d); return q }.value
+            guard !Task.isCancelled else { return }
+            self.editLoop { $0.loopScores[c] = rated.loopScores[c]; $0.loopDrift[c] = rated.loopDrift[c] }
             while self.loopJob != nil { try? await Task.sleep(nanoseconds: 300_000_000); if Task.isCancelled { return } }
             self.loopMakePreview(c)
         }

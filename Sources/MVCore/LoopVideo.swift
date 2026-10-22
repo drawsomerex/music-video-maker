@@ -14,7 +14,8 @@ import VideoToolbox
 
 /// The part of a clip that loops (seconds into the clip; end nil = to the end).
 public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public var blend: Double? = nil      // blend: the dissolve from the end back to the start (nil = 1.6 s)
-    public init(start: Double = 0, end: Double? = nil, blend: Double? = nil) { self.start = start; self.end = end; self.blend = blend } }
+    public var clean: [Double]? = nil          // the usable part of the clip [start, end] when it flips, cuts or turns the other way (nil = all of it); the slow dissolve stays inside it
+    public init(start: Double = 0, end: Double? = nil, blend: Double? = nil, clean: [Double]? = nil) { self.start = start; self.end = end; self.blend = blend; self.clean = clean } }
 
 /// Title cards: none (the default), only the video's title at the beginning, or the video's title and then a card for every song.
 public enum LoopCards: String, Codable, CaseIterable { case none, beginning, everySong
@@ -46,6 +47,7 @@ public struct LoopProject: Codable, Equatable {
     public var clips: [String] = []             // every loop clip made or added
     public var clip: String?                    // the one in use
     public var sharpClip = false                // 2K instead of 768p (sharper, about three times the price)
+    public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
     public var pendingJob: String?              // a HeyGen job that was paid for but not collected yet (the app was closed)
     public var hours = 1.0
     public var imagesUSD = 0.0, videoUSD = 0.0, pictureCount = 0
@@ -55,11 +57,12 @@ public struct LoopProject: Codable, Equatable {
     public var thumbText = ThumbnailText()       // what is written on the YouTube thumbnail
     public var clipWarning: String?             // what the check found in the clip in use (a mirror flip or a cut), if anything
     public var loopScores: [String: Double] = [:]   // for each clip, how closely the loop's end matches its start (1 = as close as two neighbouring frames)
+    public var loopDrift: [String: Double] = [:]    // for each clip, the share of the picture that drifts one way and so gets the slow dissolve (0…1)
     public var trim: ClipTrim { clip.flatMap { trims[$0] } ?? ClipTrim() }
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -79,12 +82,14 @@ public struct LoopProject: Codable, Equatable {
         pictures = try c.decodeIfPresent([String].self, forKey: .pictures) ?? []; picture = try c.decodeIfPresent(String.self, forKey: .picture)
         clips = try c.decodeIfPresent([String].self, forKey: .clips) ?? []; clip = try c.decodeIfPresent(String.self, forKey: .clip)
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
+        clearSky = try c.decodeIfPresent(Bool.self, forKey: .clearSky) ?? false
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
         imagesUSD = try c.decodeIfPresent(Double.self, forKey: .imagesUSD) ?? 0; videoUSD = try c.decodeIfPresent(Double.self, forKey: .videoUSD) ?? 0
         pictureCount = try c.decodeIfPresent(Int.self, forKey: .pictureCount) ?? 0; output = try c.decodeIfPresent(String.self, forKey: .output)
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail); listing = try c.decodeIfPresent(String.self, forKey: .listing)
         trims = try c.decodeIfPresent([String: ClipTrim].self, forKey: .trims) ?? [:]; clipWarning = try c.decodeIfPresent(String.self, forKey: .clipWarning)
         loopScores = try c.decodeIfPresent([String: Double].self, forKey: .loopScores) ?? [:]
+        loopDrift = try c.decodeIfPresent([String: Double].self, forKey: .loopDrift) ?? [:]
         thumbText = try c.decodeIfPresent(ThumbnailText.self, forKey: .thumbText) ?? ThumbnailText()
     }
 }
@@ -188,8 +193,8 @@ public enum LoopVideo {
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         let prompt = """
         A song called "\(title)" will play for hours as calm background (study) music over ONE looping video scene.\(style.isEmpty ? "" : " The look: \(style).")\(about.isEmpty ? "" : " About the music, in the maker's words (the scenes must suit it): \(about)")
-        Suggest 10 different scenes that loop beautifully: a fixed viewpoint with gentle, continuous, repeating motion (rain on a window, a crackling fireplace, drifting clouds, \
-        a river, falling snow, swaying grass, steam from a cup, city lights in the rain, waves, candle light). No people walking in or out, no text.
+        Suggest 10 different scenes that loop beautifully: a fixed viewpoint with gentle, continuous, repeating motion (rain on a window, a crackling fireplace, a waterfall, \
+        a river, falling snow, swaying grass, steam from a cup, city lights in the rain, waves, candle light). Motion that repeats in place, never something travelling across. No people walking in or out, no text.
         \(avoid.isEmpty ? "" : "Do not repeat these: " + avoid.prefix(20).joined(separator: " | ") + "\n")Each scene is one vivid sentence of 12–25 words. Reply with ONLY the 10 scenes, one per line, no numbers.
         """
         let r = try await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 900)
@@ -204,7 +209,7 @@ public enum LoopVideo {
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !scene.isEmpty else { throw MVError("Describe the scene first (or press “Suggest scenes”).") }
         let prompt = "\(scene)\(p.style.isEmpty ? "" : " Style: \(p.style).") A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
-            "elements that can move gently and endlessly (water, light, weather, smoke, leaves). Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+            "elements that can move gently and endlessly (water, light, weather, smoke, leaves)." + (p.clearSky ? " A clear, cloudless sky." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
@@ -232,15 +237,18 @@ public enum LoopVideo {
         save(p, dir)
     }
 
-    /// Written for a seamless loop: the camera never moves, everything that would really move does so naturally and evenly, the sky only very slowly
-    /// (clouds drift one way and do not come back, so slow drift keeps the seam invisible), nothing enters or leaves, the light stays the same.
+    /// Written for a seamless loop: the camera never moves, everything that would really move does so naturally and evenly, in motion that repeats in place.
+    /// Clouds billow softly where they are instead of sliding across (a slide never comes back, so it shows when the clip repeats); anything that turns or
+    /// flows keeps the same direction; nothing enters or leaves; the light stays the same.
     public static func clipPrompt(scene: String, motion: String = "") -> String {
         let m = motion.trimmingCharacters(in: .whitespacesAndNewlines)
         return "\(scene.isEmpty ? "" : scene + " ")" +
         (m.isEmpty ? "Everything that would really move in this scene moves naturally (such as water, waves, rain, snow, clouds, fire, smoke, leaves or flickering light). "
                    : "What moves: \(m). Everything else that would naturally move moves gently too. ") +
-        "A seamless looping shot: the camera is completely still (locked-off tripod, no zoom, no pan). The motion is continuous and even for the whole clip; " +
-        "clouds and the sky move only very slowly; people and animals only move a little in place. Nothing enters or leaves the frame, no sudden events, the lighting stays the same, and the last moment looks like the first. Calm, peaceful, no text."
+        "A seamless looping shot: the camera is completely still (locked-off tripod, no zoom, no pan). The motion is continuous, even and repeating for the whole clip: " +
+        "ripples, waves, flicker, swaying and falling things repeat in place. Clouds stay where they are and only billow softly, very slowly; they never slide across the sky. " +
+        "Anything that turns or flows (a water wheel, a waterfall, a stream) keeps going the same way at the same speed the whole time and never reverses. " +
+        "People and animals only move a little in place. Nothing enters or leaves the frame, no sudden events, the lighting stays the same, and the last moment looks like the first. Calm, peaceful, no text."
     }
 
     /// Looks at the picture once (a cheap cloud vision call, a fraction of a cent) and lists what should move in the loop clip. Returns the text and its cost.
@@ -251,9 +259,10 @@ public enum LoopVideo {
         CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary); CGImageDestinationFinalize(dest)
         let text = "This picture becomes a 15-second looping video with a completely still camera. Look carefully at THIS picture and list what in it should move, and how, " +
             "so it looks real. Name only things you can actually see in it, in the order of how much they matter. Moving water, waves, rain, snow, fire, smoke and flames move " +
-            "naturally (for water, say how it moves near the shore or edge too); clouds, mist and the sky always very slowly; people and animals only make small movements in place " +
+            "naturally (for water, say how it moves near the shore or edge too); clouds and mist only billow softly where they are, very slowly, never drifting across; anything that turns or flows " +
+            "(a water wheel, a waterfall, a stream) keeps the same direction the whole time (say which way); people and animals only make small movements in place " +
             "(never walking, riding or travelling across the picture, which would jump back when the clip repeats). Then say which large things stay still. The form, for a quite different picture " +
-            "(a snowy cabin): \"snow falling gently, smoke curling from the chimney, firelight flickering in the window, clouds drifting very slowly; the cabin and the pines stay still\". " +
+            "(a snowy cabin): \"snow falling gently, smoke curling from the chimney, firelight flickering in the window, clouds billowing softly in place; the cabin and the pines stay still\". " +
             "One line, 15–40 words. Reply with ONLY that line."
         var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -312,19 +321,22 @@ public enum LoopVideo {
     @discardableResult
     public static func checkIfNeeded(_ p: inout LoopProject, dir: URL) -> Bool {
         guard let c = p.clip, FileManager.default.fileExists(atPath: dir.appendingPathComponent(c).path) else { return false }
-        if p.trims[c] == nil { applyCheck(&p, clip: c, dir: dir); save(p, dir); return true }
+        if p.trims[c] == nil { applyCheck(&p, clip: c, dir: dir, turning: false); save(p, dir); return true }
         // clips from before the best-loop search: find it, unless you moved the markers yourself
         if p.loopScores[c] == nil, p.clipWarning == nil, p.trims[c] == ClipTrim() { applyBestLoop(&p, clip: c, dir: dir); save(p, dir); return true }
+        // loops rated before the slow dissolve and the colour lock: rated again as they now look (the markers stay where they are)
+        if p.loopScores[c] != nil, p.loopDrift[c] == nil { rateLoop(&p, clip: c, dir: dir); save(p, dir); return true }
         return false
     }
 
     // MARK: checking a clip
-    /// What a clip check found: moments where the picture turns into its mirror image or cuts to a different shot, and the longest clean stretch.
-    public struct ClipCheck { public var mirrors: [Double]; public var cuts: [Double]; public var best: ClipTrim?; public var length: Double }
+    /// What a clip check found: moments where the picture turns into its mirror image, cuts to a different shot, or something turning (a wheel)
+    /// starts turning the other way, and the longest clean stretch.
+    public struct ClipCheck { public var mirrors: [Double]; public var cuts: [Double]; public var turns: [Double] = []; public var best: ClipTrim?; public var length: Double }
 
     /// Looks through the whole clip (12 pictures a second, small): a sudden change between two pictures is a cut; if the new picture matches the
     /// previous one turned left to right (or upside down), it is a mirror flip. Generated video sometimes does this halfway through.
-    public static func checkClip(_ url: URL) -> ClipCheck {
+    public static func checkClip(_ url: URL, turning: Bool = true) -> ClipCheck {
         let asset = AVURLAsset(url: url)
         let length = CMTimeGetSeconds(asset.duration)
         guard let track = asset.tracks(withMediaType: .video).first, let r = try? AVAssetReader(asset: asset) else { return ClipCheck(mirrors: [], cuts: [], best: nil, length: length) }
@@ -361,84 +373,80 @@ public enum LoopVideo {
             let flipped = min(diff(a, b, mirrorX: true), diff(a, b, mirrorY: true), diff(a, b, mirrorX: true, mirrorY: true))
             if flipped < d[i] * 0.5 { mirrors.append(frames[i + 1].t) } else { cuts.append(frames[i + 1].t) }
         }
-        let events = (mirrors + cuts).sorted()
+        let turns = turning ? turnReversals(url) : []
+        let events = (mirrors + cuts + turns).sorted()
         guard !events.isEmpty else { return ClipCheck(mirrors: [], cuts: [], best: nil, length: length) }
-        // the longest stretch without a flip or a cut that faces the same way as the picture the clip started from (after an odd number of flips it is mirrored)
+        // the longest stretch without a flip, a cut or a change of turning direction that faces the same way as the picture the clip started from
+        // (after an odd number of flips it is mirrored); either turning direction may be the right one, so only the length counts there
         let bounds = [0.0] + events + [length]
-        var best = ClipTrim(start: 0, end: events[0] - 0.1), bestLen = 0.0
+        var best = ClipTrim(start: 0, end: events[0] - 0.1, clean: [0, events[0] - 0.1]), bestLen = 0.0
         var flips = 0
         for k in 0..<(bounds.count - 1) {
             if k > 0, mirrors.contains(bounds[k]) { flips += 1 }
             guard flips % 2 == 0 else { continue }
-            let s = k == 0 ? 0 : bounds[k] + 0.1, e = k == bounds.count - 2 ? length : bounds[k + 1] - 0.1
-            if e - s > bestLen { bestLen = e - s; best = ClipTrim(start: s, end: e >= length - 0.05 ? nil : e) }
+            let s = k == 0 ? 0 : bounds[k] + (turns.contains(bounds[k]) ? 0.5 : 0.1), e = k == bounds.count - 2 ? length : bounds[k + 1] - (turns.contains(bounds[k + 1]) ? 0.5 : 0.1)
+            if e - s > bestLen { bestLen = e - s; best = ClipTrim(start: s, end: e >= length - 0.05 ? nil : e, clean: [s, e]) }
         }
-        return ClipCheck(mirrors: mirrors, cuts: cuts, best: best, length: length)
-    }
-
-    /// Small grey pictures of a clip, 12 a second (for the checks below).
-    static func clipFrames(_ url: URL, W: Int = 48, H: Int = 27) -> [(t: Double, px: [Float])] {
-        let asset = AVURLAsset(url: url)
-        guard let track = asset.tracks(withMediaType: .video).first, let r = try? AVAssetReader(asset: asset) else { return [] }
-        let out = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: W, kCVPixelBufferHeightKey as String: H])
-        r.add(out); r.startReading()
-        var frames: [(t: Double, px: [Float])] = [], lastT = -1.0
-        while let sb = out.copyNextSampleBuffer(), let pb = CMSampleBufferGetImageBuffer(sb) {
-            let t = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sb))
-            if t - lastT < 1.0 / 12 - 0.001 { continue }
-            lastT = t
-            CVPixelBufferLockBaseAddress(pb, .readOnly)
-            let base = CVPixelBufferGetBaseAddress(pb)!.assumingMemoryBound(to: UInt8.self), bpr = CVPixelBufferGetBytesPerRow(pb)
-            var g = [Float](repeating: 0, count: W * H)
-            for y in 0..<H { for x in 0..<W { let p = base + y * bpr + x * 4; g[y * W + x] = (Float(p[0]) + 2 * Float(p[1]) + Float(p[2])) / 4 } }
-            CVPixelBufferUnlockBaseAddress(pb, .readOnly)
-            frames.append((t, g))
-        }
-        return frames
+        return ClipCheck(mirrors: mirrors, cuts: cuts, turns: turns, best: best, length: length)
     }
 
     /// The best loop inside `within` (seconds into the clip): the start and end where the picture AND the motion match most closely, so the
     /// dissolve from the end back to the start joins two nearly identical moments. Loops are kept at least 8 seconds long (shorter ones repeat
-    /// too visibly). Returns the trim (its end includes the dissolve) and a score: 1 ≈ as close as two neighbouring frames, higher is worse.
-    public static func bestLoop(_ url: URL, within: ClipTrim = ClipTrim(), minLoop: Double = 8) -> (trim: ClipTrim, score: Double)? {
-        let frames = clipFrames(url)
-        guard frames.count > 24 else { return nil }
-        let length = frames.last!.t + 1.0 / 12
-        let lo = frames.firstIndex { $0.t >= within.start - 0.001 } ?? 0
-        let hi = frames.lastIndex { $0.t <= (within.end ?? length) + 0.001 } ?? (frames.count - 1)
+    /// too visibly). Parts that drift one way (clouds sliding across) can never match and get their own slow dissolve, so a second search leaves
+    /// them out and matches the rest as closely as possible. Returns the trim (its end includes the dissolve) and a score: 1 ≈ as close as two
+    /// neighbouring frames, higher is worse.
+    public static func bestLoop(_ url: URL, within: ClipTrim = ClipTrim(), minLoop: Double = 8) -> (trim: ClipTrim, score: Double, share: Double)? {
+        let fr = SmallFrames(url)
+        guard fr.t.count > 24 else { return nil }
+        let grey = fr.t.indices.map(fr.grey)
+        let length = fr.length
+        let lo = fr.t.firstIndex { $0 >= within.start - 0.001 } ?? 0
+        let hi = fr.t.lastIndex { $0 <= (within.end ?? length) + 0.001 } ?? (fr.t.count - 1)
         let fps = 12.0, blend = Int((clipBlend * fps).rounded()), minGap = Int(minLoop * fps)
-        func d(_ a: Int, _ b: Int) -> Float {
-            var s: Float = 0; let x = frames[a].px, y = frames[b].px
-            for k in 0..<x.count { s += abs(x[k] - y[k]) }
-            return s / Float(x.count)
+        let clean: [Double]? = within == ClipTrim() ? nil : [within.start, within.end ?? length]
+        func d(_ a: Int, _ b: Int, _ w: [Float]?) -> Float {
+            var s: Float = 0, n: Float = 0; let x = grey[a], y = grey[b]
+            if let w { for k in 0..<x.count { s += abs(x[k] - y[k]) * w[k]; n += w[k] } } else { for k in 0..<x.count { s += abs(x[k] - y[k]) }; n = Float(x.count) }
+            return s / max(n, 1)
         }
         // how much the scene changes by itself in one second (the yardstick: a join like half a second of natural change is invisible)
-        let oneSecond = stride(from: lo, to: max(lo, hi - 12), by: 3).map { d($0, $0 + 12) }.sorted()
+        let oneSecond = stride(from: lo, to: max(lo, hi - 12), by: 3).map { d($0, $0 + 12, nil) }.sorted()
         let typical = max(0.25, oneSecond.isEmpty ? 1 : oneSecond[oneSecond.count / 2])
-        var best: (i: Int, j: Int, cost: Float)? = nil
         let iMax = min(hi - minGap - blend, lo + Int(4 * fps))                   // the loop starts within the first 4 seconds of the usable part
         guard iMax >= lo else { return nil }
-        for i in lo...iMax {
-            for j in (i + minGap)...(hi - blend) {
-                // both sides are on screen during the dissolve: compare the whole stretch, picture and motion
-                var c: Float = 0
-                for k in stride(from: 0, through: blend, by: 2) { c += d(i + k, j + k) }
-                c /= Float(blend / 2 + 1)
-                let cost = c - Float(j - i) * 0.002 * typical                     // a slight preference for longer loops
-                if best == nil || cost < best!.cost { best = (i, j, cost) }
+        func search(_ w: [Float]?) -> (trim: ClipTrim, raw: Float)? {
+            var best: (i: Int, j: Int, cost: Float)? = nil
+            for i in lo...iMax {
+                for j in (i + minGap)...(hi - blend) {
+                    // both sides are on screen during the dissolve: compare the whole stretch, picture and motion
+                    var c: Float = 0
+                    for k in stride(from: 0, through: blend, by: 2) { c += d(i + k, j + k, w) }
+                    c /= Float(blend / 2 + 1)
+                    let cost = c - Float(j - i) * 0.002 * typical                     // a slight preference for longer loops
+                    if best == nil || cost < best!.cost { best = (i, j, cost) }
+                }
             }
+            guard let b = best else { return nil }
+            var raw: Float = 0
+            for k in stride(from: 0, through: blend, by: 2) { raw += d(b.i + k, b.j + k, w) }
+            raw /= Float(blend / 2 + 1)
+            // the more the join differs, the longer (and so softer) the dissolve, as far as the clip allows
+            let score = Double(raw / typical)
+            let want = score <= 1.5 ? clipBlend : (score <= 3 ? 2.4 : 3.2)
+            let room = min((clean?.last ?? length) - fr.t[b.j], (fr.t[b.j] - fr.t[b.i]) / 3)
+            let blendUsed = max(clipBlend, min(want, room))
+            let start = fr.t[b.i], end = min(length, fr.t[b.j] + blendUsed)
+            return (ClipTrim(start: start, end: end >= length - 0.05 ? nil : end, blend: blendUsed, clean: clean), raw)
         }
-        guard let b = best else { return nil }
-        var raw: Float = 0
-        for k in stride(from: 0, through: blend, by: 2) { raw += d(b.i + k, b.j + k) }
-        raw /= Float(blend / 2 + 1)
-        let score = Double(raw / typical)
-        // the more the join differs, the longer (and so softer) the dissolve, as far as the clip allows
-        let want = score <= 1.5 ? clipBlend : (score <= 3 ? 2.4 : 3.2)
-        let room = min(length - frames[b.j].t, (frames[b.j].t - frames[b.i].t) / 3)
-        let blendUsed = max(clipBlend, min(want, room))
-        let start = frames[b.i].t, end = min(length, frames[b.j].t + blendUsed)
-        return (ClipTrim(start: start, end: end >= length - 0.05 ? nil : end, blend: blendUsed), score)
+        guard let first = search(nil) else { return nil }
+        guard let b1 = loopBlend(fr, trim: first.trim) else { return (first.trim, Double(first.raw / typical), 0) }
+        // the parts with the slow dissolve hardly matter at the join: search again, matching the rest
+        if b1.share > 0.02 {
+            let slow = Float(clipBlend / max(clipBlend, b1.slowSeconds))
+            let w = b1.mask.map { 1 - $0 * (1 - slow) }
+            if let second = search(w), let b2 = loopBlend(fr, trim: second.trim), b2.score < b1.score { return (second.trim, b2.score, b2.share) }
+        }
+        return (first.trim, b1.score, b1.share)
     }
 
     /// A score in words: how seamless the loop will look.
@@ -446,21 +454,29 @@ public enum LoopVideo {
         score <= 1.5 ? "excellent — the end matches the start almost exactly" : (score <= 3 ? "good — the join is a soft dissolve that is hard to spot" : (score <= 5 ? "fair — a gentle dissolve may be noticeable" : "weak — the end and the start look quite different; try making another clip"))
     }
 
-    /// Sets the clip's loop to its best stretch (inside the part without flips or cuts).
+    /// Sets the clip's loop to its best stretch (inside the part without flips, cuts or a change of turning direction).
     public static func applyBestLoop(_ p: inout LoopProject, clip: String, dir: URL) {
-        let clean = p.clipWarning != nil ? (p.trims[clip] ?? ClipTrim()) : ClipTrim()
+        let cur = p.trims[clip] ?? ClipTrim()
+        let clean = p.clipWarning != nil ? ClipTrim(start: cur.clean?.first ?? cur.start, end: cur.clean?.last ?? cur.end) : ClipTrim()
         guard let r = bestLoop(dir.appendingPathComponent(clip), within: clean) else { p.loopScores[clip] = 99; return }
-        p.trims[clip] = r.trim; p.loopScores[clip] = r.score
+        p.trims[clip] = r.trim; p.loopScores[clip] = r.score; p.loopDrift[clip] = r.share
     }
 
-    /// Checks a new clip; if it flips or cuts, the loop is set to the longest clean stretch and a warning is kept.
-    static func applyCheck(_ p: inout LoopProject, clip: String, dir: URL) {
-        let c = checkClip(dir.appendingPathComponent(clip))
+    /// The rating and the slowly dissolving share for the loop as it is now (after you move the markers, or for loops rated before the slow dissolve).
+    public static func rateLoop(_ p: inout LoopProject, clip: String, dir: URL) {
+        guard let b = loopBlend(dir.appendingPathComponent(clip), trim: p.trims[clip] ?? ClipTrim()) else { return }
+        p.loopScores[clip] = b.score; p.loopDrift[clip] = b.share
+    }
+
+    /// Checks a new clip; if it flips, cuts or something in it starts turning the other way, the loop is set to the longest clean stretch and a warning is kept.
+    static func applyCheck(_ p: inout LoopProject, clip: String, dir: URL, turning: Bool = true) {
+        let c = checkClip(dir.appendingPathComponent(clip), turning: turning)
         guard let best = c.best else { p.clipWarning = nil; p.trims[clip] = ClipTrim(); applyBestLoop(&p, clip: clip, dir: dir); return }      // checked and clean: then its best loop
         func clock(_ s: Double) -> String { String(format: "%d:%04.1f", Int(s) / 60, s.truncatingRemainder(dividingBy: 60)) }
         var what: [String] = []
         if !c.mirrors.isEmpty { what.append("turns into its mirror image at \(c.mirrors.map(clock).joined(separator: ", "))") }
         if !c.cuts.isEmpty { what.append("cuts to a different shot at \(c.cuts.map(clock).joined(separator: ", "))") }
+        if !c.turns.isEmpty { what.append("has something turning (like a wheel) that starts turning the other way at \(c.turns.map(clock).joined(separator: ", "))") }
         let end = best.end ?? c.length
         p.trims[clip] = best
         p.clipWarning = "This clip " + what.joined(separator: " and ") + ". The loop now uses only \(clock(best.start))–\(clock(end)) (\(String(format: "%.1f", end - best.start)) s, the longest part without it). Move the markers below to change it, or make another clip."
@@ -554,18 +570,55 @@ public enum LoopVideo {
     }
 
     /// Draws one picture of the loop: the clip (repeating, its end dissolving into its start), plus the title screen or the final fade.
+    /// Parts that drift one way dissolve slowly (over several seconds around the join) while the rest has the short dissolve, and the colour lock
+    /// spreads any slow change of colour over the whole period.
     final class LoopPainter {
-        let src: VideoClipSource
-        let period: Double
+        let late: VideoClipSource, early: VideoClipSource       // the end of the loop and its beginning, each read in order
+        let origin: Double                                       // clip time where both sources start
+        let start: Double, period: Double, fade: Double          // the loop's start point in the clip, its length and the short dissolve
+        let blend: LoopBlend?
         let W: Int, H: Int
         let intro: IntroLayer?
-        let blend: Double
         init(clip: URL, W: Int, H: Int, title: String?, trim: ClipTrim = ClipTrim()) {
-            src = VideoClipSource(url: clip, maxPixel: max(W, H), start: trim.start, end: trim.end)
-            blend = trim.blend ?? LoopVideo.clipBlend
-            period = max(1, src.playSeconds - min(blend, src.playSeconds / 3))
+            let length = CMTimeGetSeconds(AVURLAsset(url: clip).duration)
+            let (s, P, f) = LoopVideo.loopTimes(trim, length: length.isFinite && length > 0 ? length : 15)
+            let b = LoopVideo.loopBlend(clip, trim: trim)
+            let before = b?.before ?? 0, after = b?.after ?? 0
+            origin = max(0, s - before)
+            let end = s + P + max(f, after) + 1.0 / 30
+            late = VideoClipSource(url: clip, maxPixel: max(W, H), start: origin, end: end)
+            early = VideoClipSource(url: clip, maxPixel: max(W, H), start: origin, end: end)
+            if let d = b?.drift, d != SIMD3(repeating: 1) {
+                let g: (Double) -> SIMD3<Float> = { t in LoopVideo.colourGain(d, at: t, start: s, period: P) }
+                late.gain = g; early.gain = g
+            }
+            start = s; period = P; fade = f; blend = b
             self.W = W; self.H = H
             intro = title.map { IntroLayer(title: $0, subject: "", W: W, H: H, end: 8) }
+        }
+        /// The picture `clipTime` seconds into the clip file.
+        private func picture(_ src: VideoClipSource, _ clipTime: Double) -> CGImage? { src.frame(at: max(0, min(clipTime - origin, src.playSeconds - 0.02))) }
+        /// One frame of the loop: the end side, the beginning side, and how much of the beginning shows (one number, or a map when parts dissolve slowly).
+        func shot(_ t: Double) -> (late: CGImage?, early: CGImage?, alpha: Double, map: CGImage?) {
+            let u0 = max(0, t.isFinite ? t : 0).truncatingRemainder(dividingBy: period)
+            let u = u0 < period / 2 ? u0 : u0 - period                     // time from the loop's start point (negative: just before it comes round)
+            func S(_ x: Double) -> Double { let c = min(1, max(0, x)); return c * c * (3 - 2 * c) }
+            let quick = u < 0 ? 0 : (u >= fade ? 1 : S(u / fade))
+            guard let b = blend, b.slowSeconds > 0 else {
+                if quick <= 0 { return (picture(late, start + period + u), nil, 0, nil) }
+                if quick >= 1 { return (nil, picture(early, start + u), 1, nil) }
+                return (picture(late, start + period + u), picture(early, start + u), quick, nil)
+            }
+            let slow = u <= -b.before ? 0 : (u >= b.after ? 1 : S((u + b.before) / b.slowSeconds))
+            if quick == slow, quick <= 0 { return (picture(late, start + period + u), nil, 0, nil) }
+            if quick == slow, quick >= 1 { return (nil, picture(early, start + u), 1, nil) }
+            var px = b.mask.map { m -> UInt8 in UInt8(max(0, min(255, ((quick + Double(m) * (slow - quick)) * 255).rounded()))) }
+            let map = px.withUnsafeMutableBytes { raw -> CGImage? in
+                guard let data = CFDataCreate(nil, raw.bindMemory(to: UInt8.self).baseAddress, raw.count), let prov = CGDataProvider(data: data) else { return nil }
+                return CGImage(width: LoopBlend.gw, height: LoopBlend.gh, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: LoopBlend.gw, space: CGColorSpaceCreateDeviceGray(),
+                               bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: prov, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+            }
+            return (picture(late, start + period + u), picture(early, start + u), quick, map)
         }
         /// `t` is loop time (0 = the start of a period); the clip is always taken from its repeating part, so every period is identical.
         private var cardLayers: [String: IntroLayer] = [:]
@@ -576,14 +629,20 @@ public enum LoopVideo {
         }
         func draw(loopTime t: Double, ctx: CGContext, titleTime: Double? = nil, fadeToBlack: Double = 0, fadeFromBlack: Double = 0, cards: [(text: String, t: Double)] = []) {
             ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
-            let shot = src.looped(at: t + period, sceneLength: .infinity, blend: blend)
-            func put(_ img: CGImage) {
+            let shot = shot(t)
+            func frame(_ img: CGImage) -> CGRect {                   // filled to the frame, centred
                 let iw = Double(img.width), ih = Double(img.height), target = Double(W) / Double(H)
                 let rw = iw / ih > target ? ih * target : iw, rh = rw / target, s = Double(W) / rw
-                ctx.draw(img, in: CGRect(x: -(iw - rw) / 2 * s, y: -(ih - rh) / 2 * s, width: iw * s, height: ih * s))
+                return CGRect(x: -(iw - rw) / 2 * s, y: -(ih - rh) / 2 * s, width: iw * s, height: ih * s)
             }
-            if let m = shot.main { put(m) }
-            if let o = shot.over { ctx.saveGState(); ctx.setAlpha(CGFloat(shot.overAlpha)); put(o); ctx.restoreGState() }
+            if let a = shot.late { ctx.draw(a, in: frame(a)) }
+            if let b = shot.early {
+                ctx.saveGState()
+                if shot.late != nil {
+                    if let map = shot.map { ctx.clip(to: frame(b), mask: map) } else { ctx.setAlpha(CGFloat(shot.alpha)) }
+                }
+                ctx.draw(b, in: frame(b)); ctx.restoreGState()
+            }
             if let tt = titleTime, let intro, tt < 9 {                    // the title screen: holds, then fades into the loop
                 let vis = tt < 6 ? 1.0 : max(0, 1 - (tt - 6) / 2.5)
                 ctx.saveGState(); ctx.setAlpha(CGFloat(vis)); intro.draw(t: tt, ctx: ctx); ctx.restoreGState()
@@ -598,10 +657,11 @@ public enum LoopVideo {
     }
 
     /// The loop on its own (one period, no title, no sound), for watching in the app: it repeats exactly like it will in the long video.
-    public static func makePreview(clip: URL, output: URL, trim: ClipTrim = ClipTrim(), width: Int = 960, height: Int = 540) async throws {
+    /// Full size, so it can be watched full screen and zoomed into.
+    public static func makePreview(clip: URL, output: URL, trim: ClipTrim = ClipTrim(), width: Int = 1920, height: Int = 1080) async throws {
         let painter = LoopPainter(clip: clip, W: width, H: height, title: nil, trim: trim)
         let frames = Int((painter.period * Double(fps)).rounded())
-        let enc = try PieceEncoder(W: width, H: height, bitrate: 2_500_000)
+        let enc = try PieceEncoder(W: width, H: height, bitrate: width >= 1920 ? 10_000_000 : 2_500_000)
         for f in 0..<frames {
             try Task.checkCancellation()
             guard let pb = pixelBuffer(width, height) else { continue }
@@ -638,7 +698,7 @@ public enum LoopVideo {
 
     /// A short sample of the long video, with sound, exactly as it will be (scene, music, joins, title cards), small enough to make in seconds.
     /// `from` and `seconds` are in the long video's own time.
-    public static func renderPreview(_ p0: LoopProject, dir: URL, output: URL, from: Double, seconds: Double, W: Int = 960, H: Int = 540, progress: ((Double) -> Void)? = nil) async throws {
+    public static func renderPreview(_ p0: LoopProject, dir: URL, output: URL, from: Double, seconds: Double, W: Int = 1280, H: Int = 720, progress: ((Double) -> Void)? = nil) async throws {
         guard let clipName = p0.clip else { throw MVError("Make or add the loop clip first.") }
         var p = p0
         try ensureAnalysis(&p, dir: dir)
@@ -649,7 +709,7 @@ public enum LoopVideo {
         try? FileManager.default.removeItem(at: output)
         let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
         let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: W, AVVideoHeightKey: H,
-                                                                         AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 3_000_000]])
+                                                                         AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 5_000_000]])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: vIn, sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: W, kCVPixelBufferHeightKey as String: H])
         let aIn = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48000, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 160_000])
         vIn.expectsMediaDataInRealTime = false; aIn.expectsMediaDataInRealTime = false

@@ -345,13 +345,18 @@ struct MVideo: AsyncParsableCommand {
         func run() async throws {
             if let c = bestLoop {
                 let u = URL(fileURLWithPath: (c as NSString).expandingTildeInPath)
-                if let r = LoopVideo.bestLoop(u) { print(String(format: "best loop %.2f–%@ s  score %.2f (%@)", r.trim.start, r.trim.end.map { String(format: "%.2f", $0) } ?? "end", r.score, LoopVideo.loopQuality(r.score))) }
+                if let r = LoopVideo.bestLoop(u) {
+                    print(String(format: "best loop %.2f–%@ s  score %.2f (%@)", r.trim.start, r.trim.end.map { String(format: "%.2f", $0) } ?? "end", r.score, LoopVideo.loopQuality(r.score)))
+                    if let b = LoopVideo.loopBlend(u, trim: r.trim) {
+                        print(String(format: "slow dissolve: %.0f%% of the picture over %.1f s (%.1f before, %.1f after)   colour drift R %.3f G %.3f B %.3f", b.share * 100, b.slowSeconds, b.before, b.after, b.drift.x, b.drift.y, b.drift.z))
+                    }
+                }
                 if let r = LoopVideo.bestLoop(u, minLoop: 13.4) { print(String(format: "end-to-start (the old way) score %.2f", r.score)) }
                 return
             }
             if let c = check {
                 let r = LoopVideo.checkClip(URL(fileURLWithPath: (c as NSString).expandingTildeInPath))
-                print("length \(r.length)  mirror flips at \(r.mirrors)  cuts at \(r.cuts)  best part: \(r.best.map { "\($0.start)–\($0.end ?? r.length)" } ?? "the whole clip")"); return
+                print("length \(r.length)  mirror flips at \(r.mirrors)  cuts at \(r.cuts)  turning reverses at \(r.turns)  best part: \(r.best.map { "\($0.start)–\($0.end ?? r.length)" } ?? "the whole clip")"); return
             }
             if let d = describe {
                 guard let r = await LoopVideo.describeMotion(file: URL(fileURLWithPath: (d as NSString).expandingTildeInPath)) else { throw MVError("No description came back.") }

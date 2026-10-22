@@ -59,7 +59,14 @@ struct LoopView: View {
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
         .sheet(isPresented: Binding(get: { model.loopSample != nil }, set: { if !$0 { model.loopSample = nil } })) {
             VStack(spacing: 12) {
-                HStack { Text("Preview").font(.headline); Spacer(); Button("Done") { model.loopSample = nil }.keyboardShortcut(.defaultAction) }
+                HStack {
+                    Text("Preview").font(.headline); Spacer()
+                    if let u = model.loopSample {
+                        Button { let t = p.title; model.loopSample = nil; FullScreenPlayer.show(u, title: "Preview – \(t)", loop: false, muted: false) } label: { Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right") }
+                            .help("Watch this preview full screen, with sound, and zoom in on any part (Esc closes).")
+                    }
+                    Button("Done") { model.loopSample = nil }.keyboardShortcut(.defaultAction)
+                }
                 if let u = model.loopSample { ClipPlayer(url: u, autoplay: true).frame(minWidth: 640, minHeight: 360) }
                 Text("A short part of the long video, exactly as it will be, with sound.").font(.callout).foregroundStyle(.secondary)
             }.padding(20).frame(minWidth: 680, idealWidth: 900)
@@ -232,6 +239,8 @@ struct LoopView: View {
                     TextField("optional, e.g. soft watercolor", text: bind(\.style)).textFieldStyle(.roundedBorder)
                     Menu("Styles") { ForEach(StylePreset.all) { s in Button(s.name) { model.editLoop { $0.style = s.prompt } } } }.fixedSize()
                 }
+                Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky)).font(.callout)
+                    .help("New pictures are drawn with a clear, cloudless sky. Clouds that move can't come back to where they started, so a clear sky gives the cleanest loop. Clouds still work: they just blend slowly at the join.")
                 pictureWell
                 HStack(spacing: 8) {
                     Button { model.loopMakePicture() } label: { Label(p.picture == nil ? "Draw the picture from the scene (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))" : "Draw another picture (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles") }
@@ -291,7 +300,7 @@ struct LoopView: View {
                         Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
                             .help("Loop a video from your Mac instead (or drag it onto the box). A still camera works best.")
                         if p.clip != nil {
-                            Text("This is exactly how it repeats in the long video (shown without sound).").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text("This is exactly how it repeats in the long video (shown without sound). Click it to watch full screen and zoom in.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -301,9 +310,9 @@ struct LoopView: View {
                 if let c = p.clip {
                     HStack(spacing: 8) {
                         if let s = p.loopScores[c], s < 90 {
-                            Label("Loop: " + LoopVideo.loopQuality(s), systemImage: s <= 3 ? "checkmark.seal" : "exclamationmark.triangle").font(.callout)
+                            Label("Loop: " + LoopVideo.loopQuality(s) + slowNote(p.loopDrift[c]), systemImage: s <= 3 ? "checkmark.seal" : "exclamationmark.triangle").font(.callout)
                                 .foregroundStyle(s <= 3 ? Color.green : (s <= 5 ? Color.secondary : Color.orange)).fixedSize(horizontal: false, vertical: true)
-                                .help("The app chose the stretch of the clip whose end matches its start most closely (in picture and motion), so the dissolve from the end back to the start joins two nearly identical moments.")
+                                .help("The app chose the stretch of the clip whose end matches its start most closely (in picture and motion), so the dissolve from the end back to the start joins two nearly identical moments. Parts that move one way and so can never match (like clouds sliding across) dissolve slowly over several seconds instead, and any slow change of brightness or colour is spread over the whole loop.")
                         }
                         Spacer()
                         Button { model.loopFindBestLoop() } label: { Label("Find the best loop", systemImage: "wand.and.stars") }.disabled(working)
@@ -336,10 +345,26 @@ struct LoopView: View {
             Text("\(p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"), for a 1080p video, at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
         }
     }
+    /// The part of the picture that dissolves slowly, in words.
+    func slowNote(_ share: Double?) -> String {
+        guard let s = share, s >= 0.03 else { return "" }
+        return ". Parts that drift one way (about \(max(5, Int((s * 20).rounded()) * 5))% of the picture, such as clouds) blend slowly, so they never jump"
+    }
+
     var clipWell: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10).fill(clipTargeted ? Color.accentColor.opacity(0.15) : Color.black.opacity(0.85))
-            if let c = p.clip, let u = model.loopPreviewURL(for: c), FileManager.default.fileExists(atPath: u.path) { LoopingPlayer(url: u).clipShape(RoundedRectangle(cornerRadius: 10)) }
+            if let c = p.clip, let u = model.loopPreviewURL(for: c), FileManager.default.fileExists(atPath: u.path) {
+                LoopingPlayer(url: u).clipShape(RoundedRectangle(cornerRadius: 10))
+                Color.clear.contentShape(Rectangle()).onTapGesture { FullScreenPlayer.show(u, title: "The loop – \(p.title)", loop: true, muted: true) }
+                    .help("Click to watch it full screen and zoom in on any part.")
+                    .accessibilityElement().accessibilityLabel("The loop. Opens full screen.").accessibilityAddTraits(.isButton)
+                Button { FullScreenPlayer.show(u, title: "The loop – \(p.title)", loop: true, muted: true) } label: {
+                    Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.white)
+                }.buttonStyle(.plain).padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .help("Watch the loop full screen and zoom in on any part (Esc closes).")
+            }
             else if p.clip != nil { VStack(spacing: 6) { ProgressView().controlSize(.small); Text("Preparing the preview…").font(.caption).foregroundStyle(.white.opacity(0.8)) } }
             else { Text("The loop appears here").font(.callout).foregroundStyle(.white.opacity(0.7)) }
         }
