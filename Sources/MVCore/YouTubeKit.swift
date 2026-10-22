@@ -113,36 +113,55 @@ public enum YouTubeKit {
         return out
     }
 
-    /// The listing for a looping long music video.
-    public static func loopListing(_ p: LoopProject, config: Config = .load()) async -> Listing {
+    /// The listing for a looping long music video. One song: no chapters. Several: chapters for the first time through the playlist (and a tracklist).
+    /// It never says that anything loops or repeats. The description stays inside YouTube's 5,000 characters.
+    public static func loopListing(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing {
         let hours = hoursText(p.hours), scene = p.scene.isEmpty ? p.motion : p.scene
+        let names = p.tracks.map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) }.map { $0.isEmpty ? "Untitled" : $0 }
+        let several = names.count > 1
+        let music = several ? "\(names.count) songs (\(names.prefix(12).joined(separator: ", "))\(names.count > 12 ? ", …" : ""))" : "the song \"\(names.first ?? p.title)\""
         let prompt = """
-        Write a YouTube listing that ranks well in search for a \(hours.lowercased()) looping video of calm music: the song "\(p.title)" repeats over one peaceful looping scene.
+        Write a YouTube listing that ranks well in search for a \(hours.lowercased()) video of calm music: \(music) over one peaceful scene. The video is called "\(p.title)".
         Scene: \(scene.isEmpty ? "(not described)" : scene)\(p.style.isEmpty ? "" : "\nLook: \(p.style)")
-        Rules: the title is under 70 characters, starts with the strongest search words people use (for example "\(hours) of Study Music" or "Relaxing ... Ambience") and includes the song title and the length;
-        the description's first two lines (what shows before "more") hold the main keywords naturally; then 2 short paragraphs on what you see and hear and what it is good for (studying, focus, reading, sleep, relaxing, working);
-        the description has 3 short paragraphs (about 90–150 words in all); no false claims and no health or medical claims (say \"calm\", not \"reduces anxiety\"), never \"no lyrics\" or \"instrumental\" (the song may have words), at most 2 emojis, no links.
-        Tags: 15 to 25 search phrases people really type, specific to this scene, this music and its uses. Every tag must be TRUE for this video: no rain, white noise, lofi,         piano, nature sounds or other sounds unless the scene or music above says so (the sound is the song only). Hashtags: exactly 3, no spaces, true for this video.
+        Rules: the title is under 70 characters, starts with the strongest search words people use (for example "\(hours) of Study Music" or "Relaxing ... Ambience") and includes "\(p.title)" and the length;
+        the description's first two lines (what shows before "more") hold the main keywords naturally; the description has 3 short paragraphs (about 90–150 words in all) on what you see and hear and what it is good for
+        (studying, focus, reading, sleep, relaxing, working). Never say that the music or the video loops, repeats or is played again. No false claims and no health or medical claims (say "calm", not "reduces anxiety"),
+        never "no lyrics" or "instrumental" (the songs may have words), at most 2 emojis, no links, no timestamps.
+        Tags: 15 to 25 search phrases people really type, specific to this scene, this music and its uses. Every tag must be TRUE for this video: no rain, white noise, lofi, \
+        piano, nature sounds or other sounds unless the scene or music above says so (the sound is the music only); never "loop" or "looping". Hashtags: exactly 3, no spaces, true for this video.
         Reply with ONLY JSON: {"title":"...","description":"...","tags":["..."],"hashtags":["..."]}
         """
-        let chapters = loopChapters(hours: p.hours)
+        // chapters: the first time through the playlist only (YouTube needs at least three, the first at 0:00)
+        var chapters = ""
+        if several, let plan {
+            let first = plan.firstRound
+            if first.count >= 3 { chapters = "Chapters\n" + first.map { "\(clock(Int($0.start))) \(names[$0.track])" }.joined(separator: "\n") }
+        }
+        let tracklist = several && chapters.isEmpty ? "Songs\n" + names.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n") : ""
+        func assemble(_ body: String, _ tags: [String]) -> String {
+            var parts = [body]; if !chapters.isEmpty { parts.append(chapters) }; if !tracklist.isEmpty { parts.append(tracklist) }
+            parts.append(tags.prefix(3).joined(separator: " "))
+            var d = parts.joined(separator: "\n\n")
+            while d.count > 4900, chapters.contains("\n") {                         // too long for YouTube: drop chapters from the end
+                var lines = chapters.components(separatedBy: "\n"); lines.removeLast(); chapters = lines.joined(separator: "\n")
+                parts = [body, chapters, tags.prefix(3).joined(separator: " ")]; d = parts.joined(separator: "\n\n")
+            }
+            return String(d.prefix(4990))
+        }
         if let a = await ask(prompt, config: config) {
-            return Listing(title: a.title, description: a.description + "\n\nChapters\n" + chapters + "\n\n" + a.hashtags.prefix(3).joined(separator: " "), tags: fit(a.tags), hashtags: Array(a.hashtags.prefix(3)))
+            let clean = a.description.replacingOccurrences(of: "looping", with: "", options: .caseInsensitive)
+            return Listing(title: a.title, description: assemble(clean, a.hashtags), tags: fit(a.tags.filter { !$0.lowercased().contains("loop") }), hashtags: Array(a.hashtags.prefix(3)))
         }
         // fallback: a careful fixed listing
-        let what = scene.isEmpty ? "a peaceful looping scene" : scene.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+        let what = scene.isEmpty ? "a peaceful scene" : scene.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
         let d = """
-        \(hours) of calm music for studying, focus, reading and sleep: "\(p.title)" playing on a seamless loop over \(what.prefix(1).lowercased() + what.dropFirst()).
+        \(hours) of calm music for studying, focus, reading and sleep: \(several ? "\(names.count) songs" : "\"\(names.first ?? p.title)\"") over \(what.prefix(1).lowercased() + what.dropFirst()).
 
-        Put it on in the background while you study, work, read or wind down. The music repeats without a break and the scene loops seamlessly, so nothing interrupts your focus.
-
-        Chapters
-        \(chapters)
-
-        #studymusic #relaxingmusic #ambience
+        Put it on in the background while you study, work, read or wind down; nothing interrupts your focus.
         """
-        let tags = ["\(p.title)", "study music", "\(hours.lowercased()) study music", "relaxing music", "focus music", "calm music", "background music", "sleep music", "ambience", "lofi", "music for studying", "music for reading", "music for work", "concentration music", "peaceful music"]
-        return Listing(title: String("\(p.title) – \(hours) of Calm Study Music".prefix(100)), description: d, tags: fit(tags), hashtags: ["#studymusic", "#relaxingmusic", "#ambience"])
+        let tags = ["\(p.title)", "study music", "\(hours.lowercased()) study music", "relaxing music", "focus music", "calm music", "background music", "sleep music", "music for studying", "music for reading", "music for work", "concentration music", "peaceful music"]
+        let hashtags = ["#studymusic", "#relaxingmusic", "#calmmusic"]
+        return Listing(title: String("\(p.title) – \(hours) of Calm Study Music".prefix(100)), description: assemble(d, hashtags), tags: fit(tags + names.prefix(8)), hashtags: hashtags)
     }
 
     /// The listing for a lyric music video (the full lyrics go at the end of the description: search engines read them).

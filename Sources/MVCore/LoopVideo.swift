@@ -15,12 +15,26 @@ import VideoToolbox
 /// The part of a clip that loops (seconds into the clip; end nil = to the end).
 public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public init(start: Double = 0, end: Double? = nil) { self.start = start; self.end = end } }
 
+/// Title cards: none (the default), only the video's title at the beginning, or the video's title and then a card for every song.
+public enum LoopCards: String, Codable, CaseIterable { case none, beginning, everySong
+    public var name: String { switch self { case .none: "None"; case .beginning: "Only at the beginning"; case .everySong: "Every song" } }
+}
+
 public struct LoopProject: Codable, Equatable {
     public var id = UUID().uuidString
     public var title = ""
     public var screenTitle = ""                 // the title screen at the start (empty = the song title)
-    public var songFile = ""                    // the song, copied into the project folder
+    public var songFile = ""                    // older projects: their one song (now the first track)
     public var songSeconds = 0.0
+    public var tracks: [LoopTrack] = []         // the music: one song or a playlist (up to 100), in playing order
+    public var analysis: [String: TrackAnalysis] = [:]   // what listening to each song found (by file)
+    public var transition: LoopTransition? = nil          // nil = the default for the number of songs
+    public var crossfade = 6.0, gap = 2.0       // seconds, for Crossfade and Album gaps
+    public var evenVolume: Bool? = nil          // nil = on for two or more songs
+    public var shuffle = false                  // shuffle each time the playlist repeats (the first time through is in your order)
+    public var cards: LoopCards = .none
+    public var effectiveTransition: LoopTransition { transition ?? (tracks.count > 1 ? .automatic : .seamless) }
+    public var effectiveEvenVolume: Bool { evenVolume ?? (tracks.count > 1) }
     public var scene = ""                       // what the scene shows
     public var style = ""                       // the look (an art style), optional
     public var motion = ""                      // what moves in the loop clip (written from the picture; you can edit it)
@@ -40,12 +54,19 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""; screenTitle = try c.decodeIfPresent(String.self, forKey: .screenTitle) ?? ""
         songFile = try c.decodeIfPresent(String.self, forKey: .songFile) ?? ""; songSeconds = try c.decodeIfPresent(Double.self, forKey: .songSeconds) ?? 0
+        tracks = try c.decodeIfPresent([LoopTrack].self, forKey: .tracks) ?? []
+        if tracks.isEmpty && !songFile.isEmpty { tracks = [LoopTrack(file: songFile, title: title, seconds: songSeconds)] }     // a project from before playlists
+        analysis = try c.decodeIfPresent([String: TrackAnalysis].self, forKey: .analysis) ?? [:]
+        transition = try c.decodeIfPresent(LoopTransition.self, forKey: .transition)
+        crossfade = try c.decodeIfPresent(Double.self, forKey: .crossfade) ?? 6; gap = try c.decodeIfPresent(Double.self, forKey: .gap) ?? 2
+        evenVolume = try c.decodeIfPresent(Bool.self, forKey: .evenVolume); shuffle = try c.decodeIfPresent(Bool.self, forKey: .shuffle) ?? false
+        cards = try c.decodeIfPresent(LoopCards.self, forKey: .cards) ?? .none
         scene = try c.decodeIfPresent(String.self, forKey: .scene) ?? ""; style = try c.decodeIfPresent(String.self, forKey: .style) ?? ""
         motion = try c.decodeIfPresent(String.self, forKey: .motion) ?? ""
         pictures = try c.decodeIfPresent([String].self, forKey: .pictures) ?? []; picture = try c.decodeIfPresent(String.self, forKey: .picture)
@@ -67,6 +88,8 @@ public enum LoopVideo {
     public static let videoBitrate = 3_500_000, audioBitrate = 192_000          // "1080p, efficient": about 1.7 GB per hour
     public static let songBlend = 3.0                                           // seconds of the song's end blended into its beginning
     public static let clipBlend = 1.6                                           // seconds of the clip's end dissolved into its beginning
+    public static let cardSeconds = 5.0                                         // a song's title card: 1 s in, 3 s held, 1 s out
+    public static let titleScreenEnd = 8.5                                      // the video's title has faded by then
 
     // MARK: project folder
     public static func isLoopProject(_ dir: URL) -> Bool { FileManager.default.fileExists(atPath: dir.appendingPathComponent(fileName).path) }
@@ -77,19 +100,66 @@ public enum LoopVideo {
         SpendLedger.record(p.id, SpendLedger.Entry(title: p.title + " (looping video)", path: dir.path, imagesUSD: p.imagesUSD, videoUSD: p.videoUSD, pictures: p.pictureCount))
     }
 
-    /// A new looping project for a song: its own folder "<title> – looping video" (never overwriting another), with the song copied in.
-    public static func create(song: URL, title: String, config: Config = .load()) async throws -> (LoopProject, URL) {
+    /// A new looping project: its own folder "<title> – looping video" (never overwriting another), with the songs copied in.
+    public static func create(songs: [URL], title: String, config: Config = .load()) async throws -> (LoopProject, URL) {
         let fm = FileManager.default
-        let base = (title.isEmpty ? song.deletingPathExtension().lastPathComponent : title).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        guard let first = songs.first else { throw MVError("Choose at least one song.") }
+        let base = (title.isEmpty ? first.deletingPathExtension().lastPathComponent : title).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         var dir = config.projectsRoot.appendingPathComponent("\(base) – looping video"), n = 2
         while fm.fileExists(atPath: dir.path) { dir = config.projectsRoot.appendingPathComponent("\(base) – looping video \(n)"); n += 1 }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var p = LoopProject(); p.title = title.isEmpty ? base : title
-        p.songFile = "song." + (song.pathExtension.isEmpty ? "mp3" : song.pathExtension.lowercased())
-        try fm.copyItem(at: song, to: dir.appendingPathComponent(p.songFile))
-        p.songSeconds = (try? await AVURLAsset(url: dir.appendingPathComponent(p.songFile)).load(.duration)).map(CMTimeGetSeconds) ?? 0
-        save(p, dir)
+        try await addTracks(&p, dir: dir, files: songs)
         return (p, dir)
+    }
+    public static func create(song: URL, title: String, config: Config = .load()) async throws -> (LoopProject, URL) { try await create(songs: [song], title: title, config: config) }
+
+    public static let maxTracks = 100
+    /// Copies songs into the project (in "tracks"), named after their files; their names default to the file name.
+    public static func addTracks(_ p: inout LoopProject, dir: URL, files: [URL]) async throws {
+        let fm = FileManager.default
+        let folder = dir.appendingPathComponent("tracks")
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let room = maxTracks - p.tracks.count
+        guard room > 0 else { throw MVError("A looping video can have at most \(maxTracks) songs.") }
+        for src in files.prefix(room) {
+            var name = src.lastPathComponent, k = 2
+            while fm.fileExists(atPath: folder.appendingPathComponent(name).path) { name = src.deletingPathExtension().lastPathComponent + " \(k)." + src.pathExtension; k += 1 }
+            try fm.copyItem(at: src, to: folder.appendingPathComponent(name))
+            let secs = (try? await AVURLAsset(url: folder.appendingPathComponent(name)).load(.duration)).map(CMTimeGetSeconds) ?? 0
+            p.tracks.append(LoopTrack(file: "tracks/" + name, title: src.deletingPathExtension().lastPathComponent, seconds: secs))
+        }
+        if let f = p.tracks.first { p.songFile = f.file; p.songSeconds = f.seconds }
+        save(p, dir)
+        if files.count > room { throw MVError("Only \(room) more song\(room == 1 ? "" : "s") could be added: a looping video can have at most \(maxTracks).") }
+    }
+
+    /// Listens to every song not listened to yet (where its sound starts and ends, its loudness, how it ends and begins). Returns true if any was new.
+    @discardableResult
+    public static func ensureAnalysis(_ p: inout LoopProject, dir: URL, progress: ((String, Double) -> Void)? = nil) throws -> Bool {
+        let todo = p.tracks.filter { p.analysis[$0.file] == nil }
+        for (k, t) in todo.enumerated() {
+            try Task.checkCancellation()
+            progress?("Listening to “\(t.title)” (\(k + 1) of \(todo.count))…", Double(k) / Double(max(1, todo.count)))
+            p.analysis[t.file] = try LoopAudio.analyze(dir.appendingPathComponent(t.file))
+        }
+        if !todo.isEmpty { save(p, dir) }
+        return !todo.isEmpty
+    }
+
+    /// The same number every time for the same project (Swift's own hashes change on every launch), so the shuffle in the video and in its chapters always match.
+    static func stableSeed(_ s: String) -> UInt64 {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in s.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+        return h | 1
+    }
+
+    /// The plan of the music (needs every song listened to): which song plays when, the joins, and the exact length.
+    public static func plan(_ p: LoopProject) -> LoopAudio.Plan? {
+        let an = p.tracks.compactMap { p.analysis[$0.file] }
+        guard !an.isEmpty, an.count == p.tracks.count else { return nil }
+        return LoopAudio.plan(analyses: an, transition: p.effectiveTransition, crossfade: p.crossfade, gap: p.gap, evenVolume: p.effectiveEvenVolume,
+                              shuffle: p.shuffle, minimum: p.hours * 3600, seed: stableSeed(p.id))
     }
 
     /// Replaces the song of an open project.
@@ -320,7 +390,8 @@ public enum LoopVideo {
             }
         }
         guard let pic = source else { throw MVError("Add the picture or the loop clip first: the thumbnail is made from it.") }
-        let listing = await YouTubeKit.loopListing(p, config: config)
+        try? ensureAnalysis(&p, dir: dir)
+        let listing = await YouTubeKit.loopListing(p, plan: plan(p), config: config)
         let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.shownTitle, badge: YouTubeKit.hoursText(p.hours), line: "Study · Focus · Relax", listing: listing)
         p.thumbnail = f.thumbnail.path; p.listing = f.description.path
         save(p, dir)
@@ -333,52 +404,6 @@ public enum LoopVideo {
     /// Free space on the disk that holds `folder`.
     public static func freeBytes(at folder: URL) -> Int64? {
         (try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
-    }
-
-    /// The song as one seamless loop: the silence at both ends cut off, and the last `songBlend` seconds blended into the beginning.
-    final class SongLoop {
-        let samples: [Float]          // interleaved stereo, 48 kHz
-        let length: Int               // frames in the trimmed song
-        let blend: Int                // frames of overlap
-        var period: Int { length - blend }
-        init(url: URL) async throws {
-            let asset = AVURLAsset(url: url)
-            guard let track = try await asset.loadTracks(withMediaType: .audio).first else { throw MVError("The song has no sound to use.") }
-            let reader = try AVAssetReader(asset: asset)
-            let out = AVAssetReaderTrackOutput(track: track, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48000, AVNumberOfChannelsKey: 2,
-                                                                              AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsNonInterleaved: false, AVLinearPCMIsBigEndianKey: false])
-            reader.add(out); reader.startReading()
-            var all: [Float] = []
-            while let sb = out.copyNextSampleBuffer(), let bb = CMSampleBufferGetDataBuffer(sb) {
-                let n = CMBlockBufferGetDataLength(bb)
-                var chunk = [Float](repeating: 0, count: n / 4)
-                chunk.withUnsafeMutableBytes { _ = CMBlockBufferCopyDataBytes(bb, atOffset: 0, dataLength: n, destination: $0.baseAddress!) }
-                all += chunk
-            }
-            // trim the silence at both ends (quieter than about −50 dB), keeping 50 ms
-            let frames = all.count / 2, threshold: Float = 0.003
-            var first = 0, last = frames - 1
-            while first < frames && max(abs(all[first * 2]), abs(all[first * 2 + 1])) < threshold { first += 1 }
-            while last > first && max(abs(all[last * 2]), abs(all[last * 2 + 1])) < threshold { last -= 1 }
-            first = max(0, first - 2400); last = min(frames - 1, last + 2400)
-            guard last - first > 48000 * 4 else { throw MVError("The song is too short or silent to loop.") }
-            samples = Array(all[(first * 2)...(last * 2 + 1)])
-            length = last - first + 1
-            blend = min(Int(songBlend * 48000), length / 4)
-        }
-        /// Fills `out` with `count` stereo frames of the endless loop starting at frame `start` (equal-power blend at every seam).
-        func fill(_ out: inout [Float], start: Int, count: Int) {
-            for i in 0..<count {
-                let n = start + i, k = n / period, j = n % period
-                var l = samples[j * 2], r = samples[j * 2 + 1]
-                if k > 0 && j < blend {                                       // the next play fades in while the previous one fades out
-                    let x = Double(j) / Double(blend)
-                    let fin = Float(sin(x * .pi / 2)), fout = Float(cos(x * .pi / 2))
-                    l = l * fin + samples[(j + period) * 2] * fout; r = r * fin + samples[(j + period) * 2 + 1] * fout
-                }
-                out[i * 2] = l; out[i * 2 + 1] = r
-            }
-        }
     }
 
     /// Encodes pictures with the Mac's hardware encoder, a keyframe at the start of each piece, and keeps the encoded pictures in memory.
@@ -435,7 +460,13 @@ public enum LoopVideo {
             intro = title.map { IntroLayer(title: $0, subject: "", W: W, H: H, end: 8) }
         }
         /// `t` is loop time (0 = the start of a period); the clip is always taken from its repeating part, so every period is identical.
-        func draw(loopTime t: Double, ctx: CGContext, titleTime: Double? = nil, fadeToBlack: Double = 0, fadeFromBlack: Double = 0) {
+        private var cardLayers: [String: IntroLayer] = [:]
+        /// A song's title card: the same look as the title screen, drawn on top of the loop (the loop underneath is never changed).
+        func card(_ text: String) -> IntroLayer {
+            if let l = cardLayers[text] { return l }
+            let l = IntroLayer(title: text, subject: "", W: W, H: H, end: 5); cardLayers[text] = l; return l
+        }
+        func draw(loopTime t: Double, ctx: CGContext, titleTime: Double? = nil, fadeToBlack: Double = 0, fadeFromBlack: Double = 0, cards: [(text: String, t: Double)] = []) {
             ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
             let shot = src.looped(at: t + period, sceneLength: .infinity, blend: LoopVideo.clipBlend)
             func put(_ img: CGImage) {
@@ -448,6 +479,10 @@ public enum LoopVideo {
             if let tt = titleTime, let intro, tt < 9 {                    // the title screen: holds, then fades into the loop
                 let vis = tt < 6 ? 1.0 : max(0, 1 - (tt - 6) / 2.5)
                 ctx.saveGState(); ctx.setAlpha(CGFloat(vis)); intro.draw(t: tt, ctx: ctx); ctx.restoreGState()
+            }
+            for c in cards where c.t >= 0 && c.t < LoopVideo.cardSeconds {     // fade in 1 s, hold 3 s, fade out 1 s
+                let vis = c.t < 1 ? c.t : (c.t > LoopVideo.cardSeconds - 1 ? LoopVideo.cardSeconds - c.t : 1.0)
+                ctx.saveGState(); ctx.setAlpha(CGFloat(max(0, min(1, vis)))); card(c.text).draw(t: c.t + 2.0, ctx: ctx); ctx.restoreGState()
             }
             let black = max(fadeToBlack, fadeFromBlack)
             if black > 0 { ctx.setFillColor(CGColor(gray: 0, alpha: min(1, black))); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H)) }
@@ -476,50 +511,83 @@ public enum LoopVideo {
         if writer.status != .completed { throw MVError("The preview could not be saved: \(writer.error?.localizedDescription ?? "unknown")") }
     }
 
-    /// Makes the long video: title screen → the loop for `hours` → fade-out, with the song looping seamlessly underneath.
-    public static func render(_ p: LoopProject, dir: URL, output: URL, progress: @escaping (String, Double) -> Void) async throws {
-        guard let clipName = p.clip else { throw MVError("Make or add the loop clip first.") }
-        let need = estimatedBytes(hours: p.hours)
-        if let free = freeBytes(at: output.deletingLastPathComponent()), free < need + 2_000_000_000 {
-            throw MVError("This video needs about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file)) of free disk space, but only \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) is free. Free some space or choose fewer hours.")
-        }
-        progress("Preparing the song…", 0.01)
-        let song = try await SongLoop(url: dir.appendingPathComponent(p.songFile))
-        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: width, H: height, title: p.shownTitle, trim: p.trim)
-        let periodFrames = max(fps, Int((painter.period * Double(fps)).rounded()))
-        let introPeriods = max(1, Int(ceil(9.0 * Double(fps) / Double(periodFrames))))         // the title screen fits inside the opening piece
-        let totalPeriods = max(introPeriods + 2, Int((p.hours * 3600 * Double(fps) / Double(periodFrames)).rounded()))
-        let totalFrames = totalPeriods * periodFrames
-        let introFrames = introPeriods * periodFrames
+    /// The size of the finished file for a video of `seconds`.
+    public static func estimatedBytes(seconds: Double) -> Int64 { Int64(seconds * Double(videoBitrate + audioBitrate) / 8 * 1.03) }
 
-        // the three pieces: opening (with the title, rising from black), one plain loop, the ending (fading to black)
+    /// When each song's title card shows (only when cards are on for every song): as the song becomes the main sound, the first one after the video's title.
+    public static func cardTimes(_ p: LoopProject, plan: LoopAudio.Plan) -> [(start: Double, text: String)] {
+        guard p.cards == .everySong else { return [] }
+        var out: [(Double, String)] = []
+        for play in plan.plays where p.tracks.indices.contains(play.track) && p.tracks[play.track].cardOn {
+            let s = max(play.start + play.fadeIn / 2, titleScreenEnd + 0.5)
+            if s + cardSeconds > plan.songsEnd { continue }
+            if let last = out.last, s < last.0 + cardSeconds + 0.5 { continue }          // a very short song: never two cards on top of each other
+            let t = p.tracks[play.track].title.trimmingCharacters(in: .whitespacesAndNewlines)
+            out.append((s, t.isEmpty ? (p.tracks[play.track].file as NSString).deletingPathExtension.components(separatedBy: "/").last ?? "" : t))
+        }
+        return out
+    }
+
+    /// Makes the long video: the loop for as long as the music plays (every song whole), title cards on top if chosen, and a fade to black after the last song.
+    ///
+    /// Only a few short pieces are drawn and encoded: the opening, one loop, a few seconds around each title card, and the ending. Everything else is the
+    /// same encoded loop written again and again (it has a keyframe every two seconds, so a piece can start and stop on any of them without a seam).
+    public static func render(_ p0: LoopProject, dir: URL, output: URL, progress: @escaping (String, Double) -> Void) async throws {
+        guard let clipName = p0.clip else { throw MVError("Make or add the loop clip first.") }
+        guard !p0.tracks.isEmpty else { throw MVError("Add a song first.") }
+        var p = p0
+        try ensureAnalysis(&p, dir: dir) { ph, f in progress(ph, 0.01 * f) }
+        guard let plan = plan(p), !plan.plays.isEmpty else { throw MVError("The songs could not be read.") }
+        let need = estimatedBytes(seconds: plan.total)
+        if let free = freeBytes(at: output.deletingLastPathComponent()), free < need + 2_000_000_000 {
+            throw MVError("This video needs about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file)) of free disk space, but only \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) is free. Free some space or choose a shorter length.")
+        }
+        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: width, H: height, title: p.cards == .none ? nil : p.shownTitle, trim: p.trim)
+        let periodFrames = max(fps, Int((painter.period * Double(fps)).rounded()))
+        let K = fps * 2                                                                   // a keyframe every two seconds of the loop
+        let totalFrames = Int(ceil(plan.total * Double(fps)))
+        let cards = cardTimes(p, plan: plan)
+        let showTitle = p.cards != .none
+
+        func ph(_ f: Int) -> Int { f % periodFrames }
+        func onGrid(_ f: Int) -> Bool { ph(f) % K == 0 }
+        func floorGrid(_ f: Int) -> Int { var g = max(0, min(f, totalFrames)); while g > 0 && !onGrid(g) { g -= 1 }; return g }
+        func ceilGrid(_ f: Int) -> Int { var g = max(0, min(f, totalFrames)); while g < totalFrames && !onGrid(g) { g += 1 }; return g }
+        // the drawn pieces: the opening (rising from black, with the title), each title card, the ending (fading to black)
+        var ranges: [(Int, Int)] = [(0, ceilGrid(Int(((showTitle ? titleScreenEnd : 0) + 1.6) * Double(fps))))]
+        for c in cards { ranges.append((floorGrid(Int(c.start * Double(fps))), ceilGrid(Int(ceil((c.start + cardSeconds) * Double(fps))) + 1))) }
+        ranges.append((floorGrid(Int(plan.songsEnd * Double(fps)) - fps / 5), totalFrames))
+        ranges.sort { $0.0 < $1.0 }
+        var merged: [(Int, Int)] = []
+        for r in ranges { if let l = merged.last, r.0 <= l.1 { merged[merged.count - 1].1 = max(l.1, r.1) } else { merged.append(r) } }
+
         let enc = try PieceEncoder(W: width, H: height, bitrate: videoBitrate)
-        func piece(_ frames: Int, _ draw: (Int, CGContext) -> Void, label: String, from: Double, to: Double) throws -> [CMSampleBuffer] {
-            for f in 0..<frames {
+        func drawFrame(_ f: Int, _ ctx: CGContext) {
+            let s = Double(f) / Double(fps)
+            let active = cards.compactMap { c in s >= c.start && s < c.start + cardSeconds ? (text: c.text, t: s - c.start) : nil }
+            painter.draw(loopTime: Double(ph(f)) / Double(fps), ctx: ctx, titleTime: showTitle && s < 9 ? s : nil,
+                         fadeToBlack: max(0, min(1, (s - plan.songsEnd) / 3)), fadeFromBlack: max(0, 1 - s / 1.5), cards: active)
+        }
+        func encodePiece(_ r: (Int, Int)) throws -> [CMSampleBuffer] {
+            for f in r.0..<r.1 {
                 try Task.checkCancellation()
                 guard let pb = pixelBuffer(width, height) else { continue }
-                paint(pb) { draw(f, $0) }
-                enc.encode(pb, index: f, keyframe: f == 0)
-                if f % 30 == 0 { progress(label, from + (to - from) * Double(f) / Double(frames)) }
+                paint(pb) { drawFrame(f, $0) }
+                enc.encode(pb, index: f, keyframe: f == r.0)
             }
             return enc.finishPiece()
         }
-        let t = { (f: Int) in Double(f % periodFrames) / Double(fps) }
-        let opening = try piece(introFrames, { f, ctx in
-            let s = Double(f) / Double(fps)
-            painter.draw(loopTime: t(f), ctx: ctx, titleTime: s, fadeFromBlack: max(0, 1 - s / 1.5))
-        }, label: "Drawing the title screen…", from: 0.02, to: 0.06)
-        let middle = try piece(periodFrames, { f, ctx in painter.draw(loopTime: t(f), ctx: ctx) }, label: "Drawing the loop…", from: 0.06, to: 0.09)
-        let ending = try piece(periodFrames, { f, ctx in
-            let left = Double(periodFrames - f) / Double(fps)
-            painter.draw(loopTime: t(f), ctx: ctx, fadeToBlack: max(0, 1 - left / 3.0))
-        }, label: "Drawing the ending…", from: 0.09, to: 0.12)
-        guard let fmt = middle.first.flatMap(CMSampleBufferGetFormatDescription), !opening.isEmpty, !ending.isEmpty else { throw MVError("The video encoder gave no pictures.") }
-        for other in [opening.first, ending.first].compactMap({ $0.flatMap(CMSampleBufferGetFormatDescription) }) where !CMFormatDescriptionEqual(other, otherFormatDescription: fmt) {
-            throw MVError("The video encoder changed its settings between the pieces of the loop. Please report this problem.")
+        progress("Drawing the loop…", 0.02)
+        for f in 0..<periodFrames {                                                       // one plain loop, a keyframe every two seconds
+            try Task.checkCancellation()
+            guard let pb = pixelBuffer(width, height) else { continue }
+            paint(pb) { painter.draw(loopTime: Double(f) / Double(fps), ctx: $0) }
+            enc.encode(pb, index: f, keyframe: f % K == 0)
         }
+        let middle = enc.finishPiece()
+        guard middle.count == periodFrames, let fmt = CMSampleBufferGetFormatDescription(middle[0]) else { throw MVError("The video encoder gave no pictures.") }
 
-        // writing: the same encoded loop again and again, and the song generated continuously
+        // writing: pieces where something is drawn on top, the encoded loop everywhere else, and the music made continuously
         try? FileManager.default.removeItem(at: output)
         let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = false
@@ -534,18 +602,11 @@ public enum LoopVideo {
                                                mBytesPerPacket: 8, mFramesPerPacket: 1, mBytesPerFrame: 8, mChannelsPerFrame: 2, mBitsPerChannel: 32, mReserved: 0)
         var afmt: CMAudioFormatDescription?
         CMAudioFormatDescriptionCreate(allocator: nil, asbd: &asbd, layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &afmt)
+        let mixer = LoopAudio.Mixer(urls: p.tracks.map { dir.appendingPathComponent($0.file) }, plan: plan)
         let totalAudio = Int((Double(totalFrames) / Double(fps) * 48000).rounded())
-        let fadeIn = 48000, fadeOut = 48000 * 5
         var chunk = [Float](repeating: 0, count: 4800 * 2)
-        func audioBuffer(start: Int, count: Int) -> CMSampleBuffer? {
-            song.fill(&chunk, start: start, count: count)
-            for i in 0..<count {
-                let n = start + i
-                var g: Float = 1
-                if n < fadeIn { g = Float(n) / Float(fadeIn) }
-                if n > totalAudio - fadeOut { g = min(g, Float(totalAudio - n) / Float(fadeOut)) }
-                if g < 1 { chunk[i * 2] *= g; chunk[i * 2 + 1] *= g }
-            }
+        func audioBuffer(start: Int, count: Int) throws -> CMSampleBuffer? {
+            try mixer.fill(&chunk, start: start, count: count)
             var block: CMBlockBuffer?
             let bytes = count * 8
             guard CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: bytes, blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: bytes, flags: 0, blockBufferOut: &block) == noErr, let block else { return nil }
@@ -554,11 +615,20 @@ public enum LoopVideo {
             CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block, formatDescription: afmt!, sampleCount: count, presentationTimeStamp: CMTime(value: CMTimeValue(start), timescale: 48000), packetDescriptions: nil, sampleBufferOut: &sb)
             return sb
         }
-        func videoSample(_ i: Int) -> CMSampleBuffer? {
+        var rangeIndex = 0, pieceSamples: [CMSampleBuffer] = [], pieceStart = -1
+        func videoSample(_ i: Int) throws -> CMSampleBuffer? {
+            while rangeIndex < merged.count && merged[rangeIndex].1 <= i { rangeIndex += 1 }
             let src: CMSampleBuffer
-            if i < introFrames { src = opening[min(i, opening.count - 1)] }
-            else if i >= totalFrames - periodFrames { src = ending[min(i - (totalFrames - periodFrames), ending.count - 1)] }
-            else { src = middle[min((i - introFrames) % periodFrames, middle.count - 1)] }
+            if rangeIndex < merged.count, i >= merged[rangeIndex].0 {
+                if pieceStart != merged[rangeIndex].0 {
+                    pieceSamples = try encodePiece(merged[rangeIndex]); pieceStart = merged[rangeIndex].0
+                    if let f = pieceSamples.first.flatMap(CMSampleBufferGetFormatDescription), !CMFormatDescriptionEqual(f, otherFormatDescription: fmt) {
+                        throw MVError("The video encoder changed its settings between the pieces of the loop. Please report this problem.")
+                    }
+                }
+                guard !pieceSamples.isEmpty else { return nil }
+                src = pieceSamples[min(i - pieceStart, pieceSamples.count - 1)]
+            } else { src = middle[ph(i)] }
             var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: CMTimeScale(fps)), presentationTimeStamp: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)),
                                             decodeTimeStamp: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)))
             var copy: CMSampleBuffer?
@@ -568,22 +638,21 @@ public enum LoopVideo {
         var vi = 0, ai = 0, vDone = false, aDone = false
         let started = Date()
         while vi < totalFrames || ai < totalAudio {
-            // a finished track is closed at once: the writer otherwise waits for more of it before taking the other
             if vi >= totalFrames && !vDone { vIn.markAsFinished(); vDone = true }
             if ai >= totalAudio && !aDone { aIn.markAsFinished(); aDone = true }
             if Task.isCancelled { writer.cancelWriting(); try? FileManager.default.removeItem(at: output); throw CancellationError() }
             let vt = Double(vi) / Double(fps), at = Double(ai) / 48000
             var did = false
             let wantVideo = vi < totalFrames && (ai >= totalAudio || vt <= at)
-            if wantVideo, vIn.isReadyForMoreMediaData, let sb = videoSample(vi) { vIn.append(sb); vi += 1; did = true }
-            else if ai < totalAudio, aIn.isReadyForMoreMediaData, (vi >= totalFrames || at < vt + 2), let sb = audioBuffer(start: ai, count: min(4800, totalAudio - ai)) { aIn.append(sb); ai += min(4800, totalAudio - ai); did = true }
-            else if vi < totalFrames, vIn.isReadyForMoreMediaData, vt < at + 2, let sb = videoSample(vi) { vIn.append(sb); vi += 1; did = true }
+            if wantVideo, vIn.isReadyForMoreMediaData, let sb = try videoSample(vi) { vIn.append(sb); vi += 1; did = true }
+            else if ai < totalAudio, aIn.isReadyForMoreMediaData, (vi >= totalFrames || at < vt + 2), let sb = try audioBuffer(start: ai, count: min(4800, totalAudio - ai)) { aIn.append(sb); ai += min(4800, totalAudio - ai); did = true }
+            else if vi < totalFrames, vIn.isReadyForMoreMediaData, vt < at + 2, let sb = try videoSample(vi) { vIn.append(sb); vi += 1; did = true }
             if writer.status == .failed { throw MVError("Writing the video failed: \(writer.error?.localizedDescription ?? "unknown")") }
             if !did { try await Task.sleep(nanoseconds: 1_000_000) }
             if vi % (fps * 60) == 0 && did {
                 let el = Date().timeIntervalSince(started), frac = Double(vi) / Double(totalFrames)
                 let left = frac > 0.01 ? el / frac * (1 - frac) : 0
-                progress("Writing the video: \(clock(vt)) of \(clock(Double(totalFrames) / Double(fps)))" + (left > 30 ? " · about \(Int(left / 60) + 1) min left" : ""), 0.12 + 0.88 * frac)
+                progress("Writing the video: \(clock(vt)) of \(clock(Double(totalFrames) / Double(fps)))" + (left > 30 ? " · about \(Int(left / 60) + 1) min left" : ""), 0.04 + 0.96 * frac)
             }
         }
         if !vDone { vIn.markAsFinished() }
@@ -593,7 +662,7 @@ public enum LoopVideo {
         progress("Done", 1)
     }
 
-    static func clock(_ s: Double) -> String { String(format: "%d:%02d:%02d", Int(s) / 3600, (Int(s) / 60) % 60, Int(s) % 60) }
+    public static func clock(_ s: Double) -> String { String(format: "%d:%02d:%02d", Int(s) / 3600, (Int(s) / 60) % 60, Int(s) % 60) }
 
     static func pixelBuffer(_ W: Int, _ H: Int) -> CVPixelBuffer? {
         var pb: CVPixelBuffer?

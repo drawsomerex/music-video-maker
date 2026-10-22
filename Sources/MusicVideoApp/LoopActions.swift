@@ -20,13 +20,54 @@ struct LoopJob {
 extension AppModel {
     // MARK: projects
     /// A new looping project for a song (its own folder), then its screen.
-    func startLoopProject(song: URL, title: String) {
+    func startLoopProject(songs: [URL], title: String) {
         config = Config.load()
         Task {
             do {
-                let (p, dir) = try await LoopVideo.create(song: song, title: title, config: config)
+                let (p, dir) = try await LoopVideo.create(songs: songs, title: title, config: config)
                 loopProject = p; loopDir = dir; stage = .loop; remember(dir)
+                loopListen()
             } catch { errorMessage = "Couldn't start the looping video: \(error.localizedDescription)" }
+        }
+    }
+
+    // MARK: the music
+    /// The exact plan of the music (once every song has been listened to).
+    var loopPlan: LoopAudio.Plan? { loopProject.flatMap { LoopVideo.plan($0) } }
+
+    /// Adds songs (from a file dialog when none are given), then listens to them.
+    func loopAddSongs(_ given: [URL]? = nil) {
+        var files = given ?? []
+        if given == nil {
+            let o = NSOpenPanel(); o.allowedContentTypes = [.audio]; o.allowsMultipleSelection = true; o.message = "Choose one or more songs"
+            guard o.runModal() == .OK else { return }
+            files = o.urls
+        }
+        guard !files.isEmpty, var p = loopProject, let d = loopDir else { return }
+        Task {
+            do { try await LoopVideo.addTracks(&p, dir: d, files: files) } catch { errorMessage = error.localizedDescription }
+            if var cur = loopProject, cur.id == p.id { cur.tracks = p.tracks; cur.songFile = p.songFile; cur.songSeconds = p.songSeconds; loopProject = cur; LoopVideo.save(cur, d) }
+            loopListen()
+        }
+    }
+    func loopRemoveSong(_ id: String) { editLoop { p in if p.tracks.count > 1 { p.tracks.removeAll { $0.id == id } } } }
+
+    /// Listens to every song not listened to yet, a song at a time, without holding up anything else on the screen.
+    func loopListen() {
+        guard let p = loopProject, let d = loopDir else { return }
+        let todo = p.tracks.filter { p.analysis[$0.file] == nil }
+        guard !todo.isEmpty else { return }
+        loopListenTask?.cancel()
+        loopListenTask = Task { [weak self] in
+            for (k, t) in todo.enumerated() {
+                if Task.isCancelled { break }
+                self?.loopListening = "Listening to the songs (\(k + 1) of \(todo.count))…"
+                let url = d.appendingPathComponent(t.file)
+                guard let a = try? await Task.detached(priority: .utility, operation: { try LoopAudio.analyze(url) }).value else { continue }
+                guard let self, self.loopDir == d else { break }
+                self.editLoop { $0.analysis[t.file] = a }
+            }
+            self?.loopListening = nil
         }
     }
 
@@ -34,11 +75,13 @@ extension AppModel {
         do {
             let p = try LoopVideo.load(dir)
             loopProject = p; loopDir = dir; stage = .loop; remember(dir)
-            if p.songSeconds <= 0, !p.songFile.isEmpty {              // older or hand-made projects: work out the song's length
-                Task { let s = (try? await AVURLAsset(url: dir.appendingPathComponent(p.songFile)).load(.duration)).map(CMTimeGetSeconds) ?? 0; if s > 0 { editLoop { $0.songSeconds = s } } }
+            for t in p.tracks where t.seconds <= 0 {                      // older or hand-made projects: work out each song's length
+                Task { let s = (try? await AVURLAsset(url: dir.appendingPathComponent(t.file)).load(.duration)).map(CMTimeGetSeconds) ?? 0
+                       if s > 0 { editLoop { q in if let i = q.tracks.firstIndex(where: { $0.id == t.id }) { q.tracks[i].seconds = s } } } }
             }
             refreshOpenRouterCredits(silent: true)
             if p.pendingJob != nil { recoverLoopClip() }
+            loopListen()
             var q = p                                                   // clips made before the mirror/cut check existed are checked once now
             if LoopVideo.checkIfNeeded(&q, dir: dir) { loopProject = q; if q.clipWarning != nil, let c = q.clip { loopMakePreview(c) } }
         } catch { errorMessage = "Couldn't open that looping video: \(error.localizedDescription)" }
@@ -177,7 +220,7 @@ extension AppModel {
     func loopOutputURL(_ p: LoopProject) -> URL {
         let folder = config.outputFolder.isEmpty ? (loopDir ?? config.projectsRoot) : URL(fileURLWithPath: (config.outputFolder as NSString).expandingTildeInPath)
         let h = p.hours == p.hours.rounded() ? "\(Int(p.hours)) hour\(p.hours == 1 ? "" : "s")" : String(format: "%.1f hours", p.hours)
-        return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h) (looping).mp4")
+        return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h).mp4")      // YouTube suggests the file name as the title: nothing about looping
     }
     /// Makes (or makes again) the YouTube thumbnail and description, before or after the long video.
     func loopMakeYouTube() {

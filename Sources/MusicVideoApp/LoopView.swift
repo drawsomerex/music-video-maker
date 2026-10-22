@@ -97,28 +97,98 @@ struct LoopView: View {
 
     // MARK: 1 song
     var songCard: some View {
-        card(1, "The song", "Any length. It repeats seamlessly: the silence at the start and end is cut and its last seconds blend into its beginning.") {
-            HStack(spacing: 10) {
-                Image(systemName: "music.note").foregroundStyle(.tint)
-                Text(p.songFile.isEmpty ? "No song" : "Song · \(timeString(p.songSeconds))").font(.callout.weight(.medium))
-                Spacer()
-                Button("Choose a different song…") {
-                    let o = NSOpenPanel(); o.allowedContentTypes = [.audio]
-                    if o.runModal() == .OK, let u = o.url, var q = model.loopProject, let d = model.loopDir {
-                        Task { do { try await LoopVideo.replaceSong(&q, dir: d, song: u); model.loopProject = q } catch { model.errorMessage = error.localizedDescription } }
-                    }
-                }.disabled(working)
+        card(1, "The music", p.tracks.count > 1 ? "\(p.tracks.count) songs, played whole in this order (drag to reorder). The video plays them until it reaches the length you choose; no song is ever cut off."
+                                                 : "One song, or add more for a playlist (up to 100). Songs are always played whole; no song is ever cut off.") {
+            VStack(alignment: .leading, spacing: 10) {
+                trackList
+                HStack(spacing: 8) {
+                    Button { model.loopAddSongs() } label: { Label("Add songs…", systemImage: "plus") }.disabled(working || p.tracks.count >= LoopVideo.maxTracks)
+                        .help("Add one or more songs (MP3, WAV, M4A…). You can also drag files onto the list.")
+                    Spacer()
+                    Text("\(p.tracks.count) song\(p.tracks.count == 1 ? "" : "s") · \(timeString(p.tracks.reduce(0) { $0 + $1.seconds }))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Divider()
+                transitionControls
+                Divider()
+                cardControls
+                titleField
             }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { titleField; screenTitleField }
-                VStack(alignment: .leading, spacing: 8) { titleField; screenTitleField }
+        }
+        .dropDestination(for: URL.self) { urls, _ in let a = urls.filter { ["mp3", "wav", "m4a", "aac", "aif", "aiff", "flac", "caf"].contains($0.pathExtension.lowercased()) }; guard !a.isEmpty else { return false }; model.loopAddSongs(a); return true }
+    }
+
+    var trackList: some View {
+        List {
+            ForEach(Array(p.tracks.enumerated()), id: \.element.id) { i, t in
+                HStack(spacing: 8) {
+                    Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary).help("Drag to change the order.")
+                    TextField("Song name", text: Binding(get: { t.title }, set: { v in model.editLoop { if $0.tracks.indices.contains(i) { $0.tracks[i].title = v } } }))
+                        .textFieldStyle(.plain).help("The song's name: its title card, its chapter and the tracklist. It starts as the file name.")
+                    if p.cards == .everySong {
+                        Toggle("Card", isOn: Binding(get: { t.cardOn }, set: { v in model.editLoop { if $0.tracks.indices.contains(i) { $0.tracks[i].cardOn = v } } })).toggleStyle(.checkbox).font(.caption)
+                            .help("Show this song's title card when it starts.")
+                    }
+                    Text(timeString(t.seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    if let a = p.analysis[t.file], p.tracks.count > 1 {
+                        Image(systemName: a.fadesOut ? "chart.line.downtrend.xyaxis" : "stop.fill").font(.caption2).foregroundStyle(.tertiary)
+                            .help(a.fadesOut ? "Ends with a fade-out: in Automatic the next song starts during it." : "Ends on a clear stop: in Automatic a short pause follows.")
+                    }
+                    Button { model.loopRemoveSong(t.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
+                        .disabled(working || p.tracks.count <= 1).help(p.tracks.count <= 1 ? "A looping video needs at least one song." : "Remove this song from the video (its file stays in the project folder).")
+                }
+            }
+            .onMove { from, to in model.editLoop { $0.tracks.move(fromOffsets: from, toOffset: to) } }
+        }
+        .listStyle(.bordered(alternatesRowBackgrounds: true))
+        .frame(height: min(320, CGFloat(max(1, p.tracks.count)) * 30 + 12))
+    }
+
+    var transitionControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text("Between songs").font(.callout.weight(.semibold))
+                Picker("", selection: Binding(get: { p.effectiveTransition }, set: { v in model.editLoop { $0.transition = v } })) {
+                    ForEach(LoopTransition.allCases, id: \.self) { Text($0.name).tag($0) }
+                }.labelsHidden().fixedSize()
+                    .help("Seamless: a tight 3-second blend, no audible join. Automatic: listens to each ending and beginning (overlaps a song that fades out, a short pause after a clean stop, never fades in a song that opens with a hit). Crossfade: a longer blend. Album gaps: a short pause after every song.")
+                if p.effectiveTransition == .crossfade {
+                    Slider(value: Binding(get: { p.crossfade }, set: { v in model.editLoop { $0.crossfade = v } }), in: 2...12, step: 0.5).frame(maxWidth: 200)
+                    Text(String(format: "%.1f s", p.crossfade)).font(.caption.monospacedDigit())
+                }
+                if p.effectiveTransition == .albumGaps {
+                    Slider(value: Binding(get: { p.gap }, set: { v in model.editLoop { $0.gap = v } }), in: 0.5...5, step: 0.5).frame(maxWidth: 200)
+                    Text(String(format: "%.1f s", p.gap)).font(.caption.monospacedDigit())
+                }
+                if p.transition == nil { Text("(the usual for \(p.tracks.count > 1 ? "several songs" : "one song"))").font(.caption).foregroundStyle(.secondary) }
+            }
+            if p.tracks.count > 1 {
+                HStack(spacing: 16) {
+                    Toggle("Even out the volume between songs", isOn: Binding(get: { p.effectiveEvenVolume }, set: { v in model.editLoop { $0.evenVolume = v } })).toggleStyle(.checkbox)
+                        .help("Each song is measured and raised or lowered as a whole to the same loudness (YouTube's reference level); the music inside is not changed. A safety limiter stops a raised song from clipping.")
+                    Toggle("Shuffle each time the playlist repeats", isOn: bind(\.shuffle)).toggleStyle(.checkbox)
+                        .help("The first time through plays in your order; every time after that is shuffled (never the same song twice in a row).")
+                }
+            }
+        }
+    }
+
+    var cardControls: some View {
+        HStack(spacing: 10) {
+            Text("Title cards").font(.callout.weight(.semibold))
+            Picker("", selection: bind(\.cards)) {
+                ForEach(LoopCards.allCases, id: \.self) { c in Text(c == .everySong && p.tracks.count == 1 ? "Song too" : c.name).tag(c) }
+            }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 380)
+                .help("None: just the scene. Only at the beginning: the video's title fades into the scene. Every song: the video's title, then each song's name as it starts (the first one after the title has faded). Cards are drawn on top; the loop underneath never changes.")
+            if p.cards != .none {
+                TextField(p.title.isEmpty ? "Video title" : p.title, text: bind(\.screenTitle)).textFieldStyle(.roundedBorder).frame(maxWidth: 260)
+                    .help("The title on the opening card. Empty = the video's name.")
             }
         }
     }
     var titleField: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Song title").font(.callout.weight(.semibold))
-            TextField("Song title", text: bind(\.title)).textFieldStyle(.roundedBorder).help("Names the files. Also the title on screen unless you type another below.")
+            Text("Name of this video").font(.callout.weight(.semibold))
+            TextField("e.g. Rainy Library", text: bind(\.title)).textFieldStyle(.roundedBorder).help("Names the files, the YouTube title and the opening card (unless you type another title for the card).")
         }
     }
     var screenTitleField: some View {
@@ -253,10 +323,10 @@ struct LoopView: View {
 
     // MARK: 4 long video
     var longVideoCard: some View {
-        card(4, "The long video", "A title screen that fades into the loop, the loop with the song repeating for as long as you choose, and a gentle fade-out at the very end. A YouTube thumbnail and a description written for search are made with it.") {
+        card(4, "The long video", "The scene with the music for at least as long as you choose: the song playing when that length is reached always finishes, then the picture fades to black. A YouTube thumbnail and a description written for search are made with it.") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    Text("Length").font(.callout.weight(.semibold))
+                    Text("At least").font(.callout.weight(.semibold))
                     Picker("", selection: Binding(get: { [1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1 }, set: { v in if v > 0 { model.editLoop { $0.hours = v } } else { model.editLoop { $0.hours = customHours } } })) {
                         Text("1 hour").tag(1.0); Text("3 hours").tag(3.0); Text("8 hours").tag(8.0); Text("12 hours").tag(12.0); Text("Other").tag(-1.0)
                     }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420)
@@ -264,13 +334,14 @@ struct LoopView: View {
                         Stepper(String(format: "%.1f h", p.hours), value: Binding(get: { p.hours }, set: { v in customHours = v; model.editLoop { $0.hours = v } }), in: 0.5...12, step: 0.5).fixedSize()
                     }
                 }
-                let need = LoopVideo.estimatedBytes(hours: p.hours), out = model.loopOutputURL(p)
+                lengthLine
+                let need = LoopVideo.estimatedBytes(seconds: model.loopPlan?.total ?? p.hours * 3600), out = model.loopOutputURL(p)
                 let free = LoopVideo.freeBytes(at: out.deletingLastPathComponent())
                 Text("1080p · about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file))" + (free.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) free on this disk" } ?? "") + ". Saved as “\(out.lastPathComponent)”.")
                     .font(.callout).foregroundStyle((free ?? .max) < need + 2_000_000_000 ? .orange : .secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     Button { model.loopRender() } label: { Label("Make the long video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 2) }
-                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(working || p.clip == nil || p.songFile.isEmpty)
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(working || p.clip == nil || p.tracks.isEmpty)
                         .help(p.clip == nil ? "Make or add the loop clip first." : "Makes the long video. Only a minute of video is drawn; the rest is the same loop written again and again, so even 12 hours takes minutes, not hours. Progress shows in the strip at the top.")
                     if let o = p.output, FileManager.default.fileExists(atPath: o) {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o)]) } label: { Label("Show the last video in Finder", systemImage: "folder") }
@@ -279,6 +350,19 @@ struct LoopView: View {
                 YouTubeFilesRow(files: p.thumbnail.flatMap { t in p.listing.map { (URL(fileURLWithPath: t), URL(fileURLWithPath: $0)) } }.flatMap { FileManager.default.fileExists(atPath: $0.0.path) ? $0 : nil },
                                 busy: model.loopJob?.title.hasPrefix("Writing the YouTube") == true) { model.loopMakeYouTube() }
                     .disabled(working && model.loopJob?.title.hasPrefix("Writing the YouTube") != true)
+            }
+        }
+    }
+
+    /// The exact length, once the songs have been listened to.
+    var lengthLine: some View {
+        Group {
+            if let plan = model.loopPlan {
+                let rounds = plan.plays.count == 0 ? 0 : Double(plan.plays.count) / Double(max(1, p.tracks.count))
+                Label("Your video will be \(LoopVideo.clock(plan.total)) long: \(plan.plays.count) song\(plan.plays.count == 1 ? "" : "s")" + (p.tracks.count > 1 && rounds > 1.05 ? String(format: ", the playlist plays %.1f times", rounds) : "") + ".", systemImage: "clock")
+                    .font(.callout.weight(.medium))
+            } else if !p.tracks.isEmpty {
+                Label(model.loopListening ?? "Listening to the songs to work out the exact length…", systemImage: "ear").font(.callout).foregroundStyle(.secondary)
             }
         }
     }
@@ -306,7 +390,8 @@ struct LoopView: View {
 /// The front page when "Looping long music video" is chosen: pick the song and a title, then start.
 struct LoopStartView: View {
     @EnvironmentObject var model: AppModel
-    @State private var song: URL?
+    @State private var songs: [URL] = []
+    var song: URL? { songs.first }
     @State private var title = ""
     @State private var targeted = false
     var body: some View {
@@ -314,30 +399,34 @@ struct LoopStartView: View {
             Text("One song, one beautiful 15-second scene that loops seamlessly, made into a 1 to 12 hour video, for study or background music.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button {
-                let o = NSOpenPanel(); o.allowedContentTypes = [.audio]
-                if o.runModal() == .OK, let u = o.url { pick(u) }
+                let o = NSOpenPanel(); o.allowedContentTypes = [.audio]; o.allowsMultipleSelection = true
+                if o.runModal() == .OK { pick(o.urls) }
             } label: {
                 VStack(spacing: 6) {
                     Image(systemName: song == nil ? "music.note" : "waveform.circle.fill").font(.system(size: 32)).foregroundStyle(song == nil ? .secondary : Color.accentColor)
-                    Text(song?.lastPathComponent ?? "Drag your song here (any length)").font(.headline).lineLimit(1).truncationMode(.middle)
-                    Text(song == nil ? "or click to choose an MP3, WAV or M4A file" : "Click to choose a different song").font(.callout).foregroundStyle(.secondary)
+                    Text(songs.count > 1 ? "\(songs.count) songs" : (song?.lastPathComponent ?? "Drag your song or songs here (any length, up to 100)")).font(.headline).lineLimit(1).truncationMode(.middle)
+                    Text(song == nil ? "or click to choose MP3, WAV or M4A files" : "Click to choose different songs (you can add more on the next screen)").font(.callout).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity).padding(.vertical, 22)
                 .background(RoundedRectangle(cornerRadius: 12).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])).foregroundStyle(.secondary.opacity(0.5)))
             }.buttonStyle(.plain)
-            .dropDestination(for: URL.self) { urls, _ in guard let u = urls.first else { return false }; pick(u); return true } isTargeted: { targeted = $0 }
+            .dropDestination(for: URL.self) { urls, _ in guard !urls.isEmpty else { return false }; pick(urls); return true } isTargeted: { targeted = $0 }
             VStack(alignment: .leading, spacing: 3) {
-                Text("Song title").font(.callout.weight(.semibold))
+                Text("Name of this video").font(.callout.weight(.semibold))
                 TextField("e.g. Rainy Library", text: $title).textFieldStyle(.roundedBorder)
             }
             HStack {
                 Spacer()
-                Button { if let s = song { model.startLoopProject(song: s, title: title) } } label: { Label("Start the looping video", systemImage: "arrow.right.circle.fill").font(.headline).padding(.horizontal, 6).padding(.vertical, 3) }
+                Button { if !songs.isEmpty { model.startLoopProject(songs: songs, title: title) } } label: { Label("Start the looping video", systemImage: "arrow.right.circle.fill").font(.headline).padding(.horizontal, 6).padding(.vertical, 3) }
                     .buttonStyle(.borderedProminent).controlSize(.large).disabled(song == nil)
                     .help("Creates a folder for this looping video and opens its screen: song, picture, loop clip, long video.")
             }
         }
         .frame(maxWidth: 620)
     }
-    func pick(_ u: URL) { song = u; if title.isEmpty { title = u.deletingPathExtension().lastPathComponent } }
+    func pick(_ us: [URL]) {
+        let audio = us.filter { ["mp3", "wav", "m4a", "aac", "aif", "aiff", "flac", "caf"].contains($0.pathExtension.lowercased()) }
+        guard !audio.isEmpty else { return }
+        songs = Array(audio.prefix(LoopVideo.maxTracks)); if title.isEmpty { title = audio[0].deletingPathExtension().lastPathComponent }
+    }
 }

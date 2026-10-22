@@ -68,6 +68,8 @@ final class AppModel: ObservableObject {
     @Published var loopJob: LoopJob?
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
+    var loopListenTask: Task<Void, Never>?
+    @Published var loopListening: String?          // "Listening to the songs (3 of 17)…" while new songs are being measured
     @Published var showProjects = false
     var videoTask: Task<Void, Never>?
     @Published var workingSection: Int?            // the picture being drawn (or whose idea is being rewritten) right now: only it is locked while a task runs

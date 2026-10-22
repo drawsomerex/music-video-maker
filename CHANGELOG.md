@@ -5,6 +5,18 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Looping video: one song or a playlist of up to 100.** Step 1 is now "The music": add songs (or drag in many at once), drag to reorder, rename each (it starts as the file name). Songs are always played whole: the video plays them in order (and again from the top) until the length you choose is reached, and the song playing then finishes — so 60 minutes of songs that end at 61 minutes gives a 61-minute video. The exact length is shown before you make it.
+- **Between songs:** Seamless (tight 3-second blend; the usual for one song), Automatic (the usual for several: listens to each ending and beginning — overlaps a song that fades out, leaves a 2-second pause after a clean stop, never fades in a song that opens with a hit), Crossfade (2–12 s) or Album gaps (0.5–5 s).
+- **Even out the volume between songs** (on for several songs): each song is matched as a whole to YouTube's reference loudness (ITU-R BS.1770), with a safety limiter. **Shuffle each time the playlist repeats** (the first time through stays in your order; never the same song twice in a row).
+- **Title cards:** None (the default), Only at the beginning, or Every song (the video's title, then each song's name as it starts, the first after the title has faded; a per-song switch). Drawn on top: the loop underneath never changes.
+- **YouTube description:** with several songs, chapters for the first time through the playlist and a song list; with one song, no chapters. It never mentions looping or repeating, and the file is now named "<name> – <hours>.mp4".
+
+### Changed
+- The opening title screen of a looping video is now off by default (choose "Only at the beginning" to keep it).
+- A looping video now ends when its last song ends (it is never cut off), then fades to black.
+- Hundreds of songs need no more memory than one: songs are read a few at a time while the video is made.
+
 ## [1.12.0] - 2026-10-21
 
 ### Added

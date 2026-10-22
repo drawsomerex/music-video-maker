@@ -325,7 +325,9 @@ struct MVideo: AsyncParsableCommand {
     struct Loop: AsyncParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Looping long music video: make the long video for a looping project folder (song + loop clip), or a new one from a song and a clip.")
         @Argument(help: "A looping project folder (with loop.json), or a new folder to create") var folder: String
-        @Option(help: "Song file (for a new project)") var song: String?
+        @Option(help: "Song file(s) for a new project (repeat --song for a playlist)") var song: [String] = []
+        @Option(help: "Title cards: none, beginning or every") var cards: String?
+        @Option(help: "Joins: seamless, automatic, crossfade or albumGaps") var transition: String?
         @Option(help: "Loop clip (mp4/mov) to use") var clip: String?
         @Option(help: "Title on the title screen") var title: String?
         @Option(help: "Length in hours (0.05 = 3 minutes, for a test)") var hours = 1.0
@@ -349,20 +351,21 @@ struct MVideo: AsyncParsableCommand {
             let fm = FileManager.default
             var p: LoopProject
             if LoopVideo.isLoopProject(dir) { p = try LoopVideo.load(dir) } else {
-                guard let s = song else { throw MVError("Give --song for a new project.") }
+                guard let s = song.first else { throw MVError("Give --song for a new project.") }
                 try fm.createDirectory(at: dir, withIntermediateDirectories: true)
                 p = LoopProject(); p.title = title ?? URL(fileURLWithPath: s).deletingPathExtension().lastPathComponent
-                p.songFile = "song." + URL(fileURLWithPath: s).pathExtension
-                try? fm.removeItem(at: dir.appendingPathComponent(p.songFile)); try fm.copyItem(at: URL(fileURLWithPath: s), to: dir.appendingPathComponent(p.songFile))
+                try await LoopVideo.addTracks(&p, dir: dir, files: song.map { URL(fileURLWithPath: $0) })
             }
             if let c = clip { let name = "clip-cli." + URL(fileURLWithPath: c).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(name)); try fm.copyItem(at: URL(fileURLWithPath: c), to: dir.appendingPathComponent(name)); p.clip = name }
             if let t = title { p.screenTitle = t }
+            if let c = cards { p.cards = c == "every" ? .everySong : (c == "beginning" ? .beginning : .none) }
+            if let t = transition { p.transition = LoopTransition(rawValue: t) }
             p.hours = hours
             if let pic = picture { let n = "picture-cli." + URL(fileURLWithPath: pic).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: pic), to: dir.appendingPathComponent(n)); p.picture = n }
             if let sc = scene { p.scene = sc }
             LoopVideo.save(p, dir)
             if youtube {
-                let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title) (looping).mp4")
+                let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title).mp4")
                 try await LoopVideo.makeYouTubeFiles(&p, dir: dir, video: o)
                 print("✅ \(p.thumbnail ?? "")\n✅ \(p.listing ?? "")"); return
             }
@@ -371,7 +374,7 @@ struct MVideo: AsyncParsableCommand {
                 let o = dir.appendingPathComponent("loop-preview.mp4")
                 try await LoopVideo.makePreview(clip: dir.appendingPathComponent(cl), output: o); print("✅ \(o.path)"); return
             }
-            let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title) (looping).mp4")
+            let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title).mp4")
             let t0 = Date()
             try await LoopVideo.render(p, dir: dir, output: o) { ph, f in print(String(format: "\r%3d%%  %@", Int(f * 100), ph), terminator: ""); fflush(stdout) }
             print(String(format: "\n✅ %@  (%.0fs)", o.path, Date().timeIntervalSince(t0)))
