@@ -5,6 +5,7 @@ import AppKit
 struct YouTubeFilesRow: View {
     let files: (thumbnail: URL, description: URL)?
     let busy: Bool
+    var vertical = false               // a Short: a tall cover and a narrow layout
     let remake: () -> Void
     @State private var copied: String?
 
@@ -23,29 +24,36 @@ struct YouTubeFilesRow: View {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(part(name), forType: .string); copied = label
     }
 
+    @ViewBuilder func copyButtons(_ f: (thumbnail: URL, description: URL)) -> some View {
+        Button("Copy title") { copy("TITLE", "Title") }
+        Button("Copy description") { copy("DESCRIPTION", "Description") }
+        Button("Copy tags") { copy("TAGS", "Tags") }
+        Button { NSWorkspace.shared.activateFileViewerSelecting([f.thumbnail, f.description]) } label: { Label("Show in Finder", systemImage: "folder") }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("For YouTube", systemImage: "play.rectangle.fill").font(.headline)
                 if busy { ProgressView().controlSize(.small); Text("Writing…").font(.callout).foregroundStyle(.secondary) }
                 Spacer()
-                Button { remake() } label: { Label(files == nil ? "Make the thumbnail & description" : "Make them again", systemImage: "arrow.clockwise") }.disabled(busy)
+                Button { remake() } label: { Label(files == nil ? (vertical ? "Make the cover & description" : "Make the thumbnail & description") : "Make them again", systemImage: "arrow.clockwise") }.disabled(busy)
                     .help("Makes a 1280×720 thumbnail (the picture with the title on its quieter side) and a description written for YouTube search (title, description, chapters or lyrics, tags, hashtags). Written on this Mac, free.")
             }
             if let f = files {
                 HStack(alignment: .top, spacing: 14) {
                     if let img = NSImage(contentsOf: f.thumbnail) {
-                        Image(nsImage: img).resizable().aspectRatio(16.0 / 9, contentMode: .fit).frame(width: 288).clipShape(RoundedRectangle(cornerRadius: 8))
-                            .help("The thumbnail (1280×720, under 2 MB). Upload it under “Thumbnail” in YouTube Studio.")
+                        Image(nsImage: img).resizable().aspectRatio(vertical ? 9.0 / 16 : 16.0 / 9, contentMode: .fit).frame(width: vertical ? 84 : 288).clipShape(RoundedRectangle(cornerRadius: 8))
+                            .help(vertical ? "The cover: the Short's own opening frame (1080×1920). YouTube lets you pick a frame of a Short as its thumbnail; use this picture as the cover on TikTok or Instagram Reels."
+                                           : "The thumbnail (1280×720, under 2 MB). Upload it under “Thumbnail” in YouTube Studio.")
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         Text(part("TITLE")).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                         Text(part("DESCRIPTION")).font(.caption).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled)
-                        HStack(spacing: 6) {
-                            Button("Copy title") { copy("TITLE", "Title") }
-                            Button("Copy description") { copy("DESCRIPTION", "Description") }
-                            Button("Copy tags") { copy("TAGS", "Tags") }
-                            Button { NSWorkspace.shared.activateFileViewerSelecting([f.thumbnail, f.description]) } label: { Label("Show in Finder", systemImage: "folder") }
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 6) { copyButtons(f) }
+                            VStack(alignment: .leading, spacing: 4) { HStack(spacing: 6) { Button("Copy title") { copy("TITLE", "Title") }; Button("Copy description") { copy("DESCRIPTION", "Description") } }
+                                                                      HStack(spacing: 6) { Button("Copy tags") { copy("TAGS", "Tags") }; Button { NSWorkspace.shared.activateFileViewerSelecting([f.thumbnail, f.description]) } label: { Label("Show", systemImage: "folder") } } }
                         }.controlSize(.small)
                         if let c = copied { Text("\(c) copied — paste it into YouTube Studio.").font(.caption).foregroundStyle(.green) }
                     }

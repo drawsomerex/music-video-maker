@@ -171,6 +171,12 @@ struct SetupView: View {
                           help: "The name of your song. It appears on the opening title card and names the folder where everything is saved.")
                     field("Subtitle on the title card (optional)", "e.g. A ballad of the Oklahoma oil boom", text: $model.subject,
                           help: "Optional. A short line shown under the title on the opening card. You can leave it empty.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("About the song (optional)").font(.subheadline.weight(.medium))
+                        TextField("e.g. An upbeat bluegrass ballad about the first oil gusher in Oklahoma, 1897 — told by a proud young driller", text: $model.songNotes, axis: .vertical)
+                            .lineLimit(2...5).textFieldStyle(.roundedBorder)
+                            .help("Your own words about the song: its story, its mood, its style, who is singing. The app follows them when it writes what the song is about, when it suggests settings, in the picture ideas, and in the YouTube description.")
+                    }
                     field("Setting and theme for every picture (optional)", "e.g. Brightly lit colonial Philadelphia", text: $model.settingTheme,
                           help: "Describe the place, time and mood once and every picture follows it. The words are put into every picture idea, and the pictures still change from part to part (time of day, weather, camera view). Leave empty to let the app decide from your lyrics.")
                     Button { showIdeas = true } label: { Label("Suggest 10 ideas for me", systemImage: "lightbulb") }

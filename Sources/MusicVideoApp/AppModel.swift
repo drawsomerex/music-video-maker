@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var audioDuration: Double = 0
     @Published var title = ""
     @Published var subject = ""
+    @Published var songNotes = ""                 // "About the song": your own words; steers the description, setting ideas and YouTube text
     @Published var settingTheme = ""        // “Brightly lit colonial Philadelphia”: every picture prompt follows it
     @Published var lyrics = ""
     @Published var quality = 1080
@@ -317,7 +318,7 @@ final class AppModel: ObservableObject {
         switch n {
         case 1:
             if let p = plan, let w = workDir {
-                title = p.title; subject = p.subject; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
+                title = p.title; subject = p.subject; songNotes = p.songNotes; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
                 let audio = w.appendingPathComponent(p.audioFile.isEmpty ? "audio.mp3" : p.audioFile)
                 if FileManager.default.fileExists(atPath: audio.path) { audioURL = audio; audioDuration = p.songDuration }
                 projectBaseline = (title, subject, lyrics, audioURL?.lastPathComponent ?? "", settingTheme)
@@ -421,7 +422,7 @@ final class AppModel: ObservableObject {
     /// Forgets the open project (it stays saved on disk) so the Song screen starts empty.
     func detachProject() {
         clearTimelineSession(); stopPlayback(); plan = nil; workDir = nil; outputURL = nil; renderedShorts = []; waveform = []; projectBaseline = nil
-        title = ""; subject = ""; settingTheme = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
+        title = ""; subject = ""; songNotes = ""; settingTheme = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
     }
 
     private var handler: ProgressHandler {
@@ -597,7 +598,7 @@ final class AppModel: ObservableObject {
         guard let audio = audioURL else { return }
         config = Config.load()
         stage = .working; phase = "Starting…"; progress = 0
-        let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = 30.0, theme = settingTheme
+        let t = title.trimmingCharacters(in: .whitespaces), s = subject, l = lyrics, every = 30.0, theme = settingTheme, notes = songNotes
         let boundaries = draftKey == analysisKey ? draftSections.map(TimelineEditor.boundaries) : nil
         let shorts = timelineShorts
         let presetPrompt = StylePreset.all.first(where: { $0.id == selectedStylePreset })?.prompt ?? ""
@@ -614,7 +615,7 @@ final class AppModel: ObservableObject {
                 // the listening done earlier (words and their times) is reused, so the song is not heard twice
                 let cached = listenFolder.appendingPathComponent("transcript_words.json")
                 if FileManager.default.fileExists(atPath: cached.path) { try? FileManager.default.copyItem(at: cached, to: work.appendingPathComponent("transcript_words.json")) }
-                var made = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
+                var made = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, notes: notes, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
                 if made.shorts.isEmpty { made.shorts = Pipeline.autoShorts(plan: made); try? Pipeline.savePlan(made, work) }      // a new plan starts with suggested Shorts (drag, delete or add as you like)
                 plan = made
                 draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
@@ -798,10 +799,11 @@ final class AppModel: ObservableObject {
     func fetchSettingIdeas(avoid: [String]) async throws -> [String] {
         let ls = plan.map { $0.lines.map(\.text) } ?? LyricAligner.parse(lyrics).lines
         let omlx = OMLX(config: config); try await omlx.ensureReady()
-        return try await PromptWriter(omlx: omlx).suggestSettings(title: plan?.title ?? title, lyrics: ls, description: plan?.description ?? "", avoid: avoid)
+        return try await PromptWriter(omlx: omlx).suggestSettings(title: plan?.title ?? title, lyrics: ls, description: plan?.description ?? "", notes: plan?.songNotes ?? songNotes, avoid: avoid)
     }
     func setSetting(_ text: String) { plan?.setting = text; persist() }
     func setDescription(_ text: String) { plan?.description = text; persist() }
+    func setSongNotes(_ text: String) { plan?.songNotes = text; songNotes = text; persist() }
 
     var selectedStyleName: String { StylePreset.all.first(where: { $0.id == selectedStylePreset })?.name ?? StyleLibrary.auto.name }
     func applyStylePreset(_ id: String) {
@@ -1096,6 +1098,23 @@ final class AppModel: ObservableObject {
         let sub = p.subject.trimmingCharacters(in: .whitespacesAndNewlines)
         if let f = try? YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.title, badge: "Lyric video", line: sub.isEmpty ? nil : sub, listing: listing) { youtubeFiles = f }
     }
+    /// Where a Short's video is saved.
+    func shortVideoURL(_ c: ShortClip) -> URL? { guard let p = plan, let w = workDir else { return nil }; return Pipeline.shortURL(plan: p, work: w, name: c.name, config: config) }
+    /// Makes a Short's cover and YouTube description again (the Short must have been made).
+    func remakeShortYouTube(_ c: ShortClip) {
+        guard let p = plan, let w = workDir, let v = shortVideoURL(c) else { return }
+        youtubeBusy = true
+        Task { await YouTubeKit.writeShortFiles(p, work: w, clip: c, video: v, config: config); youtubeBusy = false; objectWillChange.send() }
+    }
+    /// The music video's thumbnail and description, made before the video (they go where the video will be saved).
+    func makeYouTubeFilesNow() {
+        guard let p = plan, let w = workDir else { return }
+        let video = Pipeline.videoURL(plan: p, work: w, config: config)
+        Task {
+            await makeYouTubeFiles(plan: p, video: video)
+            if let f = youtubeFiles { notice = "The YouTube thumbnail and description are saved next to where the video goes:\n\(f.thumbnail.lastPathComponent)\n\(f.description.lastPathComponent)"; NSWorkspace.shared.activateFileViewerSelecting([f.thumbnail, f.description]) }
+        }
+    }
     func remakeYouTubeFiles() {
         guard let p = plan, let v = outputURL else { return }
         Task { await makeYouTubeFiles(plan: p, video: v) }
@@ -1128,7 +1147,7 @@ final class AppModel: ObservableObject {
             // Heal pictures whose files were moved/deleted.
             for i in p.sections.indices { if let c = p.sections[i].selectedCandidate, let f = c.fullFile, !FileManager.default.fileExists(atPath: folder.appendingPathComponent(f).path) { p.sections[i].candidates = []; p.sections[i].selected = -1 } }
 
-            plan = p; workDir = folder; title = p.title; subject = p.subject; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
+            plan = p; workDir = folder; title = p.title; subject = p.subject; songNotes = p.songNotes; settingTheme = p.setting; lyrics = AppModel.lyricsText(of: p)
             projectBaseline = nil; outputURL = nil; renderedShorts = []
             stage = .plan; remember(folder); loadWaveform(); refreshOpenRouterCredits(silent: true); recoverClips()
         } catch { errorMessage = "Couldn't open that project: \(error.localizedDescription)" }

@@ -38,6 +38,7 @@ public struct LoopProject: Codable, Equatable {
     public var scene = ""                       // what the scene shows
     public var style = ""                       // the look (an art style), optional
     public var motion = ""                      // what moves in the loop clip (written from the picture; you can edit it)
+    public var about = ""                       // "About the music": your own words; steers the scene ideas and the YouTube text
     public var pictures: [String] = []          // every picture made or added, oldest first
     public var picture: String?                 // the one the clip starts from
     public var clips: [String] = []             // every loop clip made or added
@@ -54,7 +55,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -69,6 +70,7 @@ public struct LoopProject: Codable, Equatable {
         cards = try c.decodeIfPresent(LoopCards.self, forKey: .cards) ?? .none
         scene = try c.decodeIfPresent(String.self, forKey: .scene) ?? ""; style = try c.decodeIfPresent(String.self, forKey: .style) ?? ""
         motion = try c.decodeIfPresent(String.self, forKey: .motion) ?? ""
+        about = try c.decodeIfPresent(String.self, forKey: .about) ?? ""
         pictures = try c.decodeIfPresent([String].self, forKey: .pictures) ?? []; picture = try c.decodeIfPresent(String.self, forKey: .picture)
         clips = try c.decodeIfPresent([String].self, forKey: .clips) ?? []; clip = try c.decodeIfPresent(String.self, forKey: .clip)
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
@@ -175,10 +177,10 @@ public enum LoopVideo {
 
     // MARK: ideas, picture, clip
     /// Ten calm scenes that loop well, written by the local model from the song title (and the look, if chosen).
-    public static func suggestScenes(title: String, style: String, avoid: [String] = [], config: Config = .load()) async throws -> [String] {
+    public static func suggestScenes(title: String, style: String, about: String = "", avoid: [String] = [], config: Config = .load()) async throws -> [String] {
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         let prompt = """
-        A song called "\(title)" will play for hours as calm background (study) music over ONE looping video scene.\(style.isEmpty ? "" : " The look: \(style).")
+        A song called "\(title)" will play for hours as calm background (study) music over ONE looping video scene.\(style.isEmpty ? "" : " The look: \(style).")\(about.isEmpty ? "" : " About the music, in the maker's words (the scenes must suit it): \(about)")
         Suggest 10 different scenes that loop beautifully: a fixed viewpoint with gentle, continuous, repeating motion (rain on a window, a crackling fireplace, drifting clouds, \
         a river, falling snow, swaying grass, steam from a cup, city lights in the rain, waves, candle light). No people walking in or out, no text.
         \(avoid.isEmpty ? "" : "Do not repeat these: " + avoid.prefix(20).joined(separator: " | ") + "\n")Each scene is one vivid sentence of 12–25 words. Reply with ONLY the 10 scenes, one per line, no numbers.

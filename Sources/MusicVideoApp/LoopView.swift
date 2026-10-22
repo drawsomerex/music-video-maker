@@ -107,6 +107,9 @@ struct LoopView: View {
                     Spacer()
                     Text("\(p.tracks.count) song\(p.tracks.count == 1 ? "" : "s") · \(timeString(p.tracks.reduce(0) { $0 + $1.seconds }))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                TextField("About the music (optional), e.g. Gentle acoustic guitar for rainy afternoons of reading", text: bind(\.about), axis: .vertical)
+                    .lineLimit(1...3).textFieldStyle(.roundedBorder)
+                    .help("Your own words about the music: its mood, style and what it is for. “Suggest scenes” and the YouTube description follow them.")
                 Divider()
                 transitionControls
                 Divider()

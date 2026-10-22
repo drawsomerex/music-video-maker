@@ -5,6 +5,14 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **About the song** (first screen, and under "Setting & description"): your own words about the song. The app follows them when it writes what the song is about, in "Suggest 10 ideas for me", in the picture ideas and in the YouTube description. Looping videos get **About the music**, used by "Suggest scenes" and the YouTube description.
+- **Shorts are ready for YouTube too:** next to each Short, a title, description (with the Short's lines), tags and #Shorts hashtags, plus a 1080×1920 cover (the Short's own opening frame with its title), with a "For YouTube" box on the Shorts page.
+- Music videos: More ▸ **YouTube thumbnail & description** makes them before the video is made (they are still made with the video).
+
+### Changed
+- **Tags are checked for truth:** a tag naming a person, place or year that is not in the song's own words is dropped, and so are misleading words (sound effects, animation, official, lofi, loop…).
+
 ## [1.13.0] - 2026-10-22
 
 ### Added

@@ -128,7 +128,7 @@ extension AppModel {
     // MARK: the picture
     func loopSuggestScenes(avoid: [String]) async throws -> [String] {
         guard let p = loopProject else { return [] }
-        return try await LoopVideo.suggestScenes(title: p.title, style: p.style, avoid: avoid, config: config)
+        return try await LoopVideo.suggestScenes(title: p.title, style: p.style, about: p.about, avoid: avoid, config: config)
     }
 
     func loopMakePicture() {

@@ -213,6 +213,9 @@ struct PlanView: View {
             Divider()
             if plan.shorts.isEmpty { Button("Make Shorts automatically") { model.autoMakeShorts() } }
             Button("Copy all picture ideas") { model.copyAllPrompts() }
+            Divider()
+            Button("YouTube thumbnail & description") { model.makeYouTubeFilesNow() }
+                .help("Makes the YouTube thumbnail (the title card picture with the song title) and a search-friendly title, description with the lyrics, tags and hashtags. They are also made with the video.")
         } label: { Label("More", systemImage: "ellipsis.circle") }
         .menuIndicator(.hidden).fixedSize()
         .help("Setting & description, art style, the picture maker key and credit, making Shorts automatically, and copying all picture ideas.")

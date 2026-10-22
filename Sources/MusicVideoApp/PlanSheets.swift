@@ -19,7 +19,13 @@ struct DescriptionSheet: View {
                 Button { showIdeas = true } label: { Label("Suggest 10 ideas for me", systemImage: "lightbulb") }
                     .help("The app reads your lyrics and suggests 10 different places and moods. Press one to use it.")
             }
-            Text("What the song is about").font(.subheadline.weight(.medium))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("About the song (your words)").font(.subheadline.weight(.medium))
+                TextField("e.g. An upbeat bluegrass ballad about the first oil gusher in Oklahoma, 1897", text: Binding(get: { model.plan?.songNotes ?? "" }, set: { model.setSongNotes($0) }), axis: .vertical)
+                    .lineLimit(2...4).textFieldStyle(.roundedBorder)
+                    .help("Your own description. “Write it again” and “Suggest 10 ideas for me” follow it, and so does the YouTube description.")
+            }
+            Text("What the song is about (written by the app)").font(.subheadline.weight(.medium))
             TextEditor(text: Binding(get: { model.plan?.description ?? "" }, set: { model.setDescription($0) }))
                 .font(.body).scrollContentBackground(.hidden).padding(8)
                 .frame(height: 170).background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))

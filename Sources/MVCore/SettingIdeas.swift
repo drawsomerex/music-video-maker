@@ -2,8 +2,9 @@
 import Foundation
 
 extension PromptWriter {
-    public func suggestSettings(title: String, lyrics: [String], description: String = "", avoid: [String] = []) async throws -> [String] {
-        let desc = description.isEmpty ? "" : "Song description: \(description)\n"
+    public func suggestSettings(title: String, lyrics: [String], description: String = "", notes: String = "", avoid: [String] = []) async throws -> [String] {
+        let n = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let desc = (n.isEmpty ? "" : "The songwriter describes the song like this (the ideas must suit it): \(n)\n") + (description.isEmpty ? "" : "Song description: \(description)\n")
         let avoidText = avoid.isEmpty ? "" : "Do not repeat these earlier ideas: " + avoid.joined(separator: "; ") + "."
         let prompt = """
         Song title: “\(title)”

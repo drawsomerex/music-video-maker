@@ -161,7 +161,7 @@ public enum Pipeline {
     }
 
     public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
-                            preferredStyle: String = "", setting: String = "", pictureBoundaries: [Double]? = nil, shorts: [ShortClip] = [], config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
+                            preferredStyle: String = "", setting: String = "", notes: String = "", pictureBoundaries: [Double]? = nil, shorts: [ShortClip] = [], config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Plan {
         let heard = try await listen(audioPath: audioPath, title: title, lyrics: lyrics, work: work, config: config, progress: progress)
         let duration = heard.duration, parsed = heard.parsed, omlx = heard.omlx, lines = heard.lines, timing = heard.timing
         let ownAudio = work.appendingPathComponent("audio." + (URL(fileURLWithPath: audioPath).pathExtension.isEmpty ? "mp3" : URL(fileURLWithPath: audioPath).pathExtension.lowercased()))
@@ -194,7 +194,7 @@ public enum Pipeline {
         let writer = PromptWriter(omlx: omlx)
         progress?("Local AI is reading the lyrics", 0.62)
         let settingNote = setting.trimmingCharacters(in: .whitespacesAndNewlines)
-        let description = try await writer.describe(title: title, lyrics: lines.map(\.text), hint: ([subject, settingNote.isEmpty ? "" : "The video is set in: \(settingNote)"].filter { !$0.isEmpty }).joined(separator: ". "))
+        let description = try await writer.describe(title: title, lyrics: lines.map(\.text), hint: hint(notes: notes, subject: subject, setting: settingNote))
         try Task.checkCancellation()
         progress?("Local AI is writing the image prompts", 0.75)
         let written = try await writer.write(sections: [intro] + sections, lines: lines, title: title, subject: description, preferredStyle: preferredStyle, setting: settingNote) { phase, f in
@@ -212,6 +212,7 @@ public enum Pipeline {
         plan.partStarts = cuts.sorted()
         plan.partsFromVerses = !explicitParts && !cuts.isEmpty
         plan.setting = settingNote
+        plan.songNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         progress?("Checking that the story flows from picture to picture", 0.98)
         await logicPass(plan: &plan, omlx: omlx)
         progress?("Choosing two focal points for every picture", 0.99)
@@ -315,13 +316,20 @@ public enum Pipeline {
         return md
     }
 
+    /// What steers the song description: your own words about the song (first and strongest), the subtitle, and the setting.
+    static func hint(notes: String, subject: String, setting: String) -> String {
+        let n = notes.trimmingCharacters(in: .whitespacesAndNewlines), s = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [n.isEmpty ? "" : "The songwriter describes the song like this (follow it closely; it outranks your own reading of the lyrics): \(n)",
+                s.isEmpty ? "" : "Subtitle: \(s)", setting.isEmpty ? "" : "The video is set in: \(setting)"].filter { !$0.isEmpty }.joined(separator: ". ")
+    }
+
     /// Rewrites the song description from the lyrics (optionally steered by a hint) and, if asked, all prompts from it.
     public static func redescribe(plan: inout Plan, hint: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws {
         progress?("Connecting to AI engine", 0.05)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         progress?("Reading lyrics & rewriting song description", 0.25)
-        let withSetting = ([hint, plan.setting.isEmpty ? "" : "The video is set in: \(plan.setting)"].filter { !$0.isEmpty }).joined(separator: ". ")
-        plan.description = try await PromptWriter(omlx: omlx).describe(title: plan.title, lyrics: plan.lines.map(\.text), hint: withSetting)
+        let note = [hint, Pipeline.hint(notes: plan.songNotes, subject: plan.subject, setting: plan.setting)].filter { !$0.isEmpty }.joined(separator: ". ")
+        plan.description = try await PromptWriter(omlx: omlx).describe(title: plan.title, lyrics: plan.lines.map(\.text), hint: note)
         progress?("Done", 1.0)
     }
 
@@ -887,14 +895,9 @@ public enum Pipeline {
     public static func renderShort(plan: Plan, work: URL, clip c: ShortClip, suffix: String = "", config: Config = .load(), progress: ProgressHandler? = nil) async throws -> URL {
         let out = shortURL(plan: plan, work: work, name: c.name + suffix, config: config)
         try await VideoRenderer.render(plan: plan, work: work, output: out, settings: .short(), short: c, progress: progress)
-        let lyr = plan.lines.filter { $0.end > c.start && $0.start < c.end }.map(\.text)
-        let omlx = OMLX(config: config)
-        if (try? await omlx.ensureReady()) != nil,
-           let meta = try? await PromptWriter(omlx: omlx).metadata(title: plan.title, description: plan.description, lyrics: lyr, hook: c.hook.isEmpty ? plan.title : c.hook, cta: c.cta) {
-            let style = ShortStyle.make(seed: c.styleSeed, clip: c)
-            let text = "\(meta)\n\n— look: \(style.summary) · seed \(c.styleSeed)\n"
-            try? text.write(to: out.deletingPathExtension().appendingPathExtension("txt"), atomically: true, encoding: .utf8)
-        }
+        // ready for YouTube: the cover (the Short's own opening frame) and a search-friendly title, description, tags and hashtags
+        progress?("Writing the YouTube title, description and cover…", 1)
+        await YouTubeKit.writeShortFiles(plan, work: work, clip: c, video: out, config: config)
         // A plain range file next to the video: which part of the song it is and the exact word times, for other tools (e.g. ffmpeg).
         let words = plan.lines.flatMap(\.words).filter { $0.end > c.start && $0.start < c.end }.map { ["word": $0.text, "start": ($0.start * 1000).rounded() / 1000, "end": ($0.end * 1000).rounded() / 1000] as [String: Any] }
         let range: [String: Any] = ["clip_id": c.id.uuidString, "title": c.name, "source": plan.title, "start_time": (c.start * 1000).rounded() / 1000, "end_time": (c.end * 1000).rounded() / 1000,

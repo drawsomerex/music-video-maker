@@ -106,6 +106,22 @@ public enum YouTubeKit {
         let hashtags = (o["hashtags"] as? [String] ?? []).map { "#" + $0.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).replacingOccurrences(of: " ", with: "") }.filter { $0.count > 1 }
         return (String(t.prefix(100)), d, tags, hashtags)
     }
+    /// Drops tags that are not true for the video: misleading words (sound effects, animation, official, lofi, loop…) and any name, place or
+    /// year that is not in the video's own words (`source`: title, lyrics, descriptions). The model is told the same, but this makes sure.
+    static func truthful(_ tags: [String], source: String) -> [String] {
+        let src = source.lowercased()
+        let banned = ["sound effect", "sfx", "animation", "animated", "official", "loop", "lofi", "lo-fi", "white noise", "asmr", "remix", "cover version", "8d audio", "slowed", "reverb"]
+        let generic: Set<String> = ["lyrics", "lyric", "song", "songs", "music", "video", "videos", "history", "historic", "historical", "story", "ballad", "folk", "country", "the", "and", "of", "for",
+                                    "study", "focus", "relaxing", "calm", "sleep", "reading", "work", "peaceful", "ambience", "ambient", "background", "hours", "hour", "shorts", "short"]
+        return tags.filter { t in
+            let l = t.lowercased()
+            if banned.contains(where: { l.contains($0) }) { return false }
+            for w in t.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init) where w.count >= 3 && !generic.contains(w.lowercased()) {
+                if (w.first?.isUppercase == true || w.first?.isNumber == true) && !src.contains(w.lowercased()) { return false }
+            }
+            return true
+        }
+    }
     /// Tags fit YouTube's 500-character limit.
     static func fit(_ tags: [String]) -> [String] {
         var out: [String] = [], len = 0
@@ -122,7 +138,7 @@ public enum YouTubeKit {
         let music = several ? "\(names.count) songs (\(names.prefix(12).joined(separator: ", "))\(names.count > 12 ? ", …" : ""))" : "the song \"\(names.first ?? p.title)\""
         let prompt = """
         Write a YouTube listing that ranks well in search for a \(hours.lowercased()) video of calm music: \(music) over one peaceful scene. The video is called "\(p.title)".
-        Scene: \(scene.isEmpty ? "(not described)" : scene)\(p.style.isEmpty ? "" : "\nLook: \(p.style)")
+        Scene: \(scene.isEmpty ? "(not described)" : scene)\(p.style.isEmpty ? "" : "\nLook: \(p.style)")\(p.about.isEmpty ? "" : "\nAbout the music, in the maker's words (follow it): \(p.about)")
         Rules: the title is under 70 characters, starts with the strongest search words people use (for example "\(hours) of Study Music" or "Relaxing ... Ambience") and includes "\(p.title)" and the length;
         the description's first two lines (what shows before "more") hold the main keywords naturally; the description has 3 short paragraphs (about 90–150 words in all) on what you see and hear and what it is good for
         (studying, focus, reading, sleep, relaxing, working). Never say that the music or the video loops, repeats or is played again. No false claims and no health or medical claims (say "calm", not "reduces anxiety"),
@@ -150,7 +166,9 @@ public enum YouTubeKit {
         }
         if let a = await ask(prompt, config: config) {
             let clean = a.description.replacingOccurrences(of: "looping", with: "", options: .caseInsensitive)
-            return Listing(title: a.title, description: assemble(clean, a.hashtags), tags: fit(a.tags.filter { !$0.lowercased().contains("loop") }), hashtags: Array(a.hashtags.prefix(3)))
+            let source = [p.title, p.scene, p.motion, p.about, p.style, names.joined(separator: " ")].joined(separator: " ")
+            let honest = a.tags.filter { t in truthful([t], source: source + " " + t.lowercased()).count == 1 }     // misleading words only: generic search phrases may use any words
+            return Listing(title: a.title, description: assemble(clean, a.hashtags), tags: fit(honest), hashtags: Array(a.hashtags.prefix(3)))
         }
         // fallback: a careful fixed listing
         let what = scene.isEmpty ? "a peaceful scene" : scene.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
@@ -169,7 +187,7 @@ public enum YouTubeKit {
         let lyrics = plan.lines.map(\.text).joined(separator: "\n")
         let prompt = """
         Write a YouTube listing that ranks well in search for the lyric music video of the song "\(plan.title)".
-        What the song is about: \(plan.description.isEmpty ? plan.subject : plan.description)\(plan.setting.isEmpty ? "" : "\nSetting of the pictures: \(plan.setting)")
+        \(plan.songNotes.isEmpty ? "" : "The songwriter describes it like this (follow it): \(plan.songNotes)\n")What the song is about: \(plan.description.isEmpty ? plan.subject : plan.description)\(plan.setting.isEmpty ? "" : "\nSetting of the pictures: \(plan.setting)")
         First lines of the lyrics: \(plan.lines.prefix(6).map(\.text).joined(separator: " / "))
         Rules: the title is under 70 characters and is "\(plan.title) (Lyric Video)" or close to it, optionally with a short hook after a dash; the description's first two lines (shown before "more")
         hold the song title and the main keywords of its story naturally; then one short paragraph about the story and the pictures. No false claims, at most 2 emojis, no links.         Every tag must be true for this song: only people, places, events and eras named in the information above (never others from history), no genre or artist you cannot see there. Do not call it \"official\".
@@ -177,12 +195,69 @@ public enum YouTubeKit {
         Reply with ONLY JSON: {"title":"...","description":"...","tags":["..."],"hashtags":["..."]}
         """
         if let a = await ask(prompt, config: config) {
-            return Listing(title: a.title, description: a.description + "\n\nLyrics\n" + lyrics + "\n\n" + a.hashtags.prefix(3).joined(separator: " "), tags: fit([plan.title, "\(plan.title) lyrics"] + a.tags), hashtags: Array(a.hashtags.prefix(3)))
+            let source = [plan.title, plan.subject, plan.description, plan.songNotes, plan.setting, lyrics].joined(separator: " ")
+            return Listing(title: a.title, description: a.description + "\n\nLyrics\n" + lyrics + "\n\n" + a.hashtags.prefix(3).joined(separator: " "), tags: fit([plan.title, "\(plan.title) lyrics"] + truthful(a.tags, source: source)), hashtags: Array(a.hashtags.prefix(3)))
         }
         let about = plan.description.isEmpty ? plan.subject : plan.description
         let tag = plan.title.replacingOccurrences(of: " ", with: "").filter { $0.isLetter || $0.isNumber }
         let d = "\(plan.title) — lyric video.\(about.isEmpty ? "" : " " + about)\n\nLyrics\n\(lyrics)\n\n#\(tag) #lyrics #lyricvideo"
         return Listing(title: String("\(plan.title) (Lyric Video)".prefix(100)), description: d, tags: fit([plan.title, "\(plan.title) lyrics", "\(plan.title) lyric video", "lyrics", "lyric video", "song with lyrics"]), hashtags: ["#\(tag)", "#lyrics", "#lyricvideo"])
+    }
+
+    /// The listing for a YouTube Short: a short title with the strongest words first, the Short's own lines, and #Shorts.
+    public static func shortListing(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing {
+        let lyr = plan.lines.filter { $0.end > c.start && $0.start < c.end }.map(\.text)
+        let hook = c.hook.isEmpty ? plan.title : c.hook
+        let prompt = """
+        Write a YouTube Shorts listing that ranks well in search for a vertical clip from the song "\(plan.title)".
+        \(plan.songNotes.isEmpty ? "" : "The songwriter describes the song like this (follow it): \(plan.songNotes)\n")What the song is about: \(plan.description.isEmpty ? plan.subject : plan.description)
+        The lines sung in this Short: \(lyr.joined(separator: " / "))
+        Its opening title on screen: \(hook)
+        Rules: the title is under 60 characters, curiosity-driven, uses the strongest search words first and names the song; no clickbait lies; no hashtags in the title.
+        The description is 2 short sentences: the first holds the song title and the main keywords naturally, the second invites people to hear the full song\(c.cta.isEmpty ? "" : " (end with: \(c.cta))"). No false claims, at most 1 emoji, no links.
+        Tags: 10 to 15 search phrases that are true for this song (its title, "lyrics", the people, places and events it names). Do not call it "official". Hashtags: exactly 2 besides #Shorts, no spaces.
+        Reply with ONLY JSON: {"title":"...","description":"...","tags":["..."],"hashtags":["..."]}
+        """
+        var tags = [plan.title, "\(plan.title) lyrics"], hashtags = ["#Shorts"]
+        var title = String("\(hook) | \(plan.title)".prefix(60)), desc = "\(plan.title) — \(hook)."
+        if let a = await ask(prompt, config: config) {
+            let source = [plan.title, plan.subject, plan.description, plan.songNotes, plan.setting, lyr.joined(separator: " "), hook].joined(separator: " ")
+            title = String(a.title.prefix(80)); desc = a.description; tags += truthful(a.tags, source: source)
+            hashtags += a.hashtags.filter { $0.lowercased() != "#shorts" }.prefix(2)
+        } else {
+            let tag = plan.title.filter { $0.isLetter || $0.isNumber }
+            hashtags += ["#\(tag)", "#lyrics"]
+        }
+        let text = desc + "\n\n" + lyr.prefix(8).joined(separator: "\n") + "\n\n" + hashtags.joined(separator: " ")
+        return Listing(title: title, description: String(text.prefix(4900)), tags: fit(tags), hashtags: hashtags)
+    }
+
+    /// The Short's cover: its own picture at the moment the opening title shows (1080×1920), for TikTok and Instagram Reels covers
+    /// (YouTube itself lets you choose a frame of a Short rather than upload a picture; this is that frame).
+    public static func shortCover(_ plan: Plan, work: URL, clip c: ShortClip, output: URL) throws {
+        let comp = FrameComposer(plan: plan, work: work, settings: .short(), short: c)
+        let img = comp.still(at: min(1.3, max(0.2, c.duration / 4)))
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { throw MVError("The cover could not be saved.") }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary); CGImageDestinationFinalize(dest)
+        try (data as Data).write(to: output)
+    }
+
+    /// The files beside a Short: "<name> – cover.jpg" and "<name> – YouTube.txt".
+    @discardableResult
+    public static func writeShortFiles(_ plan: Plan, work: URL, clip c: ShortClip, video: URL, config: Config = .load()) async -> (thumbnail: URL, description: URL)? {
+        let base = video.deletingPathExtension().lastPathComponent, dir = video.deletingLastPathComponent()
+        let cover = dir.appendingPathComponent("\(base) – cover.jpg"), desc = dir.appendingPathComponent("\(base) – YouTube.txt")
+        let listing = await shortListing(plan, clip: c, config: config)
+        do { try shortCover(plan, work: work, clip: c, output: cover); try listing.text.write(to: desc, atomically: true, encoding: .utf8) } catch { return nil }
+        return (cover, desc)
+    }
+
+    /// Where a Short's files are (if they were made).
+    public static func shortFiles(video: URL) -> (thumbnail: URL, description: URL)? {
+        let base = video.deletingPathExtension().lastPathComponent, dir = video.deletingLastPathComponent()
+        let cover = dir.appendingPathComponent("\(base) – cover.jpg"), desc = dir.appendingPathComponent("\(base) – YouTube.txt")
+        return FileManager.default.fileExists(atPath: desc.path) ? (cover, desc) : nil
     }
 
     /// Writes "<video name> – thumbnail.jpg" and "<video name> – YouTube.txt" next to the video. Returns both files.

@@ -198,6 +198,9 @@ struct ShortEditor: View {
                     Spacer()
                 }
             }
+            if model.shortProgress == nil, let v = model.shortVideoURL(clip), FileManager.default.fileExists(atPath: v.path) {
+                YouTubeFilesRow(files: YouTubeKit.shortFiles(video: v), busy: model.youtubeBusy, vertical: true) { model.remakeShortYouTube(clip) }
+            }
             Button { model.renderShort(clip.id) } label: { Label("Make this Short", systemImage: "film").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 5) }
                 .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.shortProgress != nil)
                 .help("Creates the finished vertical video for this clip.")
