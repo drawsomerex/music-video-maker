@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Looping video: "Each song once"** (or "The song once" for one song) as a length: the video is exactly as long as the album, every song played one time in your order, with the joins you chose. The file is named after the video, the thumbnail badge says "FULL ALBUM" (or the song's length), the YouTube title uses the real length, and the chapters list every song.
+
 ## [1.14.0] - 2026-10-22
 
 ### Added

@@ -168,8 +168,10 @@ struct LoopView: View {
                 HStack(spacing: 16) {
                     Toggle("Even out the volume between songs", isOn: Binding(get: { p.effectiveEvenVolume }, set: { v in model.editLoop { $0.evenVolume = v } })).toggleStyle(.checkbox)
                         .help("Each song is measured and raised or lowered as a whole to the same loudness (YouTube's reference level); the music inside is not changed. A safety limiter stops a raised song from clipping.")
-                    Toggle("Shuffle each time the playlist repeats", isOn: bind(\.shuffle)).toggleStyle(.checkbox)
-                        .help("The first time through plays in your order; every time after that is shuffled (never the same song twice in a row).")
+                    if !p.playOnce {
+                        Toggle("Shuffle each time the playlist repeats", isOn: bind(\.shuffle)).toggleStyle(.checkbox)
+                            .help("The first time through plays in your order; every time after that is shuffled (never the same song twice in a row).")
+                    }
                 }
             }
         }
@@ -329,11 +331,16 @@ struct LoopView: View {
         card(4, "The long video", "The scene with the music for at least as long as you choose: the song playing when that length is reached always finishes, then the picture fades to black. A YouTube thumbnail and a description written for search are made with it.") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    Text("At least").font(.callout.weight(.semibold))
-                    Picker("", selection: Binding(get: { [1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1 }, set: { v in if v > 0 { model.editLoop { $0.hours = v } } else { model.editLoop { $0.hours = customHours } } })) {
+                    Text("Length").font(.callout.weight(.semibold))
+                    Picker("", selection: Binding(get: { p.playOnce ? -2 : ([1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1) }, set: { v in
+                        model.editLoop { q in
+                            if v == -2 { q.playOnce = true } else { q.playOnce = false; q.hours = v > 0 ? v : customHours }
+                        } })) {
+                        Text(p.tracks.count > 1 ? "Each song once" : "The song once").tag(-2.0)
                         Text("1 hour").tag(1.0); Text("3 hours").tag(3.0); Text("8 hours").tag(8.0); Text("12 hours").tag(12.0); Text("Other").tag(-1.0)
-                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420)
-                    if ![1.0, 3, 8, 12].contains(p.hours) {
+                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 560)
+                        .help("Each song once: the video is exactly as long as the album (or the one song), played through one time. The hours are a minimum: songs play whole, in order and again from the top, until that length is reached.")
+                    if !p.playOnce && ![1.0, 3, 8, 12].contains(p.hours) {
                         Stepper(String(format: "%.1f h", p.hours), value: Binding(get: { p.hours }, set: { v in customHours = v; model.editLoop { $0.hours = v } }), in: 0.5...12, step: 0.5).fixedSize()
                     }
                 }
@@ -362,7 +369,8 @@ struct LoopView: View {
         Group {
             if let plan = model.loopPlan {
                 let rounds = plan.plays.count == 0 ? 0 : Double(plan.plays.count) / Double(max(1, p.tracks.count))
-                Label("Your video will be \(LoopVideo.clock(plan.total)) long: \(plan.plays.count) song\(plan.plays.count == 1 ? "" : "s")" + (p.tracks.count > 1 && rounds > 1.05 ? String(format: ", the playlist plays %.1f times", rounds) : "") + ".", systemImage: "clock")
+                Label("Your video will be \(LoopVideo.clock(plan.total)) long: " + (p.playOnce ? (p.tracks.count > 1 ? "\(p.tracks.count) songs, each played once." : "the song played once.")
+                      : "\(plan.plays.count) song\(plan.plays.count == 1 ? "" : "s")" + (p.tracks.count > 1 && rounds > 1.05 ? String(format: ", the playlist plays %.1f times", rounds) : "") + "."), systemImage: "clock")
                     .font(.callout.weight(.medium))
             } else if !p.tracks.isEmpty {
                 Label(model.loopListening ?? "Listening to the songs to work out the exact length…", systemImage: "ear").font(.callout).foregroundStyle(.secondary)

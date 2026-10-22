@@ -335,6 +335,7 @@ struct MVideo: AsyncParsableCommand {
         @Flag(help: "Only make the loop preview (one loop, no sound)") var previewOnly = false
         @Option(help: "Print what should move in this picture (and the clip instruction it gives), then stop") var describe: String?
         @Flag(help: "Only make the YouTube thumbnail and description (beside where the video is saved)") var youtube = false
+        @Flag(help: "Each song once: the video is as long as the album") var once = false
         @Option(help: "Check a clip for mirror flips and cuts, then stop") var check: String?
         @Option(help: "Use this picture (copied in)") var picture: String?
         @Option(help: "The scene, in words") var scene: String?
@@ -360,6 +361,7 @@ struct MVideo: AsyncParsableCommand {
             if let t = title { p.screenTitle = t }
             if let c = cards { p.cards = c == "every" ? .everySong : (c == "beginning" ? .beginning : .none) }
             if let t = transition { p.transition = LoopTransition(rawValue: t) }
+            if once { p.playOnce = true }
             p.hours = hours
             if let pic = picture { let n = "picture-cli." + URL(fileURLWithPath: pic).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: pic), to: dir.appendingPathComponent(n)); p.picture = n }
             if let sc = scene { p.scene = sc }

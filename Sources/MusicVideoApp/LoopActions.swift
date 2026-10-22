@@ -219,6 +219,7 @@ extension AppModel {
     // MARK: the long video
     func loopOutputURL(_ p: LoopProject) -> URL {
         let folder = config.outputFolder.isEmpty ? (loopDir ?? config.projectsRoot) : URL(fileURLWithPath: (config.outputFolder as NSString).expandingTildeInPath)
+        if p.playOnce { return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")).mp4") }     // each song once: just the name
         let h = p.hours == p.hours.rounded() ? "\(Int(p.hours)) hour\(p.hours == 1 ? "" : "s")" : String(format: "%.1f hours", p.hours)
         return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h).mp4")      // YouTube suggests the file name as the title: nothing about looping
     }
@@ -231,7 +232,7 @@ extension AppModel {
     func loopRender() {
         guard let p = loopProject else { return }
         let out = loopOutputURL(p)
-        runLoop("Making the \(p.hours == p.hours.rounded() ? "\(Int(p.hours))-hour" : String(format: "%.1f-hour", p.hours)) looping video…") { [weak self] p, d in
+        runLoop(p.playOnce ? "Making the video (each song once)…" : "Making the \(p.hours == p.hours.rounded() ? "\(Int(p.hours))-hour" : String(format: "%.1f-hour", p.hours)) looping video…") { [weak self] p, d in
             try await LoopVideo.render(p, dir: d, output: out) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = f } }
             var q = p; q.output = out.path
             await MainActor.run { self?.loopJob?.phase = "Writing the YouTube thumbnail and description…"; self?.loopJob?.progress = 0.99 }

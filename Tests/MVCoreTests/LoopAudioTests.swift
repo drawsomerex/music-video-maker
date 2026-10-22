@@ -62,4 +62,15 @@ final class LoopAudioTests: XCTestCase {
         XCTAssertLessThanOrEqual(peak, 1.0, "never clips")
         XCTAssertGreaterThan(quietest, 0.005, "Seamless: no silent moment between songs")
     }
+
+    func testEachSongOnceIsOneTimeThroughWhateverTheLength() throws {
+        let a = try analyses()
+        for mode in LoopTransition.allCases {
+            let plan = LoopAudio.plan(analyses: a, transition: mode, crossfade: 6, gap: 2, evenVolume: true, shuffle: true, minimum: 36000, seed: 7, onePass: true)
+            XCTAssertEqual(plan.plays.map(\.track), [0, 1, 2], "\(mode): every song exactly once, in your order")
+            XCTAssertLessThan(plan.total, 200, "\(mode): the video is as long as the album, not the hours")
+        }
+        let one = LoopAudio.plan(analyses: [a[0]], transition: .seamless, crossfade: 6, gap: 2, evenVolume: true, shuffle: false, minimum: 36000, seed: 7, onePass: true)
+        XCTAssertEqual(one.plays.count, 1); XCTAssertEqual(one.total, a[0].length + 3, accuracy: 0.001)
+    }
 }

@@ -95,6 +95,17 @@ public enum YouTubeKit {
         while t < total - 60 { out.append("\(clock(t)) \(step == 3600 ? "Hour \(n)" : "\(t / 60) minutes")"); t += step; n += 1 }
         return out.joined(separator: "\n")
     }
+    /// A length in words for titles: "42 Minutes", "1 Hour 12 Minutes".
+    public static func durationText(_ s: Double) -> String {
+        let m = Int((s / 60).rounded()), h = m / 60, r = m % 60
+        if h == 0 { return "\(max(1, m)) Minute\(m == 1 ? "" : "s")" }
+        return "\(h) Hour\(h == 1 ? "" : "s")" + (r == 0 ? "" : " \(r) Minute\(r == 1 ? "" : "s")")
+    }
+    /// The thumbnail badge: the chosen length ("8 HOURS"), or for each song once "FULL ALBUM" (several songs) or the song's length.
+    public static func lengthBadge(_ p: LoopProject, total: Double?) -> String {
+        guard p.playOnce else { return hoursText(p.hours) }
+        return p.tracks.count > 1 ? "Full album" : durationText(total ?? p.tracks.first?.seconds ?? 0)
+    }
     public static func hoursText(_ h: Double) -> String { h == h.rounded() ? "\(Int(h)) Hour\(h == 1 ? "" : "s")" : String(format: "%.1f Hours", h) }
 
     /// Asks the local model for title / description / tags / hashtags as JSON.
@@ -132,7 +143,7 @@ public enum YouTubeKit {
     /// The listing for a looping long music video. One song: no chapters. Several: chapters for the first time through the playlist (and a tracklist).
     /// It never says that anything loops or repeats. The description stays inside YouTube's 5,000 characters.
     public static func loopListing(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing {
-        let hours = hoursText(p.hours), scene = p.scene.isEmpty ? p.motion : p.scene
+        let hours = p.playOnce ? durationText(plan?.total ?? p.tracks.reduce(0) { $0 + $1.seconds }) : hoursText(p.hours), scene = p.scene.isEmpty ? p.motion : p.scene
         let names = p.tracks.map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) }.map { $0.isEmpty ? "Untitled" : $0 }
         let several = names.count > 1
         let music = several ? "\(names.count) songs (\(names.prefix(12).joined(separator: ", "))\(names.count > 12 ? ", …" : ""))" : "the song \"\(names.first ?? p.title)\""

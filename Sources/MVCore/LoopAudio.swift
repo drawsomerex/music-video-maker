@@ -166,7 +166,7 @@ public enum LoopAudio {
 
     /// Plays the songs whole until one ends at or after `minimum` seconds; the video lasts until that song ends, plus `tail` seconds.
     public static func plan(analyses: [TrackAnalysis], transition: LoopTransition, crossfade: Double, gap: Double, evenVolume: Bool, shuffle: Bool,
-                            minimum: Double, seed: UInt64, tail: Double = 3) -> Plan {
+                            minimum: Double, seed: UInt64, tail: Double = 3, onePass: Bool = false) -> Plan {
         guard !analyses.isEmpty else { return Plan(plays: [], total: 0, songsEnd: 0) }
         func gain(_ a: TrackAnalysis) -> Double {
             guard evenVolume, analyses.count > 1, a.loudness > -60 else { return 1 }
@@ -177,7 +177,7 @@ public enum LoopAudio {
         var round = 0
         var order = Array(analyses.indices)
         var t = 0.0
-        while plays.isEmpty || plays.last!.end < minimum {
+        while plays.isEmpty || (!onePass && plays.last!.end < minimum) {        // each song once: one time through, whatever the length
             if round > 0 && shuffle {
                 order.shuffleSeeded(&rng)
                 if order.count > 1, let lastPlayed = plays.last?.track, order.first == lastPlayed { order.swapAt(0, 1 + Int(rng.next() % UInt64(order.count - 1))) }
@@ -203,7 +203,7 @@ public enum LoopAudio {
                     plays[plays.count - 1] = prev
                 }
                 plays.append(p); t = p.end
-                if p.end >= minimum { break }
+                if !onePass && p.end >= minimum { break }
                 if plays.count > 200_000 { break }
             }
             round += 1

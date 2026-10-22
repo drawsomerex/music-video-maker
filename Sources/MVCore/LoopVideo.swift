@@ -32,6 +32,7 @@ public struct LoopProject: Codable, Equatable {
     public var crossfade = 6.0, gap = 2.0       // seconds, for Crossfade and Album gaps
     public var evenVolume: Bool? = nil          // nil = on for two or more songs
     public var shuffle = false                  // shuffle each time the playlist repeats (the first time through is in your order)
+    public var playOnce = false                 // each song once: the video is as long as the album (or the one song)
     public var cards: LoopCards = .none
     public var effectiveTransition: LoopTransition { transition ?? (tracks.count > 1 ? .automatic : .seamless) }
     public var effectiveEvenVolume: Bool { evenVolume ?? (tracks.count > 1) }
@@ -55,7 +56,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -67,6 +68,7 @@ public struct LoopProject: Codable, Equatable {
         transition = try c.decodeIfPresent(LoopTransition.self, forKey: .transition)
         crossfade = try c.decodeIfPresent(Double.self, forKey: .crossfade) ?? 6; gap = try c.decodeIfPresent(Double.self, forKey: .gap) ?? 2
         evenVolume = try c.decodeIfPresent(Bool.self, forKey: .evenVolume); shuffle = try c.decodeIfPresent(Bool.self, forKey: .shuffle) ?? false
+        playOnce = try c.decodeIfPresent(Bool.self, forKey: .playOnce) ?? false
         cards = try c.decodeIfPresent(LoopCards.self, forKey: .cards) ?? .none
         scene = try c.decodeIfPresent(String.self, forKey: .scene) ?? ""; style = try c.decodeIfPresent(String.self, forKey: .style) ?? ""
         motion = try c.decodeIfPresent(String.self, forKey: .motion) ?? ""
@@ -161,7 +163,7 @@ public enum LoopVideo {
         let an = p.tracks.compactMap { p.analysis[$0.file] }
         guard !an.isEmpty, an.count == p.tracks.count else { return nil }
         return LoopAudio.plan(analyses: an, transition: p.effectiveTransition, crossfade: p.crossfade, gap: p.gap, evenVolume: p.effectiveEvenVolume,
-                              shuffle: p.shuffle, minimum: p.hours * 3600, seed: stableSeed(p.id))
+                              shuffle: p.shuffle, minimum: p.hours * 3600, seed: stableSeed(p.id), onePass: p.playOnce)
     }
 
     /// Replaces the song of an open project.
@@ -394,7 +396,7 @@ public enum LoopVideo {
         guard let pic = source else { throw MVError("Add the picture or the loop clip first: the thumbnail is made from it.") }
         try? ensureAnalysis(&p, dir: dir)
         let listing = await YouTubeKit.loopListing(p, plan: plan(p), config: config)
-        let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.shownTitle, badge: YouTubeKit.hoursText(p.hours), line: "Study · Focus · Relax", listing: listing)
+        let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.shownTitle, badge: YouTubeKit.lengthBadge(p, total: plan(p)?.total), line: "Study · Focus · Relax", listing: listing)
         p.thumbnail = f.thumbnail.path; p.listing = f.description.path
         save(p, dir)
     }
