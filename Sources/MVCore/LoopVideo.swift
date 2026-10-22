@@ -52,13 +52,14 @@ public struct LoopProject: Codable, Equatable {
     public var output: String?                  // the last long video made (full path)
     public var thumbnail: String?, listing: String?     // the YouTube thumbnail and description beside it (full paths)
     public var trims: [String: ClipTrim] = [:]  // for each clip, the part that loops
+    public var thumbText = ThumbnailText()       // what is written on the YouTube thumbnail
     public var clipWarning: String?             // what the check found in the clip in use (a mirror flip or a cut), if anything
     public var loopScores: [String: Double] = [:]   // for each clip, how closely the loop's end matches its start (1 = as close as two neighbouring frames)
     public var trim: ClipTrim { clip.flatMap { trims[$0] } ?? ClipTrim() }
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -84,6 +85,7 @@ public struct LoopProject: Codable, Equatable {
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail); listing = try c.decodeIfPresent(String.self, forKey: .listing)
         trims = try c.decodeIfPresent([String: ClipTrim].self, forKey: .trims) ?? [:]; clipWarning = try c.decodeIfPresent(String.self, forKey: .clipWarning)
         loopScores = try c.decodeIfPresent([String: Double].self, forKey: .loopScores) ?? [:]
+        thumbText = try c.decodeIfPresent(ThumbnailText.self, forKey: .thumbText) ?? ThumbnailText()
     }
 }
 
@@ -480,9 +482,25 @@ public enum LoopVideo {
         guard let pic = source else { throw MVError("Add the picture or the loop clip first: the thumbnail is made from it.") }
         try? ensureAnalysis(&p, dir: dir)
         let listing = await YouTubeKit.loopListing(p, plan: plan(p), config: config)
-        let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.shownTitle, badge: YouTubeKit.lengthBadge(p, total: plan(p)?.total), line: "Study · Focus · Relax", listing: listing)
+        let t = thumbWords(p)
+        let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: t.title, badge: t.badge, line: t.line, listing: listing)
         p.thumbnail = f.thumbnail.path; p.listing = f.description.path
         save(p, dir)
+    }
+
+    /// The automatic words for the thumbnail: the video's title, its length ("8 HOURS", "FULL ALBUM") and "Study · Focus · Relax".
+    public static func thumbAuto(_ p: LoopProject) -> (title: String, badge: String, line: String) {
+        (p.shownTitle, YouTubeKit.lengthBadge(p, total: plan(p)?.total), "Study · Focus · Relax")
+    }
+    static func thumbWords(_ p: LoopProject) -> (title: String?, badge: String?, line: String?) {
+        let a = thumbAuto(p); return p.thumbText.resolved(title: a.title, badge: a.badge, line: a.line)
+    }
+    /// Draws the thumbnail again with the words chosen now (the description is not touched).
+    public static func redrawThumbnail(_ p: LoopProject, dir: URL) throws {
+        guard let path = p.thumbnail else { return }
+        let pic = p.picture.map { dir.appendingPathComponent($0) } ?? dir.appendingPathComponent("thumbnail-source.jpg")
+        let t = thumbWords(p)
+        try YouTubeKit.thumbnail(picture: pic, title: t.title, badge: t.badge, line: t.line, output: URL(fileURLWithPath: path))
     }
 
     // MARK: making the long video
@@ -616,6 +634,82 @@ public enum LoopVideo {
             out.append((s, t.isEmpty ? (p.tracks[play.track].file as NSString).deletingPathExtension.components(separatedBy: "/").last ?? "" : t))
         }
         return out
+    }
+
+    /// A short sample of the long video, with sound, exactly as it will be (scene, music, joins, title cards), small enough to make in seconds.
+    /// `from` and `seconds` are in the long video's own time.
+    public static func renderPreview(_ p0: LoopProject, dir: URL, output: URL, from: Double, seconds: Double, W: Int = 960, H: Int = 540, progress: ((Double) -> Void)? = nil) async throws {
+        guard let clipName = p0.clip else { throw MVError("Make or add the loop clip first.") }
+        var p = p0
+        try ensureAnalysis(&p, dir: dir)
+        guard let plan = plan(p), !plan.plays.isEmpty else { throw MVError("Add a song first.") }
+        let start = max(0, min(from, plan.total - 1)), end = min(plan.total, start + seconds)
+        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: W, H: H, title: p.cards == .none ? nil : p.shownTitle, trim: p.trim)
+        let cards = cardTimes(p, plan: plan), showTitle = p.cards != .none
+        try? FileManager.default.removeItem(at: output)
+        let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
+        let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: W, AVVideoHeightKey: H,
+                                                                         AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 3_000_000]])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: vIn, sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: W, kCVPixelBufferHeightKey as String: H])
+        let aIn = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48000, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 160_000])
+        vIn.expectsMediaDataInRealTime = false; aIn.expectsMediaDataInRealTime = false
+        writer.add(vIn); writer.add(aIn)
+        guard writer.startWriting() else { throw MVError("The preview could not be started.") }
+        writer.startSession(atSourceTime: .zero)
+        // the sound for the whole sample first (it is short), then the pictures
+        let mixer = LoopAudio.Mixer(urls: p.tracks.map { dir.appendingPathComponent($0.file) }, plan: plan)
+        var asbd = AudioStreamBasicDescription(mSampleRate: 48000, mFormatID: kAudioFormatLinearPCM, mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+                                               mBytesPerPacket: 8, mFramesPerPacket: 1, mBytesPerFrame: 8, mChannelsPerFrame: 2, mBitsPerChannel: 32, mReserved: 0)
+        var afmt: CMAudioFormatDescription?
+        CMAudioFormatDescriptionCreate(allocator: nil, asbd: &asbd, layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &afmt)
+        let a0 = Int(start * 48000), aN = Int((end - start) * 48000)
+        var chunk = [Float](repeating: 0, count: 4800 * 2)
+        let frames = Int(((end - start) * Double(fps)).rounded())
+        var vi = 0, ai = 0
+        while vi < frames || ai < aN {
+            try Task.checkCancellation()
+            var did = false
+            if ai < aN, aIn.isReadyForMoreMediaData, Double(ai) / 48000 <= Double(vi) / Double(fps) + 1 {
+                let n = min(4800, aN - ai)
+                try mixer.fill(&chunk, start: a0 + ai, count: n)
+                var block: CMBlockBuffer?
+                CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: n * 8, blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: n * 8, flags: 0, blockBufferOut: &block)
+                if let block {
+                    chunk.withUnsafeBytes { _ = CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: n * 8) }
+                    var sb: CMSampleBuffer?
+                    CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block, formatDescription: afmt!, sampleCount: n, presentationTimeStamp: CMTime(value: CMTimeValue(ai), timescale: 48000), packetDescriptions: nil, sampleBufferOut: &sb)
+                    if let sb { aIn.append(sb) }
+                }
+                ai += n; did = true
+                if ai >= aN { aIn.markAsFinished() }
+            } else if vi < frames, vIn.isReadyForMoreMediaData, let pool = adaptor.pixelBufferPool {
+                var pb: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
+                if let pb {
+                    let s = start + Double(vi) / Double(fps)
+                    let periodFrames = max(fps, Int((painter.period * Double(fps)).rounded()))
+                    let f = Int((s * Double(fps)).rounded())
+                    let active = cards.compactMap { c in s >= c.start && s < c.start + cardSeconds ? (text: c.text, t: s - c.start) : nil }
+                    paint(pb) { painter.draw(loopTime: Double(f % periodFrames) / Double(fps), ctx: $0, titleTime: showTitle && s < 9 ? s : nil,
+                                             fadeToBlack: max(0, min(1, (s - plan.songsEnd) / 3)), fadeFromBlack: max(0, 1 - s / 1.5), cards: active) }
+                    adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(vi), timescale: CMTimeScale(fps)))
+                }
+                vi += 1; did = true
+                if vi >= frames { vIn.markAsFinished() }
+                if vi % 30 == 0 { progress?(Double(vi) / Double(max(1, frames))) }
+            }
+            if writer.status == .failed { throw MVError("The preview could not be made: \(writer.error?.localizedDescription ?? "unknown")") }
+            if !did { try await Task.sleep(nanoseconds: 1_000_000) }
+        }
+        await writer.finishWriting()
+        if writer.status != .completed { throw MVError("The preview could not be saved: \(writer.error?.localizedDescription ?? "unknown")") }
+    }
+
+    /// Where the previews start: the beginning, around the first song change (or the first time a single song starts again), and the end.
+    public static func previewStarts(_ p: LoopProject) -> (start: Double, change: Double?, end: Double)? {
+        guard let plan = plan(p), plan.plays.count >= 1 else { return nil }
+        let change = plan.plays.count > 1 ? max(0, plan.plays[1].start - 20) : nil
+        return (0, change, max(0, plan.total - 40))
     }
 
     /// Makes the long video: the loop for as long as the music plays (every song whole), title cards on top if chosen, and a fade to black after the last song.

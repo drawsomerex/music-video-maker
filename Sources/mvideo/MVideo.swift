@@ -337,6 +337,7 @@ struct MVideo: AsyncParsableCommand {
         @Flag(help: "Only make the YouTube thumbnail and description (beside where the video is saved)") var youtube = false
         @Flag(help: "Each song once: the video is as long as the album") var once = false
         @Flag(help: "Print the plan of the music (each join) and stop") var plan = false
+        @Option(help: "Make a short preview with sound starting here (seconds into the long video), then stop") var sampleFrom: Double?
         @Option(help: "Check a clip for mirror flips and cuts, then stop") var check: String?
         @Option(help: "Find the best loop in a clip, then stop") var bestLoop: String?
         @Option(help: "Use this picture (copied in)") var picture: String?
@@ -391,6 +392,11 @@ struct MVideo: AsyncParsableCommand {
                 print(String(format: "total %.1f s", pl.total)); return
             }
             guard let cl = p.clip else { throw MVError("No loop clip yet: give --clip.") }
+            if let f = sampleFrom {
+                let o = dir.appendingPathComponent("sample.mp4"), t0 = Date()
+                try await LoopVideo.renderPreview(p, dir: dir, output: o, from: f, seconds: 40)
+                print(String(format: "✅ %@ (%.1fs)", o.path, Date().timeIntervalSince(t0))); return
+            }
             LoopVideo.checkIfNeeded(&p, dir: dir)
             if previewOnly {
                 let o = dir.appendingPathComponent("loop-preview.mp4")

@@ -220,11 +220,12 @@ public struct Plan: Codable {
     public var pictureBoundaries: [Double]? = nil
     public var sourceLyrics: String? = nil
     public var songNotes = ""                  // your own words about the song: steers the song description, the setting ideas and the YouTube text
+    public var thumbText = ThumbnailText()       // what is written on the YouTube thumbnail
     public static let defaultCaptionShift = -0.06
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, totalVideoCostUSD, songNotes
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, totalVideoCostUSD, songNotes, thumbText
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -257,6 +258,7 @@ public struct Plan: Codable {
         pictureBoundaries = try c.decodeIfPresent([Double].self, forKey: .pictureBoundaries)
         sourceLyrics = try c.decodeIfPresent(String.self, forKey: .sourceLyrics)
         songNotes = try c.decodeIfPresent(String.self, forKey: .songNotes) ?? ""
+        thumbText = try c.decodeIfPresent(ThumbnailText.self, forKey: .thumbText) ?? ThumbnailText()
     }
     public init(title: String, subject: String, audioPath: String, audioFile: String, songDuration: Double, lines: [LyricLine], intro: PhotoSection, sections: [PhotoSection],
                 description: String, style: String, introDuration: Double, audioOffset: Double, alignmentCoverage: Double) {

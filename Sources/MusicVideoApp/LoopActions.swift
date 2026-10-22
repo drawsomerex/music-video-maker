@@ -235,6 +235,34 @@ extension AppModel {
         let out = loopOutputURL(p), cfg = Config.load()
         runLoop("Writing the YouTube thumbnail and description…", estimate: 25) { p, d in var q = p; try await LoopVideo.makeYouTubeFiles(&q, dir: d, video: out, config: cfg); return q }
     }
+    /// Changes what the looping video's thumbnail says and draws it again a moment later.
+    func setLoopThumbText(_ t: ThumbnailText) {
+        editLoop { $0.thumbText = t }
+        thumbRedrawTask?.cancel()
+        thumbRedrawTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled, let self, let p = self.loopProject, let d = self.loopDir else { return }
+            try? LoopVideo.redrawThumbnail(p, dir: d)
+            self.thumbRevision += 1
+        }
+    }
+    /// A short preview of the long video, with sound: the start, a song change, or the end. Plays as soon as it is made.
+    enum PreviewPart { case start, change, end }
+    func loopPreview(_ part: PreviewPart) {
+        guard let p = loopProject, let d = loopDir else { return }
+        let out = d.appendingPathComponent("sample-\(Int(Date().timeIntervalSince1970)).mp4")
+        for f in (try? FileManager.default.contentsOfDirectory(atPath: d.path)) ?? [] where f.hasPrefix("sample-") { try? FileManager.default.removeItem(at: d.appendingPathComponent(f)) }
+        runLoop("Making a preview…") { [weak self] p, d in
+            var q = p; try LoopVideo.ensureAnalysis(&q, dir: d)
+            guard let s = LoopVideo.previewStarts(q) else { throw MVError("Add a song and the loop clip first.") }
+            let from: Double, seconds: Double
+            switch part { case .start: from = s.start; seconds = 45; case .change: from = s.change ?? s.start; seconds = 40; case .end: from = s.end; seconds = 40 }
+            try await LoopVideo.renderPreview(q, dir: d, output: out, from: from, seconds: seconds) { f in Task { @MainActor in self?.loopJob?.progress = f } }
+            await MainActor.run { self?.loopSample = out }
+            return q
+        }
+        _ = p
+    }
     func loopRender() {
         guard let p = loopProject else { return }
         let out = loopOutputURL(p)

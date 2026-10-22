@@ -39,4 +39,18 @@ final class ProjectLibraryTests: XCTestCase {
         XCTAssertEqual(period, 10, accuracy: 0.2)
         XCTAssertLessThanOrEqual(r.score, 1.5, "excellent")
     }
+
+    func testThumbnailSaysExactlyWhatYouChoose() throws {
+        var t = ThumbnailText()
+        XCTAssertTrue(t.resolved(title: "Pacific Tide", badge: "8 HOURS", line: "Study · Focus · Relax") == ("Pacific Tide", "8 HOURS", "Study · Focus · Relax"), "untouched: the app's words")
+        t.title = "Rainy Library"; t.showBadge = false; t.line = "Lo-fi for reading"
+        let r = t.resolved(title: "Pacific Tide", badge: "8 HOURS", line: "Study · Focus · Relax")
+        XCTAssertEqual(r.title, "Rainy Library"); XCTAssertNil(r.badge); XCTAssertEqual(r.line, "Lo-fi for reading")
+        let pic = URL(fileURLWithPath: "/tmp/kb/full/section_2_1791768500702.jpg")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: pic.path))
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("thumb-test.jpg")
+        try YouTubeKit.thumbnail(picture: pic, title: r.title, badge: r.badge, line: r.line, output: out)
+        try YouTubeKit.thumbnail(picture: pic, title: nil, badge: nil, line: nil, output: FileManager.default.temporaryDirectory.appendingPathComponent("thumb-none.jpg"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: out.path))
+    }
 }

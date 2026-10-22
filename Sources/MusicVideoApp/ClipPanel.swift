@@ -5,12 +5,13 @@ import MVCore
 
 struct ClipPlayer: View {
     let url: URL
+    var autoplay = false
     @State private var player: AVPlayer?
     var body: some View {
         VideoPlayer(player: player)
             .aspectRatio(16.0 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .onAppear { player = AVPlayer(url: url) }
+            .onAppear { player = AVPlayer(url: url); if autoplay { player?.play() } }
             .onChange(of: url) { _, u in player = AVPlayer(url: u) }
             .onDisappear { player?.pause() }
     }

@@ -57,6 +57,13 @@ struct LoopView: View {
         .task { model.refreshVideoPrice() }
         .alert("Notice", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) { Button("OK", role: .cancel) {} } message: { Text(model.notice ?? "") }
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
+        .sheet(isPresented: Binding(get: { model.loopSample != nil }, set: { if !$0 { model.loopSample = nil } })) {
+            VStack(spacing: 12) {
+                HStack { Text("Preview").font(.headline); Spacer(); Button("Done") { model.loopSample = nil }.keyboardShortcut(.defaultAction) }
+                if let u = model.loopSample { ClipPlayer(url: u, autoplay: true).frame(minWidth: 640, minHeight: 360) }
+                Text("A short part of the long video, exactly as it will be, with sound.").font(.callout).foregroundStyle(.secondary)
+            }.padding(20).frame(minWidth: 680, idealWidth: 900)
+        }
     }
 
     var topBar: some View {
@@ -362,6 +369,13 @@ struct LoopView: View {
                 Text("1080p · about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file))" + (free.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) free on this disk" } ?? "") + ". Saved as “\(out.lastPathComponent)”.")
                     .font(.callout).foregroundStyle((free ?? .max) < need + 2_000_000_000 ? .orange : .secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
+                    Menu {
+                        Button("The start (45 seconds)") { model.loopPreview(.start) }
+                        if p.tracks.count > 1 { Button("A song change (40 seconds)") { model.loopPreview(.change) } }
+                        Button("The end (40 seconds)") { model.loopPreview(.end) }
+                    } label: { Label("Preview", systemImage: "play.rectangle") }
+                        .fixedSize().disabled(working || p.clip == nil || p.tracks.isEmpty)
+                        .help("Watch a short part of the long video with sound — the scene, the music, the joins between songs and the title cards — exactly as it will be. It takes a few seconds to make.")
                     Button { model.loopRender() } label: { Label("Make the long video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 2) }
                         .buttonStyle(.borderedProminent).controlSize(.large).disabled(working || p.clip == nil || p.tracks.isEmpty)
                         .help(p.clip == nil ? "Make or add the loop clip first." : "Makes the long video. Only a minute of video is drawn; the rest is the same loop written again and again, so even 12 hours takes minutes, not hours. Progress shows in the strip at the top.")
@@ -370,7 +384,9 @@ struct LoopView: View {
                     }
                 }
                 YouTubeFilesRow(files: p.thumbnail.flatMap { t in p.listing.map { (URL(fileURLWithPath: t), URL(fileURLWithPath: $0)) } }.flatMap { FileManager.default.fileExists(atPath: $0.0.path) ? $0 : nil },
-                                busy: model.loopJob?.title.hasPrefix("Writing the YouTube") == true) { model.loopMakeYouTube() }
+                                busy: model.loopJob?.title.hasPrefix("Writing the YouTube") == true,
+                                text: Binding(get: { p.thumbText }, set: { model.setLoopThumbText($0) }),
+                                auto: { let a = LoopVideo.thumbAuto(p); return (a.title, a.badge, a.line) }(), revision: model.thumbRevision) { model.loopMakeYouTube() }
                     .disabled(working && model.loopJob?.title.hasPrefix("Writing the YouTube") != true)
             }
         }

@@ -549,7 +549,9 @@ struct DoneView: View {
                     Button { model.reset() } label: { Label("Start a new video", systemImage: "plus") }.controlSize(.large)
                         .help("Starts over with a new song. This video stays saved in its folder.")
                 }
-                YouTubeFilesRow(files: model.youtubeFiles, busy: model.youtubeBusy) { model.remakeYouTubeFiles() }
+                YouTubeFilesRow(files: model.lyricYouTubeFiles, busy: model.youtubeBusy,
+                                text: Binding(get: { model.plan?.thumbText ?? ThumbnailText() }, set: { model.setLyricThumbText($0) }),
+                                auto: model.plan.map { model.lyricThumbAuto($0) } ?? ("", nil, nil), revision: model.thumbRevision) { model.remakeYouTubeFiles() }
             }
         }
         .padding(28)

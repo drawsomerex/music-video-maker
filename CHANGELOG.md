@@ -5,6 +5,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+### Added
+- **Thumbnail text** (a dropdown in the "For YouTube" box, for music videos and looping videos): choose exactly what is written on the YouTube thumbnail — the title, the badge (e.g. "8 HOURS") and the line under the title — each on or off, in your own words or the app's. The thumbnail is drawn again as you type, and your choice is saved with the project.
+- **Looping video: Preview.** Next to "Make the long video": the start (45 s), a song change (40 s) or the end (40 s) of the long video, made in a few seconds and played with sound — the scene, the music, the joins and the title cards exactly as they will be.
+
 ## [1.16.0] - 2026-10-22
 
 ### Changed

@@ -63,6 +63,8 @@ final class AppModel: ObservableObject {
     @Published var videoJob: VideoJob?
     @Published var youtubeFiles: (thumbnail: URL, description: URL)?      // made next to the finished video
     @Published var youtubeBusy = false
+    @Published var thumbRevision = 0                // the thumbnail was drawn again (its picture on screen reloads)
+    var thumbRedrawTask: Task<Void, Never>?
     // Looping long music video (its own workflow)
     @Published var loopProject: LoopProject?
     @Published var loopDir: URL?
@@ -70,6 +72,7 @@ final class AppModel: ObservableObject {
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
     var loopListenTask: Task<Void, Never>?
+    @Published var loopSample: URL?                // a short preview of the long video to play (with sound)
     @Published var loopListening: String?          // "Listening to the songs (3 of 17)…" while new songs are being measured
     @Published var showProjects = false
     var videoTask: Task<Void, Never>?
@@ -1095,8 +1098,38 @@ final class AppModel: ObservableObject {
         youtubeBusy = true; defer { youtubeBusy = false }
         let cfg = config
         let listing = await YouTubeKit.lyricListing(p, config: cfg)
+        let t = lyricThumbWords(p)
+        if let f = try? YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: t.title, badge: t.badge, line: t.line, listing: listing) { youtubeFiles = f; thumbRevision += 1 }
+    }
+    /// The music video's automatic thumbnail words: the song title, "Lyric video", and the subtitle (if any).
+    func lyricThumbAuto(_ p: Plan) -> (title: String, badge: String?, line: String?) {
         let sub = p.subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let f = try? YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: p.title, badge: "Lyric video", line: sub.isEmpty ? nil : sub, listing: listing) { youtubeFiles = f }
+        return (p.title, "Lyric video", sub.isEmpty ? nil : sub)
+    }
+    func lyricThumbWords(_ p: Plan) -> (title: String?, badge: String?, line: String?) {
+        let a = lyricThumbAuto(p); return p.thumbText.resolved(title: a.title, badge: a.badge, line: a.line)
+    }
+    /// The YouTube files of the finished music video (made this time, or found next to the video).
+    var lyricYouTubeFiles: (thumbnail: URL, description: URL)? {
+        if let f = youtubeFiles { return f }
+        guard let v = outputURL else { return nil }
+        let base = v.deletingPathExtension().lastPathComponent, dir = v.deletingLastPathComponent()
+        let t = dir.appendingPathComponent("\(base) – thumbnail.jpg"), d = dir.appendingPathComponent("\(base) – YouTube.txt")
+        return FileManager.default.fileExists(atPath: t.path) ? (t, d) : nil
+    }
+    /// Changes what the music video's thumbnail says and draws it again a moment later.
+    func setLyricThumbText(_ t: ThumbnailText) {
+        guard plan != nil else { return }
+        plan?.thumbText = t; persist()
+        thumbRedrawTask?.cancel()
+        thumbRedrawTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled, let self, let p = self.plan, let w = self.workDir, let f = self.lyricYouTubeFiles,
+                  let pic = (p.intro.selectedCandidate?.fullFile ?? p.sections.lazy.compactMap { $0.selectedCandidate?.fullFile }.first).map({ w.appendingPathComponent($0) }) else { return }
+            let words = self.lyricThumbWords(p)
+            try? YouTubeKit.thumbnail(picture: pic, title: words.title, badge: words.badge, line: words.line, output: f.thumbnail)
+            self.thumbRevision += 1
+        }
     }
     /// Where a Short's video is saved.
     func shortVideoURL(_ c: ShortClip) -> URL? { guard let p = plan, let w = workDir else { return nil }; return Pipeline.shortURL(plan: p, work: w, name: c.name, config: config) }

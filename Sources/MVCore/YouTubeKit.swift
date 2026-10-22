@@ -7,13 +7,30 @@ import CoreText
 import AppKit
 import ImageIO
 
+/// What is written on a thumbnail: each part on or off, with your own words or the automatic ones (empty = automatic).
+public struct ThumbnailText: Codable, Equatable {
+    public var showTitle = true, title = ""
+    public var showBadge = true, badge = ""
+    public var showLine = true, line = ""
+    public init() {}
+    /// The words actually drawn, given the automatic ones.
+    public func resolved(title t: String, badge b: String?, line l: String?) -> (title: String?, badge: String?, line: String?) {
+        func pick(_ show: Bool, _ mine: String, _ auto: String?) -> String? {
+            guard show else { return nil }
+            let m = mine.trimmingCharacters(in: .whitespacesAndNewlines)
+            return m.isEmpty ? auto : m
+        }
+        return (pick(showTitle, title, t), pick(showBadge, badge, b), pick(showLine, line, l))
+    }
+}
+
 public enum YouTubeKit {
     public static let thumbW = 1280, thumbH = 720
 
     // MARK: thumbnail
     /// Draws the thumbnail: the picture filling the frame, a soft shade on the side the title goes, the title large (up to three lines),
     /// a small badge above it (e.g. "8 HOURS") and a short line below (e.g. "Study · Focus · Sleep"). The bottom right stays clear (YouTube puts the length there).
-    public static func thumbnail(picture: URL, title: String, badge: String?, line: String?, output: URL) throws {
+    public static func thumbnail(picture: URL, title: String?, badge: String?, line: String?, output: URL) throws {
         guard let img = loadImage(picture, maxPixel: 2400) else { throw MVError("The picture for the thumbnail could not be read.") }
         let W = thumbW, H = thumbH, Wd = Double(W), Hd = Double(H)
         let ctx = makeContext(W, H)
@@ -25,20 +42,25 @@ public enum YouTubeKit {
         let subjects = ImageScorer.subjects(image: img)
         let weight = subjects.isEmpty ? 0.5 : subjects.map { Double($0.x) }.reduce(0, +) / Double(subjects.count)
         let left = weight >= 0.5
+        let anyText = [title, badge, line].contains { !($0 ?? "").isEmpty }
         let shade = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [CGColor(gray: 0, alpha: 0.72), CGColor(gray: 0, alpha: 0.35), CGColor(gray: 0, alpha: 0)] as CFArray, locations: [0, 0.45, 1])!
-        ctx.drawLinearGradient(shade, start: CGPoint(x: left ? 0 : Wd, y: 0), end: CGPoint(x: left ? Wd * 0.68 : Wd * 0.32, y: 0), options: [])
+        if anyText { ctx.drawLinearGradient(shade, start: CGPoint(x: left ? 0 : Wd, y: 0), end: CGPoint(x: left ? Wd * 0.68 : Wd * 0.32, y: 0), options: []) }
         let vignette = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.35)] as CFArray, locations: [0.55, 1])!
         ctx.drawRadialGradient(vignette, startCenter: CGPoint(x: Wd / 2, y: Hd / 2), startRadius: 0, endCenter: CGPoint(x: Wd / 2, y: Hd / 2), endRadius: Wd * 0.7, options: [.drawsAfterEndLocation])
 
         let margin = Wd * 0.06, maxW = Wd * 0.50
         let para = NSMutableParagraphStyle(); para.alignment = left ? .left : .right; para.lineSpacing = 0; para.lineHeightMultiple = 0.92
         // the largest title that fits in three lines
-        var size = Hd * 0.16, titleImg: CGImage
-        repeat {
-            let a = NSAttributedString(string: title, attributes: [.font: roundedFont(size: size, weight: .heavy), .foregroundColor: NSColor.white, .paragraphStyle: para, .kern: size * -0.01])
-            titleImg = renderTextImage(a, maxWidth: maxW, pad: Hd * 0.02, shadow: true, shadowBlur: Hd * 0.02)
-            size *= 0.92
-        } while Double(titleImg.height) > Hd * 0.52 && size > Hd * 0.06
+        var titleImg: CGImage? = nil
+        if let title, !title.isEmpty {
+            var size = Hd * 0.16, img: CGImage
+            repeat {
+                let a = NSAttributedString(string: title, attributes: [.font: roundedFont(size: size, weight: .heavy), .foregroundColor: NSColor.white, .paragraphStyle: para, .kern: size * -0.01])
+                img = renderTextImage(a, maxWidth: maxW, pad: Hd * 0.02, shadow: true, shadowBlur: Hd * 0.02)
+                size *= 0.92
+            } while Double(img.height) > Hd * 0.52 && size > Hd * 0.06
+            titleImg = img
+        }
         var badgeImg: CGImage? = nil, lineImg: CGImage? = nil
         if let b = badge, !b.isEmpty {
             let a = NSAttributedString(string: b.uppercased(), attributes: [.font: roundedFont(size: Hd * 0.055, weight: .black), .foregroundColor: NSColor(white: 0.08, alpha: 1), .kern: Hd * 0.004])
@@ -50,7 +72,7 @@ public enum YouTubeKit {
         }
         // stack them, centred vertically a little above the middle
         let gap = Hd * 0.018
-        let total = Double(titleImg.height) + (badgeImg.map { Double($0.height) + gap * 1.6 } ?? 0) + (lineImg.map { Double($0.height) + gap } ?? 0)
+        let total = (titleImg.map { Double($0.height) } ?? 0) + (badgeImg.map { Double($0.height) + gap * 1.6 } ?? 0) + (lineImg.map { Double($0.height) + gap } ?? 0)
         var y = (Hd + total) / 2 + Hd * 0.03                        // top of the block (Core Graphics measures from the bottom)
         func place(_ im: CGImage, inset: Double = 0) {
             let w = Double(im.width), h = Double(im.height)
@@ -63,7 +85,7 @@ public enum YouTubeKit {
             ctx.addPath(CGPath(roundedRect: CGRect(x: x, y: y - h, width: w, height: h), cornerWidth: h * 0.25, cornerHeight: h * 0.25, transform: nil)); ctx.fillPath()
             ctx.draw(b, in: CGRect(x: x, y: y - h, width: w, height: h)); y -= h + gap * 1.6
         }
-        place(titleImg, inset: Hd * 0.02)
+        if let t = titleImg { place(t, inset: Hd * 0.02) }
         if let l = lineImg { y -= gap; place(l, inset: Hd * 0.012) }
 
         guard let out = ctx.makeImage() else { throw MVError("The thumbnail could not be drawn.") }
@@ -273,7 +295,7 @@ public enum YouTubeKit {
 
     /// Writes "<video name> – thumbnail.jpg" and "<video name> – YouTube.txt" next to the video. Returns both files.
     @discardableResult
-    public static func writeFiles(beside video: URL, picture: URL, thumbTitle: String, badge: String?, line: String?, listing: Listing) throws -> (thumbnail: URL, description: URL) {
+    public static func writeFiles(beside video: URL, picture: URL, thumbTitle: String?, badge: String?, line: String?, listing: Listing) throws -> (thumbnail: URL, description: URL) {
         let base = video.deletingPathExtension().lastPathComponent, dir = video.deletingLastPathComponent()
         let thumb = dir.appendingPathComponent("\(base) – thumbnail.jpg"), desc = dir.appendingPathComponent("\(base) – YouTube.txt")
         try thumbnail(picture: picture, title: thumbTitle, badge: badge, line: line, output: thumb)
