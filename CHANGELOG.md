@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-10-22
+
 ### Fixed
 - **Automatic no longer lets two songs overlap while they are loud.** It measured many songs as "fading out" when they stayed at full volume until their last second, and started the next song 6 seconds early over them. Now each song's quiet ending and quiet opening are measured precisely: a quiet ending may sit under the next song's quiet opening, and between the end of one song's music and the start of the next there is about a second of breath — never two songs loud at once. Songs already listened to are measured again once, automatically.
 - **Crossfade sounds like a DJ blend:** smooth S-shaped fades and a bass swap (the leaving song's bass is rolled off as the new one arrives), so the low end never clashes. Seamless uses the same.
