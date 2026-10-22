@@ -110,7 +110,7 @@ extension AppModel {
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
-                    cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning
+                    cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
                     cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
                     loopProject = cur; LoopVideo.save(cur, d)
@@ -193,9 +193,15 @@ extension AppModel {
         }
     }
     /// The part of the clip in use that loops. The preview is made again a moment after you stop moving the markers.
+    /// Searches the clip again for its best loop (the markers are moved there).
+    func loopFindBestLoop() {
+        guard let c = loopProject?.clip else { return }
+        runLoop("Finding the best loop…") { p, d in var q = p; LoopVideo.applyBestLoop(&q, clip: c, dir: d); LoopVideo.save(q, d)
+            try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4"), trim: q.trim); return q }
+    }
     func loopSetTrim(start: Double, end: Double?) {
         guard let c = loopProject?.clip else { return }
-        editLoop { $0.trims[c] = ClipTrim(start: start, end: end) }
+        editLoop { $0.trims[c] = ClipTrim(start: start, end: end, blend: $0.trims[c]?.blend) }
         loopPreviewTask?.cancel()
         loopPreviewTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 900_000_000)

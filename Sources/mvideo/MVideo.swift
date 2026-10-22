@@ -338,9 +338,16 @@ struct MVideo: AsyncParsableCommand {
         @Flag(help: "Each song once: the video is as long as the album") var once = false
         @Flag(help: "Print the plan of the music (each join) and stop") var plan = false
         @Option(help: "Check a clip for mirror flips and cuts, then stop") var check: String?
+        @Option(help: "Find the best loop in a clip, then stop") var bestLoop: String?
         @Option(help: "Use this picture (copied in)") var picture: String?
         @Option(help: "The scene, in words") var scene: String?
         func run() async throws {
+            if let c = bestLoop {
+                let u = URL(fileURLWithPath: (c as NSString).expandingTildeInPath)
+                if let r = LoopVideo.bestLoop(u) { print(String(format: "best loop %.2f–%@ s  score %.2f (%@)", r.trim.start, r.trim.end.map { String(format: "%.2f", $0) } ?? "end", r.score, LoopVideo.loopQuality(r.score))) }
+                if let r = LoopVideo.bestLoop(u, minLoop: 13.4) { print(String(format: "end-to-start (the old way) score %.2f", r.score)) }
+                return
+            }
             if let c = check {
                 let r = LoopVideo.checkClip(URL(fileURLWithPath: (c as NSString).expandingTildeInPath))
                 print("length \(r.length)  mirror flips at \(r.mirrors)  cuts at \(r.cuts)  best part: \(r.best.map { "\($0.start)–\($0.end ?? r.length)" } ?? "the whole clip")"); return
@@ -384,9 +391,10 @@ struct MVideo: AsyncParsableCommand {
                 print(String(format: "total %.1f s", pl.total)); return
             }
             guard let cl = p.clip else { throw MVError("No loop clip yet: give --clip.") }
+            LoopVideo.checkIfNeeded(&p, dir: dir)
             if previewOnly {
                 let o = dir.appendingPathComponent("loop-preview.mp4")
-                try await LoopVideo.makePreview(clip: dir.appendingPathComponent(cl), output: o); print("✅ \(o.path)"); return
+                try await LoopVideo.makePreview(clip: dir.appendingPathComponent(cl), output: o, trim: p.trim); print("✅ \(o.path)"); return
             }
             let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title).mp4")
             let t0 = Date()

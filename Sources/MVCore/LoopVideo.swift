@@ -13,7 +13,8 @@ import CoreGraphics
 import VideoToolbox
 
 /// The part of a clip that loops (seconds into the clip; end nil = to the end).
-public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public init(start: Double = 0, end: Double? = nil) { self.start = start; self.end = end } }
+public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public var blend: Double? = nil      // blend: the dissolve from the end back to the start (nil = 1.6 s)
+    public init(start: Double = 0, end: Double? = nil, blend: Double? = nil) { self.start = start; self.end = end; self.blend = blend } }
 
 /// Title cards: none (the default), only the video's title at the beginning, or the video's title and then a card for every song.
 public enum LoopCards: String, Codable, CaseIterable { case none, beginning, everySong
@@ -52,11 +53,12 @@ public struct LoopProject: Codable, Equatable {
     public var thumbnail: String?, listing: String?     // the YouTube thumbnail and description beside it (full paths)
     public var trims: [String: ClipTrim] = [:]  // for each clip, the part that loops
     public var clipWarning: String?             // what the check found in the clip in use (a mirror flip or a cut), if anything
+    public var loopScores: [String: Double] = [:]   // for each clip, how closely the loop's end matches its start (1 = as close as two neighbouring frames)
     public var trim: ClipTrim { clip.flatMap { trims[$0] } ?? ClipTrim() }
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -81,6 +83,7 @@ public struct LoopProject: Codable, Equatable {
         pictureCount = try c.decodeIfPresent(Int.self, forKey: .pictureCount) ?? 0; output = try c.decodeIfPresent(String.self, forKey: .output)
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail); listing = try c.decodeIfPresent(String.self, forKey: .listing)
         trims = try c.decodeIfPresent([String: ClipTrim].self, forKey: .trims) ?? [:]; clipWarning = try c.decodeIfPresent(String.self, forKey: .clipWarning)
+        loopScores = try c.decodeIfPresent([String: Double].self, forKey: .loopScores) ?? [:]
     }
 }
 
@@ -306,8 +309,11 @@ public enum LoopVideo {
     /// Checks a clip that has not been checked yet (projects made before the check existed). Returns true when something changed.
     @discardableResult
     public static func checkIfNeeded(_ p: inout LoopProject, dir: URL) -> Bool {
-        guard let c = p.clip, p.trims[c] == nil, FileManager.default.fileExists(atPath: dir.appendingPathComponent(c).path) else { return false }
-        applyCheck(&p, clip: c, dir: dir); save(p, dir); return true
+        guard let c = p.clip, FileManager.default.fileExists(atPath: dir.appendingPathComponent(c).path) else { return false }
+        if p.trims[c] == nil { applyCheck(&p, clip: c, dir: dir); save(p, dir); return true }
+        // clips from before the best-loop search: find it, unless you moved the markers yourself
+        if p.loopScores[c] == nil, p.clipWarning == nil, p.trims[c] == ClipTrim() { applyBestLoop(&p, clip: c, dir: dir); save(p, dir); return true }
+        return false
     }
 
     // MARK: checking a clip
@@ -368,10 +374,87 @@ public enum LoopVideo {
         return ClipCheck(mirrors: mirrors, cuts: cuts, best: best, length: length)
     }
 
+    /// Small grey pictures of a clip, 12 a second (for the checks below).
+    static func clipFrames(_ url: URL, W: Int = 48, H: Int = 27) -> [(t: Double, px: [Float])] {
+        let asset = AVURLAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .video).first, let r = try? AVAssetReader(asset: asset) else { return [] }
+        let out = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: W, kCVPixelBufferHeightKey as String: H])
+        r.add(out); r.startReading()
+        var frames: [(t: Double, px: [Float])] = [], lastT = -1.0
+        while let sb = out.copyNextSampleBuffer(), let pb = CMSampleBufferGetImageBuffer(sb) {
+            let t = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sb))
+            if t - lastT < 1.0 / 12 - 0.001 { continue }
+            lastT = t
+            CVPixelBufferLockBaseAddress(pb, .readOnly)
+            let base = CVPixelBufferGetBaseAddress(pb)!.assumingMemoryBound(to: UInt8.self), bpr = CVPixelBufferGetBytesPerRow(pb)
+            var g = [Float](repeating: 0, count: W * H)
+            for y in 0..<H { for x in 0..<W { let p = base + y * bpr + x * 4; g[y * W + x] = (Float(p[0]) + 2 * Float(p[1]) + Float(p[2])) / 4 } }
+            CVPixelBufferUnlockBaseAddress(pb, .readOnly)
+            frames.append((t, g))
+        }
+        return frames
+    }
+
+    /// The best loop inside `within` (seconds into the clip): the start and end where the picture AND the motion match most closely, so the
+    /// dissolve from the end back to the start joins two nearly identical moments. Loops are kept at least 8 seconds long (shorter ones repeat
+    /// too visibly). Returns the trim (its end includes the dissolve) and a score: 1 ≈ as close as two neighbouring frames, higher is worse.
+    public static func bestLoop(_ url: URL, within: ClipTrim = ClipTrim(), minLoop: Double = 8) -> (trim: ClipTrim, score: Double)? {
+        let frames = clipFrames(url)
+        guard frames.count > 24 else { return nil }
+        let length = frames.last!.t + 1.0 / 12
+        let lo = frames.firstIndex { $0.t >= within.start - 0.001 } ?? 0
+        let hi = frames.lastIndex { $0.t <= (within.end ?? length) + 0.001 } ?? (frames.count - 1)
+        let fps = 12.0, blend = Int((clipBlend * fps).rounded()), minGap = Int(minLoop * fps)
+        func d(_ a: Int, _ b: Int) -> Float {
+            var s: Float = 0; let x = frames[a].px, y = frames[b].px
+            for k in 0..<x.count { s += abs(x[k] - y[k]) }
+            return s / Float(x.count)
+        }
+        // how much the scene changes by itself in one second (the yardstick: a join like half a second of natural change is invisible)
+        let oneSecond = stride(from: lo, to: max(lo, hi - 12), by: 3).map { d($0, $0 + 12) }.sorted()
+        let typical = max(0.25, oneSecond.isEmpty ? 1 : oneSecond[oneSecond.count / 2])
+        var best: (i: Int, j: Int, cost: Float)? = nil
+        let iMax = min(hi - minGap - blend, lo + Int(4 * fps))                   // the loop starts within the first 4 seconds of the usable part
+        guard iMax >= lo else { return nil }
+        for i in lo...iMax {
+            for j in (i + minGap)...(hi - blend) {
+                // both sides are on screen during the dissolve: compare the whole stretch, picture and motion
+                var c: Float = 0
+                for k in stride(from: 0, through: blend, by: 2) { c += d(i + k, j + k) }
+                c /= Float(blend / 2 + 1)
+                let cost = c - Float(j - i) * 0.002 * typical                     // a slight preference for longer loops
+                if best == nil || cost < best!.cost { best = (i, j, cost) }
+            }
+        }
+        guard let b = best else { return nil }
+        var raw: Float = 0
+        for k in stride(from: 0, through: blend, by: 2) { raw += d(b.i + k, b.j + k) }
+        raw /= Float(blend / 2 + 1)
+        let score = Double(raw / typical)
+        // the more the join differs, the longer (and so softer) the dissolve, as far as the clip allows
+        let want = score <= 1.5 ? clipBlend : (score <= 3 ? 2.4 : 3.2)
+        let room = min(length - frames[b.j].t, (frames[b.j].t - frames[b.i].t) / 3)
+        let blendUsed = max(clipBlend, min(want, room))
+        let start = frames[b.i].t, end = min(length, frames[b.j].t + blendUsed)
+        return (ClipTrim(start: start, end: end >= length - 0.05 ? nil : end, blend: blendUsed), score)
+    }
+
+    /// A score in words: how seamless the loop will look.
+    public static func loopQuality(_ score: Double) -> String {
+        score <= 1.5 ? "excellent — the end matches the start almost exactly" : (score <= 3 ? "good — the join is a soft dissolve that is hard to spot" : (score <= 5 ? "fair — a gentle dissolve may be noticeable" : "weak — the end and the start look quite different; try making another clip"))
+    }
+
+    /// Sets the clip's loop to its best stretch (inside the part without flips or cuts).
+    public static func applyBestLoop(_ p: inout LoopProject, clip: String, dir: URL) {
+        let clean = p.clipWarning != nil ? (p.trims[clip] ?? ClipTrim()) : ClipTrim()
+        guard let r = bestLoop(dir.appendingPathComponent(clip), within: clean) else { p.loopScores[clip] = 99; return }
+        p.trims[clip] = r.trim; p.loopScores[clip] = r.score
+    }
+
     /// Checks a new clip; if it flips or cuts, the loop is set to the longest clean stretch and a warning is kept.
     static func applyCheck(_ p: inout LoopProject, clip: String, dir: URL) {
         let c = checkClip(dir.appendingPathComponent(clip))
-        guard let best = c.best else { p.clipWarning = nil; if p.trims[clip] == nil { p.trims[clip] = ClipTrim() }; return }      // checked and clean
+        guard let best = c.best else { p.clipWarning = nil; p.trims[clip] = ClipTrim(); applyBestLoop(&p, clip: clip, dir: dir); return }      // checked and clean: then its best loop
         func clock(_ s: Double) -> String { String(format: "%d:%04.1f", Int(s) / 60, s.truncatingRemainder(dividingBy: 60)) }
         var what: [String] = []
         if !c.mirrors.isEmpty { what.append("turns into its mirror image at \(c.mirrors.map(clock).joined(separator: ", "))") }
@@ -379,6 +462,7 @@ public enum LoopVideo {
         let end = best.end ?? c.length
         p.trims[clip] = best
         p.clipWarning = "This clip " + what.joined(separator: " and ") + ". The loop now uses only \(clock(best.start))–\(clock(end)) (\(String(format: "%.1f", end - best.start)) s, the longest part without it). Move the markers below to change it, or make another clip."
+        applyBestLoop(&p, clip: clip, dir: dir)                              // the best loop inside that part
     }
 
     // MARK: YouTube
@@ -457,9 +541,11 @@ public enum LoopVideo {
         let period: Double
         let W: Int, H: Int
         let intro: IntroLayer?
+        let blend: Double
         init(clip: URL, W: Int, H: Int, title: String?, trim: ClipTrim = ClipTrim()) {
             src = VideoClipSource(url: clip, maxPixel: max(W, H), start: trim.start, end: trim.end)
-            period = max(1, src.playSeconds - min(LoopVideo.clipBlend, src.playSeconds / 3))
+            blend = trim.blend ?? LoopVideo.clipBlend
+            period = max(1, src.playSeconds - min(blend, src.playSeconds / 3))
             self.W = W; self.H = H
             intro = title.map { IntroLayer(title: $0, subject: "", W: W, H: H, end: 8) }
         }
@@ -472,7 +558,7 @@ public enum LoopVideo {
         }
         func draw(loopTime t: Double, ctx: CGContext, titleTime: Double? = nil, fadeToBlack: Double = 0, fadeFromBlack: Double = 0, cards: [(text: String, t: Double)] = []) {
             ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
-            let shot = src.looped(at: t + period, sceneLength: .infinity, blend: LoopVideo.clipBlend)
+            let shot = src.looped(at: t + period, sceneLength: .infinity, blend: blend)
             func put(_ img: CGImage) {
                 let iw = Double(img.width), ih = Double(img.height), target = Double(W) / Double(H)
                 let rw = iw / ih > target ? ih * target : iw, rh = rw / target, s = Double(W) / rw

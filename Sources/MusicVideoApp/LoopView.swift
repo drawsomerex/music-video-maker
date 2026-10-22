@@ -289,6 +289,18 @@ struct LoopView: View {
                 if let w = p.clipWarning {
                     Label(w, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
+                if let c = p.clip {
+                    HStack(spacing: 8) {
+                        if let s = p.loopScores[c], s < 90 {
+                            Label("Loop: " + LoopVideo.loopQuality(s), systemImage: s <= 3 ? "checkmark.seal" : "exclamationmark.triangle").font(.callout)
+                                .foregroundStyle(s <= 3 ? Color.green : (s <= 5 ? Color.secondary : Color.orange)).fixedSize(horizontal: false, vertical: true)
+                                .help("The app chose the stretch of the clip whose end matches its start most closely (in picture and motion), so the dissolve from the end back to the start joins two nearly identical moments.")
+                        }
+                        Spacer()
+                        Button { model.loopFindBestLoop() } label: { Label("Find the best loop", systemImage: "wand.and.stars") }.disabled(working)
+                            .help("Searches the clip for the start and end that match most closely and moves the markers there (it is done automatically for every new clip).")
+                    }
+                }
                 if let c = p.clip, let u = model.loopFile(c) {
                     DisclosureGroup(isExpanded: $showTrim) {
                         VideoTrimView(fileURL: u, length: nil, start: p.trim.start, end: p.trim.end, heading: "The part that loops",

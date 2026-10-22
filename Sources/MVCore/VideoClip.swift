@@ -99,7 +99,8 @@ final class VideoClipSource: @unchecked Sendable {
         let f = min(blend, seconds / 3), period = seconds - f
         let local = max(0, t.isFinite ? t : 0).truncatingRemainder(dividingBy: period)
         if t >= period, local < f {                                 // the seam: the end of the clip dissolves into its beginning
-            return (frame(at: period + local), frame(at: local), local / f)
+            let x = local / f
+            return (frame(at: period + local), frame(at: local), x * x * (3 - 2 * x))     // an S-shaped dissolve: no visible start or end to it
         }
         return (frame(at: local), nil, 0)
     }

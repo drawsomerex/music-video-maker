@@ -6,6 +6,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 ## [Unreleased]
 
 ### Changed
+- **Looping video: "Back to back" replaces Automatic and is the default for several songs.** Every song plays in full and untouched — no fades, no overlap, no filtering — and the next one starts the moment the previous one's sound ends, so you hear all of every song. (Projects that used Automatic now play back to back.) **Crossfade** is a plain crossfade again (the length you choose).
+- **Seamless loops:** every loop clip is searched for the stretch whose end matches its start most closely (in picture and motion), and that stretch is looped (at least 8 seconds), so the dissolve joins two nearly identical moments instead of the clip's last second and its first. The dissolve is S-shaped and longer (up to 3.2 s) when the moments differ more. A note rates the loop (excellent / good / fair / weak) and "Find the best loop" searches again; clips you already have get it the next time you open the project (unless you moved the markers yourself).
+
+### Changed
 - **Looping video: "Back to back" replaces Automatic and is the default for several songs.** Every song plays in full and untouched — no fades, no overlap, no filtering — and the next one starts the moment the previous one's sound ends, so you hear all of every song. (Projects that used Automatic now play back to back.)
 - **Crossfade is a plain crossfade again** (the length you choose, equal-power), without the bass swap or S-curves.
 

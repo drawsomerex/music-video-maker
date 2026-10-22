@@ -29,4 +29,14 @@ final class ProjectLibraryTests: XCTestCase {
         XCTAssertEqual(c.mirrors.count, 1); XCTAssertEqual(c.mirrors.first ?? 0, 7.5, accuracy: 0.2)
         XCTAssertEqual(c.best?.start ?? -1, 0, accuracy: 0.01); XCTAssertEqual(c.best?.end ?? 0, 7.4, accuracy: 0.2)
     }
+
+    /// A clip that repeats exactly every 10 seconds (made by ffmpeg in /tmp; skipped when it is not there): the search finds that loop and rates it excellent.
+    func testBestLoopFindsThePeriod() throws {
+        let u = URL(fileURLWithPath: "/tmp/periodic.mp4")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: u.path))
+        let r = try XCTUnwrap(LoopVideo.bestLoop(u))
+        let period = (r.trim.end ?? 15) - r.trim.start - (r.trim.blend ?? 1.6)
+        XCTAssertEqual(period, 10, accuracy: 0.2)
+        XCTAssertLessThanOrEqual(r.score, 1.5, "excellent")
+    }
 }
