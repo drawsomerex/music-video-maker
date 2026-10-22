@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-21
+
 ### Added
 - **Projects** (first screen, the File menu, or Command-O): every music video and looping video with its picture, when it was last changed, what it cost and whether a video was made. Search by title, show only one kind, sort by date or name; Open (or double-click), Show in Finder (the finished video selected), Move to Trash (after asking; you can put it back), and "Open a folder…" for projects elsewhere. Looping videos can be opened again like any other project.
 - **Looping video: "Choose the part that loops".** Green and red markers, nudges and "Play this part" on the loop clip; only that part repeats, and the loop preview updates.
