@@ -276,10 +276,12 @@ struct LoopView: View {
         card(3, "The loop clip", "15 seconds made by HeyGen from the picture: a still camera with gentle, repeating motion. Its end blends into its start, so it loops without a seam.") {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("Clip quality", selection: bind(\.sharpClip)) {
-                    Text("Standard 768p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: false, perSecond768: model.videoPricePerSecond))))").tag(false)
-                    Text("Sharp 2K (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: true, perSecond768: model.videoPricePerSecond))))").tag(true)
-                }.pickerStyle(.segmented).frame(maxWidth: 460)
-                    .help("Sharp 2K gives real full-HD detail in the long video; Standard is upscaled from 768p. Prices are HeyGen's list prices (half while their promotion runs).")
+                    Text("Standard 768p → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: false, perSecond768: model.videoPricePerSecond))))").tag(false)
+                    Text("Sharp 2K → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: true, perSecond768: model.videoPricePerSecond))))").tag(true)
+                }.pickerStyle(.segmented).frame(maxWidth: 540)
+                    .help("HeyGen makes clips at 768p or 2K (it has no 1080p setting). Prices are HeyGen's list prices (half while their promotion runs).")
+                Text("Either way the long video is 1080p. Standard is made at 768p and scaled up, so it's a little soft; Sharp is made at 2K and scaled down, so it has full 1080p detail.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(alignment: .top, spacing: 14) {
                     clipWell
                     VStack(alignment: .leading, spacing: 8) {
@@ -331,7 +333,7 @@ struct LoopView: View {
             Button("Make it (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))") { model.loopMakeClip() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(p.sharpClip ? "Sharp 2K" : "Standard 768p") at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
+            Text("\(p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"), for a 1080p video, at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
         }
     }
     var clipWell: some View {
