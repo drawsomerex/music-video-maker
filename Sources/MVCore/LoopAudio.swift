@@ -34,8 +34,22 @@ public struct TrackAnalysis: Codable, Equatable {
     public var fadesOut = false                  // gets gradually quieter over its last seconds
     public var fadeLength = 0.0                  // how long that fade is
     public var hardStart = false                 // opens at full strength (a hit)
+    public var quietTail = 0.0                   // how long its ending is quiet (12 dB or more below the song) before the sound stops
+    public var quietIntro = 0.0                  // how long its opening is quiet before the music is at strength
+    public var version = 1                       // 2 = measured with the quiet tail and intro (older measurements are redone once)
     public var length: Double { max(0.1, end - start) }
+    public static let currentVersion = 2
     public init() {}
+    enum CodingKeys: String, CodingKey { case start, end, loudness, peak, fadesOut, fadeLength, hardStart, quietTail, quietIntro, version }
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        start = try c.decodeIfPresent(Double.self, forKey: .start) ?? 0; end = try c.decodeIfPresent(Double.self, forKey: .end) ?? 0
+        loudness = try c.decodeIfPresent(Double.self, forKey: .loudness) ?? -14; peak = try c.decodeIfPresent(Double.self, forKey: .peak) ?? 1
+        fadesOut = try c.decodeIfPresent(Bool.self, forKey: .fadesOut) ?? false; fadeLength = try c.decodeIfPresent(Double.self, forKey: .fadeLength) ?? 0
+        hardStart = try c.decodeIfPresent(Bool.self, forKey: .hardStart) ?? false
+        quietTail = try c.decodeIfPresent(Double.self, forKey: .quietTail) ?? 0; quietIntro = try c.decodeIfPresent(Double.self, forKey: .quietIntro) ?? 0
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+    }
 }
 
 public enum LoopTransition: String, Codable, CaseIterable { case seamless, automatic, crossfade, albumGaps
@@ -72,8 +86,10 @@ public enum LoopAudio {
         let frames = s.count / 2
         guard frames > rate else { throw MVError("“\(url.lastPathComponent)” is too short to use.") }
         var a = TrackAnalysis()
-        // silence at both ends (quieter than about −50 dB), keeping 50 ms
-        let threshold: Float = 0.003
+        // silence at both ends: quieter than 46 dB below the song's loudest moment (so a quiet song keeps its quiet intro), keeping 50 ms
+        var loudest: Float = 0
+        for v in s { loudest = max(loudest, abs(v)) }
+        let threshold: Float = max(0.0003, loudest * 0.005)
         var first = 0, last = frames - 1
         while first < frames && max(abs(s[first * 2]), abs(s[first * 2 + 1])) < threshold { first += 1 }
         while last > first && max(abs(s[last * 2]), abs(s[last * 2 + 1])) < threshold { last -= 1 }
@@ -91,21 +107,28 @@ public enum LoopAudio {
             for f in f0..<f1 { let l = Double(s[f * 2]), r = Double(s[f * 2 + 1]); sum += (l * l + r * r) / 2 }
             return 10 * log10(max(1e-12, sum / Double(f1 - f0)))
         }
-        let steps = stride(from: first, to: last, by: step).map(level)
-        let typical = steps.sorted()[steps.count * 6 / 10]                  // a loud-ish moment of the song
-        // the ending: much quieter over the last seconds than 6–12 s before, and falling steadily (no new rise)
-        if steps.count > 30 {
-            let tail = Array(steps.suffix(24))                                // the last 12 s
-            let ref = tail.prefix(12).max() ?? typical, endLevel = tail.suffix(3).reduce(0, +) / 3
-            var rises = 0
-            for k in 12..<(tail.count - 1) where tail[k + 1] > tail[k] + 2 { rises += 1 }
-            if ref - endLevel >= 10, rises <= 1 {
-                a.fadesOut = true
-                let drop = tail.firstIndex(where: { $0 < ref - 3 }) ?? 12
-                a.fadeLength = min(10, max(3, Double(tail.count - drop) * 0.5))
-            }
+        // level every quarter second (dB); "typical" is the level of the song's body
+        let q = rate / 4
+        let steps = stride(from: first, to: last, by: q).map { f0 -> Double in
+            var sum = 0.0; let f1 = min(last, f0 + q)
+            guard f1 > f0 else { return -100 }
+            for f in f0..<f1 { let l = Double(s[f * 2]), r = Double(s[f * 2 + 1]); sum += (l * l + r * r) / 2 }
+            return 10 * log10(max(1e-12, sum / Double(f1 - f0)))
         }
-        a.hardStart = (steps.first ?? -100) >= typical - 6                   // the first half second is already near full strength
+        _ = step; _ = level
+        let typical = steps.sorted()[steps.count / 2]
+        // the quiet tail: from the last moment the song is still near its body (within 12 dB) to the end; the quiet intro likewise from the start
+        let quiet = typical - 12
+        let lastLoud = steps.lastIndex(where: { $0 > quiet }) ?? (steps.count - 1)
+        let firstLoud = steps.firstIndex(where: { $0 > quiet }) ?? 0
+        a.quietTail = min(15, Double(steps.count - 1 - lastLoud) * 0.25)
+        a.quietIntro = min(10, Double(firstLoud) * 0.25)
+        // a real fade-out: falling for several seconds from the song's usual level (within 3 dB) to silence
+        let lastFull = steps.lastIndex(where: { $0 > typical - 3 }) ?? (steps.count - 1)
+        a.fadeLength = min(20, Double(steps.count - 1 - lastFull) * 0.25)
+        a.fadesOut = a.fadeLength >= 4 && a.quietTail >= 1
+        a.hardStart = a.quietIntro < 0.3                                     // at strength from the very start (a hit)
+        a.version = TrackAnalysis.currentVersion
         return a
     }
 
@@ -195,10 +218,14 @@ public enum LoopAudio {
                     case .albumGaps:
                         p.start = prev.end + min(5, max(0.5, gap))
                     case .automatic:
-                        if pa.fadesOut {                                         // flows on: the next song starts during the fade
-                            let o = min(6, max(3, pa.fadeLength * 0.6), prev.length / 3, p.length / 3)
-                            p.start = prev.end - o; prev.fadeOut = o; p.fadeIn = a.hardStart ? 0 : min(o, 2)
-                        } else { p.start = prev.end + 2 }                       // a clean stop: let it ring, then a short pause
+                        // like a careful album sequence: two songs are never loud at the same time. The next song's quiet opening may sit under the
+                        // previous song's quiet ending; between the end of one song's music and the start of the next there is about a second of breath.
+                        let breath = 1.0
+                        let loudEnd = prev.end - pa.quietTail                               // where the previous song's music really ends
+                        var s = loudEnd + breath - a.quietIntro                              // the next song's music starts one breath later
+                        s = max(s, prev.end - pa.quietTail)                                  // it may only start once the previous song is quiet
+                        p.start = s
+                        if s < prev.end { prev.fadeOut = prev.end - s }                      // the quiet tail fades away under the new song
                     }
                     plays[plays.count - 1] = prev
                 }
@@ -220,6 +247,7 @@ public enum LoopAudio {
         let plan: Plan
         private var cache: [(key: Int, samples: [Float])] = []     // trimmed songs, most recent last
         private var next = 0                                       // first play that may still sound
+        private var bass: [Int: (x: (Float, Float), y: (Float, Float))] = [:]     // high-pass memory per play, during its blends (the bass swap)
         public init(urls: [URL], plan: Plan) { self.urls = urls; self.plan = plan }
 
         private func samples(_ p: Play) throws -> [Float] {
@@ -236,21 +264,31 @@ public enum LoopAudio {
             while next < plan.plays.count && plan.plays[next].end < t0 { next += 1 }
             var k = next
             while k < plan.plays.count && plan.plays[k].start < t1 {
-                let p = plan.plays[k]; let isFirst = k == 0; k += 1
+                let p = plan.plays[k]; let index = k; let isFirst = k == 0; k += 1
                 guard p.end > t0 else { continue }
                 let s = try samples(p)
                 let pStart = Int((p.start * r).rounded()), n = s.count / 2
                 let fi = Int(p.fadeIn * r), fo = Int(p.fadeOut * r), g = Float(p.gain)
                 let lo = max(start, pStart), hi = min(start + count, pStart + n)
                 guard hi > lo else { continue }
+                var st = bass[index] ?? ((0, 0), (0, 0))
                 for f in lo..<hi {
                     let j = f - pStart
                     var w: Float = g
-                    if j < fi { w *= Float(sin(Double(j) / Double(fi) * .pi / 2)) }
-                    if j >= n - fo { w *= Float(cos(Double(j - (n - fo)) / Double(max(1, fo)) * .pi / 2)) }
+                    var cut = 0.0                                                 // bass swap: how far this play's bass is rolled off (0…1)
+                    if j < fi { let x = Double(j) / Double(fi); w *= Float(sin(smoothstep(x) * .pi / 2)); cut = max(cut, 1 - x) }
+                    if j >= n - fo { let x = Double(j - (n - fo)) / Double(max(1, fo)); w *= Float(cos(smoothstep(x) * .pi / 2)); cut = max(cut, x) }
                     if j < 240 && p.fadeIn == 0 && !isFirst { w *= Float(j) / 240 }      // never a click where a song begins
-                    out[(f - start) * 2] += s[j * 2] * w; out[(f - start) * 2 + 1] += s[j * 2 + 1] * w
+                    var L = s[j * 2], R = s[j * 2 + 1]
+                    if cut > 0.001 {                                              // a one-pole high pass, its corner rising to 300 Hz as the song leaves (or falling as it arrives)
+                        let fc = 20 + 280 * cut, rc = 1 / (2 * Double.pi * fc), a = Float(rc / (rc + 1 / r))
+                        let yl = a * (st.y.0 + L - st.x.0), yr = a * (st.y.1 + R - st.x.1)
+                        st.x = (L, R); st.y = (yl, yr); L = yl; R = yr
+                    } else { st.x = (L, R); st.y = (L, R) }
+                    out[(f - start) * 2] += L * w; out[(f - start) * 2 + 1] += R * w
                 }
+                bass[index] = st
+                if bass.count > 8 { bass = bass.filter { $0.key >= next } }
             }
             // safety limiter: a raised song or an overlap never clips
             for i in 0..<(count * 2) {
@@ -260,6 +298,9 @@ public enum LoopAudio {
         }
     }
 }
+
+/// An S-shaped 0…1 curve: changes slowly at both ends, so a blend never jumps in or drops out.
+@inline(__always) func smoothstep(_ x: Double) -> Double { let t = min(1, max(0, x)); return t * t * (3 - 2 * t) }
 
 extension Array {
     mutating func shuffleSeeded(_ rng: inout SeededRNG) {

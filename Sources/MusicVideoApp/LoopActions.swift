@@ -55,7 +55,7 @@ extension AppModel {
     /// Listens to every song not listened to yet, a song at a time, without holding up anything else on the screen.
     func loopListen() {
         guard let p = loopProject, let d = loopDir else { return }
-        let todo = p.tracks.filter { p.analysis[$0.file] == nil }
+        let todo = p.tracks.filter { (p.analysis[$0.file]?.version ?? 0) < TrackAnalysis.currentVersion }
         guard !todo.isEmpty else { return }
         loopListenTask?.cancel()
         loopListenTask = Task { [weak self] in

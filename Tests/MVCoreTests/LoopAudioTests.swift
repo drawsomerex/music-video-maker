@@ -14,6 +14,7 @@ final class LoopAudioTests: XCTestCase {
         // ffmpeg's EBU R128 meter says −21.4, −16.1 and −38.6 LUFS
         XCTAssertEqual(a[0].loudness, -21.4, accuracy: 1.0); XCTAssertEqual(a[1].loudness, -16.1, accuracy: 1.0); XCTAssertEqual(a[2].loudness, -38.6, accuracy: 1.0)
         XCTAssertTrue(a[0].fadesOut, "the first song fades out over its last 10 s"); XCTAssertFalse(a[1].fadesOut, "the second stops at full volume")
+        XCTAssertEqual(a[0].quietTail, 2.5, accuracy: 1, "its last seconds are quiet (a linear 10-second fade is 12 dB down for its last 2.5 s)"); XCTAssertLessThan(a[1].quietTail, 0.6, "the second is loud to the end")
         XCTAssertTrue(a[1].hardStart, "the second starts at full volume"); XCTAssertFalse(a[2].hardStart, "the third fades in")
     }
 
@@ -34,9 +35,12 @@ final class LoopAudioTests: XCTestCase {
     func testJoins() throws {
         let a = try analyses()
         let auto = LoopAudio.plan(analyses: a, transition: .automatic, crossfade: 6, gap: 2, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays
-        XCTAssertLessThan(auto[1].start, auto[0].end, "after a song that fades out, the next starts during the fade")
+        XCTAssertLessThan(auto[1].start, auto[0].end, "after a song that fades out, the next starts during the quiet fade")
+        XCTAssertGreaterThanOrEqual(auto[1].start, auto[0].end - a[0].quietTail - 0.001, "…but only once the first song is quiet: never two songs loud at once")
         XCTAssertEqual(auto[1].fadeIn, 0, "a song that opens with a hit is never faded in")
-        XCTAssertEqual(auto[2].start, auto[1].end + 2, accuracy: 0.001, "after a clean stop: a 2-second pause")
+        // after a song that stops at full volume: about a second of breath before the next song's music
+        let musicEnds = auto[1].end - a[1].quietTail, nextMusic = auto[2].start + a[2].quietIntro
+        XCTAssertEqual(nextMusic - musicEnds, 1.0, accuracy: 0.3)
         let gaps = LoopAudio.plan(analyses: a, transition: .albumGaps, crossfade: 6, gap: 1.5, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays
         XCTAssertEqual(gaps[1].start, gaps[0].end + 1.5, accuracy: 0.001)
         let cf = LoopAudio.plan(analyses: a, transition: .crossfade, crossfade: 8, gap: 2, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays

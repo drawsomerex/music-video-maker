@@ -141,7 +141,7 @@ public enum LoopVideo {
     /// Listens to every song not listened to yet (where its sound starts and ends, its loudness, how it ends and begins). Returns true if any was new.
     @discardableResult
     public static func ensureAnalysis(_ p: inout LoopProject, dir: URL, progress: ((String, Double) -> Void)? = nil) throws -> Bool {
-        let todo = p.tracks.filter { p.analysis[$0.file] == nil }
+        let todo = p.tracks.filter { (p.analysis[$0.file]?.version ?? 0) < TrackAnalysis.currentVersion }       // new songs, and songs measured the old way
         for (k, t) in todo.enumerated() {
             try Task.checkCancellation()
             progress?("Listening to “\(t.title)” (\(k + 1) of \(todo.count))…", Double(k) / Double(max(1, todo.count)))

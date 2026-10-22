@@ -336,6 +336,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Print what should move in this picture (and the clip instruction it gives), then stop") var describe: String?
         @Flag(help: "Only make the YouTube thumbnail and description (beside where the video is saved)") var youtube = false
         @Flag(help: "Each song once: the video is as long as the album") var once = false
+        @Flag(help: "Print the plan of the music (each join) and stop") var plan = false
         @Option(help: "Check a clip for mirror flips and cuts, then stop") var check: String?
         @Option(help: "Use this picture (copied in)") var picture: String?
         @Option(help: "The scene, in words") var scene: String?
@@ -370,6 +371,17 @@ struct MVideo: AsyncParsableCommand {
                 let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title).mp4")
                 try await LoopVideo.makeYouTubeFiles(&p, dir: dir, video: o)
                 print("✅ \(p.thumbnail ?? "")\n✅ \(p.listing ?? "")"); return
+            }
+            if plan {
+                try LoopVideo.ensureAnalysis(&p, dir: dir)
+                guard let pl = LoopVideo.plan(p) else { throw MVError("No plan.") }
+                for (x, y) in zip(pl.plays, pl.plays.dropFirst()) {
+                    let ax = p.analysis[p.tracks[x.track].file]!, ay = p.analysis[p.tracks[y.track].file]!
+                    let join = y.start - x.end
+                    print(String(format: "%@ → %@: %@ %.1f s  (quiet tail %.2f s, next quiet intro %.2f s; music gap %.1f s)", p.tracks[x.track].title, p.tracks[y.track].title,
+                                 join < 0 ? "overlap" : "pause", abs(join), ax.quietTail, ay.quietIntro, (y.start + ay.quietIntro) - (x.end - ax.quietTail)))
+                }
+                print(String(format: "total %.1f s", pl.total)); return
             }
             guard let cl = p.clip else { throw MVError("No loop clip yet: give --clip.") }
             if previewOnly {
