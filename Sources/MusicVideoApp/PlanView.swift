@@ -143,7 +143,7 @@ struct PlanView: View {
                 .help("Opens the Pictures folder: every picture of every song (drawn by the app or added by you), named with its date, the song and an increasing number, so you can scroll through them.")
             HelpButton(screen: mode == 1 ? "Pictures screen, YouTube Shorts tab" : "Pictures screen")
             Button { model.reset() } label: { if compact { Image(systemName: "xmark.circle") } else { Label("Close", systemImage: "xmark.circle") } }
-                .help("Closes this song and returns to the start. Everything is already saved; use “Open earlier project” to come back.")
+                .help("Closes this song and returns to the start. Everything is already saved; open it again from “Projects” (Command-O).")
         }
     }
 

@@ -67,6 +67,8 @@ final class AppModel: ObservableObject {
     @Published var loopDir: URL?
     @Published var loopJob: LoopJob?
     var loopTask: Task<Void, Never>?
+    var loopPreviewTask: Task<Void, Never>?
+    @Published var showProjects = false
     var videoTask: Task<Void, Never>?
     @Published var workingSection: Int?            // the picture being drawn (or whose idea is being rewritten) right now: only it is locked while a task runs
     @Published var doneNote: DoneNote?
@@ -277,7 +279,7 @@ final class AppModel: ObservableObject {
         if let p = plan, projectBaseline != nil, newKey != AppModel.songKey(p.title), newKey != AppModel.songKey(projectBaseline?.audioName ?? "") {
             let old = p.title
             detachProject()
-            notice = "Started a new video for “\(AppModel.titleFromFile(url))”. “\(old)” is saved; use “Open earlier project” to go back to it."
+            notice = "Started a new video for “\(AppModel.titleFromFile(url))”. “\(old)” is saved; open it again from “Projects” (Command-O)."
         } else if let prev = audioURL, plan == nil, AppModel.songKey(prev.lastPathComponent) != newKey, title == autoTitle || title.isEmpty {
             title = ""                                   // the old title came from the old file name
         }

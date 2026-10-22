@@ -14,6 +14,7 @@ struct RootView: View {
             screens.disabled(updater.isInstalling)
         }
         .background(WindowFitter())
+        .sheet(isPresented: $model.showProjects) { ProjectsView().environmentObject(model) }
         .animation(.smooth(duration: 0.3), value: updaterVisible)
         .animation(.smooth(duration: 0.25), value: model.busy)
     }
@@ -125,6 +126,8 @@ struct SetupView: View {
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 460)
                     .help("Music video with lyrics: pictures that change with the song and the words on screen. Looping long music video: one song and one seamlessly looping 15-second scene, made into a 1 to 12 hour video (study music).")
                 Spacer(minLength: 0)
+                Button { model.showProjects = true } label: { Label("Projects", systemImage: "square.grid.2x2") }
+                    .help("All your music videos and looping videos: open one, show it in Finder, or move it to the Trash. (Command-O)")
             }
             .padding(.horizontal, 24).padding(.vertical, 10).background(.regularMaterial)
             Divider()
@@ -273,11 +276,6 @@ struct SetupView: View {
                 else { Label("Saving to \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath)", systemImage: "externaldrive").lineLimit(1).truncationMode(.middle).frame(maxWidth: 220) }
             }.buttonStyle(.bordered)
                 .help("Everything is saved in \((model.config.projectsRoot.path as NSString).abbreviatingWithTildeInPath): your songs, pictures and finished videos. Click to pick a different folder.")
-            Menu {
-                Button("Open a project folder…") { model.chooseProject() }
-                if !model.recents.isEmpty { Divider(); ForEach(model.recents, id: \.self) { u in Button(u.deletingLastPathComponent().lastPathComponent) { model.openProject(u) } } }
-            } label: { if compact { Image(systemName: "folder") } else { Label("Open earlier project", systemImage: "folder") } }
-                .menuStyle(.borderlessButton).fixedSize()
                 .help("Go back to a video you started before. All your pictures and settings are kept.")
             HelpButton(screen: "Song screen (first screen)")
             Button { openSettings() } label: { if compact { Image(systemName: "gearshape") } else { Label("Settings", systemImage: "gearshape") } }.buttonStyle(.bordered)

@@ -333,9 +333,14 @@ struct MVideo: AsyncParsableCommand {
         @Flag(help: "Only make the loop preview (one loop, no sound)") var previewOnly = false
         @Option(help: "Print what should move in this picture (and the clip instruction it gives), then stop") var describe: String?
         @Flag(help: "Only make the YouTube thumbnail and description (beside where the video is saved)") var youtube = false
+        @Option(help: "Check a clip for mirror flips and cuts, then stop") var check: String?
         @Option(help: "Use this picture (copied in)") var picture: String?
         @Option(help: "The scene, in words") var scene: String?
         func run() async throws {
+            if let c = check {
+                let r = LoopVideo.checkClip(URL(fileURLWithPath: (c as NSString).expandingTildeInPath))
+                print("length \(r.length)  mirror flips at \(r.mirrors)  cuts at \(r.cuts)  best part: \(r.best.map { "\($0.start)–\($0.end ?? r.length)" } ?? "the whole clip")"); return
+            }
             if let d = describe {
                 guard let r = await LoopVideo.describeMotion(file: URL(fileURLWithPath: (d as NSString).expandingTildeInPath)) else { throw MVError("No description came back.") }
                 print("What moves: \(r.text)\nCost: \(r.cost)\n\nClip instruction:\n\(LoopVideo.clipPrompt(scene: "", motion: r.text))"); return

@@ -12,6 +12,9 @@ import AVFoundation
 import CoreGraphics
 import VideoToolbox
 
+/// The part of a clip that loops (seconds into the clip; end nil = to the end).
+public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public init(start: Double = 0, end: Double? = nil) { self.start = start; self.end = end } }
+
 public struct LoopProject: Codable, Equatable {
     public var id = UUID().uuidString
     public var title = ""
@@ -31,10 +34,13 @@ public struct LoopProject: Codable, Equatable {
     public var imagesUSD = 0.0, videoUSD = 0.0, pictureCount = 0
     public var output: String?                  // the last long video made (full path)
     public var thumbnail: String?, listing: String?     // the YouTube thumbnail and description beside it (full paths)
+    public var trims: [String: ClipTrim] = [:]  // for each clip, the part that loops
+    public var clipWarning: String?             // what the check found in the clip in use (a mirror flip or a cut), if anything
+    public var trim: ClipTrim { clip.flatMap { trims[$0] } ?? ClipTrim() }
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, songFile, songSeconds, scene, style, motion, pictures, picture, clips, clip, sharpClip, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -49,6 +55,7 @@ public struct LoopProject: Codable, Equatable {
         imagesUSD = try c.decodeIfPresent(Double.self, forKey: .imagesUSD) ?? 0; videoUSD = try c.decodeIfPresent(Double.self, forKey: .videoUSD) ?? 0
         pictureCount = try c.decodeIfPresent(Int.self, forKey: .pictureCount) ?? 0; output = try c.decodeIfPresent(String.self, forKey: .output)
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail); listing = try c.decodeIfPresent(String.self, forKey: .listing)
+        trims = try c.decodeIfPresent([String: ClipTrim].self, forKey: .trims) ?? [:]; clipWarning = try c.decodeIfPresent(String.self, forKey: .clipWarning)
     }
 }
 
@@ -141,7 +148,9 @@ public enum LoopVideo {
         let name = "clip-own-\(Int(Date().timeIntervalSince1970)).\(file.pathExtension.lowercased())"
         try FileManager.default.copyItem(at: file, to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
-        p.clips.append(name); p.clip = name; save(p, dir)
+        p.clips.append(name); p.clip = name
+        applyCheck(&p, clip: name, dir: dir)
+        save(p, dir)
     }
 
     /// Written for a seamless loop: the camera never moves, everything that would really move does so naturally and evenly, the sky only very slowly
@@ -203,6 +212,7 @@ public enum LoopVideo {
         try data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.saveClip(dir.appendingPathComponent(name), pictureName: nil, title: p.title, config: config)
         p.clips.append(name); p.clip = name; p.videoUSD += cost; p.pendingJob = nil
+        applyCheck(&p, clip: name, dir: dir)
         save(p, dir)
     }
 
@@ -217,6 +227,84 @@ public enum LoopVideo {
         case .running: return "A loop clip ordered earlier is still being made by HeyGen; it is collected the next time you open this project."
         case .unknown: return nil
         }
+    }
+
+    /// Checks a clip that has not been checked yet (projects made before the check existed). Returns true when something changed.
+    @discardableResult
+    public static func checkIfNeeded(_ p: inout LoopProject, dir: URL) -> Bool {
+        guard let c = p.clip, p.trims[c] == nil, FileManager.default.fileExists(atPath: dir.appendingPathComponent(c).path) else { return false }
+        applyCheck(&p, clip: c, dir: dir); save(p, dir); return true
+    }
+
+    // MARK: checking a clip
+    /// What a clip check found: moments where the picture turns into its mirror image or cuts to a different shot, and the longest clean stretch.
+    public struct ClipCheck { public var mirrors: [Double]; public var cuts: [Double]; public var best: ClipTrim?; public var length: Double }
+
+    /// Looks through the whole clip (12 pictures a second, small): a sudden change between two pictures is a cut; if the new picture matches the
+    /// previous one turned left to right (or upside down), it is a mirror flip. Generated video sometimes does this halfway through.
+    public static func checkClip(_ url: URL) -> ClipCheck {
+        let asset = AVURLAsset(url: url)
+        let length = CMTimeGetSeconds(asset.duration)
+        guard let track = asset.tracks(withMediaType: .video).first, let r = try? AVAssetReader(asset: asset) else { return ClipCheck(mirrors: [], cuts: [], best: nil, length: length) }
+        let W = 96, H = 54
+        let out = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: W, kCVPixelBufferHeightKey as String: H])
+        r.add(out); r.startReading()
+        var frames: [(t: Double, px: [Float])] = []
+        var lastT = -1.0
+        while let sb = out.copyNextSampleBuffer(), let pb = CMSampleBufferGetImageBuffer(sb) {
+            let t = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sb))
+            if t - lastT < 1.0 / 12 - 0.001 { continue }
+            lastT = t
+            CVPixelBufferLockBaseAddress(pb, .readOnly)
+            let base = CVPixelBufferGetBaseAddress(pb)!.assumingMemoryBound(to: UInt8.self), bpr = CVPixelBufferGetBytesPerRow(pb)
+            var g = [Float](repeating: 0, count: W * H)
+            for y in 0..<H { for x in 0..<W { let p = base + y * bpr + x * 4; g[y * W + x] = (Float(p[0]) + 2 * Float(p[1]) + Float(p[2])) / 4 } }
+            CVPixelBufferUnlockBaseAddress(pb, .readOnly)
+            frames.append((t, g))
+        }
+        guard frames.count > 4 else { return ClipCheck(mirrors: [], cuts: [], best: nil, length: length) }
+        func diff(_ a: [Float], _ b: [Float], mirrorX: Bool = false, mirrorY: Bool = false) -> Float {
+            var s: Float = 0
+            for y in 0..<H { for x in 0..<W {
+                let bx = mirrorX ? W - 1 - x : x, by = mirrorY ? H - 1 - y : y
+                s += abs(a[y * W + x] - b[by * W + bx])
+            } }
+            return s / Float(W * H)
+        }
+        let d = (1..<frames.count).map { diff(frames[$0].px, frames[$0 - 1].px) }
+        let median = d.sorted()[d.count / 2]
+        var mirrors: [Double] = [], cuts: [Double] = []
+        for i in d.indices where d[i] > max(4 * median, median + 10) {
+            let a = frames[i + 1].px, b = frames[i].px
+            let flipped = min(diff(a, b, mirrorX: true), diff(a, b, mirrorY: true), diff(a, b, mirrorX: true, mirrorY: true))
+            if flipped < d[i] * 0.5 { mirrors.append(frames[i + 1].t) } else { cuts.append(frames[i + 1].t) }
+        }
+        let events = (mirrors + cuts).sorted()
+        guard !events.isEmpty else { return ClipCheck(mirrors: [], cuts: [], best: nil, length: length) }
+        // the longest stretch without a flip or a cut that faces the same way as the picture the clip started from (after an odd number of flips it is mirrored)
+        let bounds = [0.0] + events + [length]
+        var best = ClipTrim(start: 0, end: events[0] - 0.1), bestLen = 0.0
+        var flips = 0
+        for k in 0..<(bounds.count - 1) {
+            if k > 0, mirrors.contains(bounds[k]) { flips += 1 }
+            guard flips % 2 == 0 else { continue }
+            let s = k == 0 ? 0 : bounds[k] + 0.1, e = k == bounds.count - 2 ? length : bounds[k + 1] - 0.1
+            if e - s > bestLen { bestLen = e - s; best = ClipTrim(start: s, end: e >= length - 0.05 ? nil : e) }
+        }
+        return ClipCheck(mirrors: mirrors, cuts: cuts, best: best, length: length)
+    }
+
+    /// Checks a new clip; if it flips or cuts, the loop is set to the longest clean stretch and a warning is kept.
+    static func applyCheck(_ p: inout LoopProject, clip: String, dir: URL) {
+        let c = checkClip(dir.appendingPathComponent(clip))
+        guard let best = c.best else { p.clipWarning = nil; if p.trims[clip] == nil { p.trims[clip] = ClipTrim() }; return }      // checked and clean
+        func clock(_ s: Double) -> String { String(format: "%d:%04.1f", Int(s) / 60, s.truncatingRemainder(dividingBy: 60)) }
+        var what: [String] = []
+        if !c.mirrors.isEmpty { what.append("turns into its mirror image at \(c.mirrors.map(clock).joined(separator: ", "))") }
+        if !c.cuts.isEmpty { what.append("cuts to a different shot at \(c.cuts.map(clock).joined(separator: ", "))") }
+        let end = best.end ?? c.length
+        p.trims[clip] = best
+        p.clipWarning = "This clip " + what.joined(separator: " and ") + ". The loop now uses only \(clock(best.start))–\(clock(end)) (\(String(format: "%.1f", end - best.start)) s, the longest part without it). Move the markers below to change it, or make another clip."
     }
 
     // MARK: YouTube
@@ -340,8 +428,8 @@ public enum LoopVideo {
         let period: Double
         let W: Int, H: Int
         let intro: IntroLayer?
-        init(clip: URL, W: Int, H: Int, title: String?) {
-            src = VideoClipSource(url: clip, maxPixel: max(W, H))
+        init(clip: URL, W: Int, H: Int, title: String?, trim: ClipTrim = ClipTrim()) {
+            src = VideoClipSource(url: clip, maxPixel: max(W, H), start: trim.start, end: trim.end)
             period = max(1, src.playSeconds - min(LoopVideo.clipBlend, src.playSeconds / 3))
             self.W = W; self.H = H
             intro = title.map { IntroLayer(title: $0, subject: "", W: W, H: H, end: 8) }
@@ -367,8 +455,8 @@ public enum LoopVideo {
     }
 
     /// The loop on its own (one period, no title, no sound), for watching in the app: it repeats exactly like it will in the long video.
-    public static func makePreview(clip: URL, output: URL, width: Int = 960, height: Int = 540) async throws {
-        let painter = LoopPainter(clip: clip, W: width, H: height, title: nil)
+    public static func makePreview(clip: URL, output: URL, trim: ClipTrim = ClipTrim(), width: Int = 960, height: Int = 540) async throws {
+        let painter = LoopPainter(clip: clip, W: width, H: height, title: nil, trim: trim)
         let frames = Int((painter.period * Double(fps)).rounded())
         let enc = try PieceEncoder(W: width, H: height, bitrate: 2_500_000)
         for f in 0..<frames {
@@ -397,7 +485,7 @@ public enum LoopVideo {
         }
         progress("Preparing the song…", 0.01)
         let song = try await SongLoop(url: dir.appendingPathComponent(p.songFile))
-        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: width, H: height, title: p.shownTitle)
+        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: width, H: height, title: p.shownTitle, trim: p.trim)
         let periodFrames = max(fps, Int((painter.period * Double(fps)).rounded()))
         let introPeriods = max(1, Int(ceil(9.0 * Double(fps) / Double(periodFrames))))         // the title screen fits inside the opening piece
         let totalPeriods = max(introPeriods + 2, Int((p.hours * 3600 * Double(fps) / Double(periodFrames)).rounded()))

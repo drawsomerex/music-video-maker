@@ -144,8 +144,12 @@ enum Snapshots {
                 NSApplication.shared.terminate(nil); return
             }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "loop", let d = ProcessInfo.processInfo.environment["MV_LOOP_DIR"] {   // the looping long music video screens
+                shot("projects", sz(1100, 720), ProjectsView(), wait: 3)
                 model.openLoop(URL(fileURLWithPath: d))
+                RunLoop.current.run(until: Date().addingTimeInterval(4))          // the clip check and the new preview
                 shot("loop-1100x720", sz(1100, 720), RootView(), wait: 3)
+                shot("loop-clip-card", sz(1000, 1500), ScrollView { LoopView().frame(width: 1000) }, wait: 4)
+
                 shot("loop-1720x1080", sz(1720, 1080), RootView(), wait: 3)
                 model.closeLoop(); UserDefaults.standard.set(1, forKey: "startKind")
                 shot("loop-start-1100x720", sz(1100, 720), RootView(), wait: 2)

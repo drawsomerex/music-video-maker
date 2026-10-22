@@ -39,6 +39,8 @@ extension AppModel {
             }
             refreshOpenRouterCredits(silent: true)
             if p.pendingJob != nil { recoverLoopClip() }
+            var q = p                                                   // clips made before the mirror/cut check existed are checked once now
+            if LoopVideo.checkIfNeeded(&q, dir: dir) { loopProject = q; if q.clipWarning != nil, let c = q.clip { loopMakePreview(c) } }
         } catch { errorMessage = "Couldn't open that looping video: \(error.localizedDescription)" }
     }
 
@@ -65,7 +67,8 @@ extension AppModel {
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
-                    cur.thumbnail = done.thumbnail; cur.listing = done.listing
+                    cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning
+                    for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
                     cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
                     loopProject = cur; LoopVideo.save(cur, d)
                 }
@@ -124,7 +127,7 @@ extension AppModel {
             }
             var q = p
             try await LoopVideo.makeClip(&q, dir: d, config: cfg) { ph in Task { @MainActor in self?.loopJob?.phase = ph } }
-            if let c = q.clip { await MainActor.run { self?.loopJob?.phase = "Making the loop preview…" }; try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4")) }
+            if let c = q.clip { await MainActor.run { self?.loopJob?.phase = "Checking the clip and making the loop preview…" }; try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4"), trim: q.trim) }
             return q
         }
     }
@@ -139,11 +142,23 @@ extension AppModel {
         let o = NSOpenPanel(); o.allowedContentTypes = [.movie]; o.message = "Choose a video clip to loop"
         if o.runModal() == .OK, let u = o.url { loopUseClip(u) }
     }
-    /// Makes (or makes again) the in-app preview of a clip's loop.
+    /// Makes (or makes again) the in-app preview of a clip's loop (with the part chosen to loop).
     func loopMakePreview(_ clip: String) {
         guard let d = loopDir else { return }
         runLoop("Making the loop preview…") { p, _ in
-            try await LoopVideo.makePreview(clip: d.appendingPathComponent(clip), output: d.appendingPathComponent("preview-" + (clip as NSString).deletingPathExtension + ".mp4")); return p
+            try await LoopVideo.makePreview(clip: d.appendingPathComponent(clip), output: d.appendingPathComponent("preview-" + (clip as NSString).deletingPathExtension + ".mp4"), trim: p.trims[clip] ?? ClipTrim()); return p
+        }
+    }
+    /// The part of the clip in use that loops. The preview is made again a moment after you stop moving the markers.
+    func loopSetTrim(start: Double, end: Double?) {
+        guard let c = loopProject?.clip else { return }
+        editLoop { $0.trims[c] = ClipTrim(start: start, end: end) }
+        loopPreviewTask?.cancel()
+        loopPreviewTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled, let self else { return }
+            while self.loopJob != nil { try? await Task.sleep(nanoseconds: 300_000_000); if Task.isCancelled { return } }
+            self.loopMakePreview(c)
         }
     }
     func recoverLoopClip() {

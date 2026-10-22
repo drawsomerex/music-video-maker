@@ -21,6 +21,14 @@ struct VideoTrimView: View {
     let initialEnd: Double?
     let clipID: String?              // a generated clip's id; nil = the video dragged into the picture slot
     let partLength: Double
+    var fileURL: URL? = nil          // a clip outside the song's folder (the looping video's clip)
+    var onCommit: ((Double, Double?) -> Void)? = nil     // where the chosen part goes (the looping video); nil = the song's plan
+    var heading = "Video clip", subheading = "Choose which part of the clip is used."
+
+    init(fileURL: URL, length: Double?, start: Double, end: Double?, heading: String, subheading: String, onCommit: @escaping (Double, Double?) -> Void) {
+        section = 0; file = fileURL.lastPathComponent; knownLength = length; initialStart = start; initialEnd = end; clipID = nil; partLength = 0
+        self.fileURL = fileURL; self.onCommit = onCommit; self.heading = heading; self.subheading = subheading
+    }
 
     init(section: Int, candidate: ImageCandidate, partLength: Double) {
         self.section = section; file = candidate.videoFile; knownLength = candidate.videoLength
@@ -38,6 +46,7 @@ struct VideoTrimView: View {
         return clipID != nil ? s.repeatClips : (s.selectedCandidate?.videoRepeat ?? false)
     }
     private var canRepeat: Bool {
+        if onCommit != nil { return false }                 // the looping video always repeats
         guard clipID != nil, let p = model.plan else { return true }
         let s = section < 0 ? p.intro : (p.sections.indices.contains(section) ? p.sections[section] : nil)
         return (s?.clips.count ?? 0) == 1
@@ -55,7 +64,7 @@ struct VideoTrimView: View {
     @State private var grab: CGFloat?              // where the handle was when this drag began
     private var minLen: Double { min(0.5, max(0.001, length)) }
 
-    private var url: URL? { file.flatMap { model.workDir?.appendingPathComponent($0) } }
+    private var url: URL? { fileURL ?? file.flatMap { model.workDir?.appendingPathComponent($0) } }
     private var playsFor: Double { max(0, end - start) }
     private var isWhole: Bool { start <= 0.01 && end >= length - 0.01 }
 
@@ -84,8 +93,8 @@ struct VideoTrimView: View {
     var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Label("Video clip", systemImage: "film").font(.headline)
-                Text("Choose which part of the clip is used.").font(.callout).foregroundStyle(.secondary)
+                Label(heading, systemImage: "film").font(.headline)
+                Text(subheading).font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             Button { reset() } label: { Label("Use the whole clip", systemImage: "arrow.counterclockwise") }
@@ -205,6 +214,7 @@ struct VideoTrimView: View {
 
     var summary: String {
         var s = isWhole ? "The whole clip is used (\(String(format: "%.1f", playsFor)) seconds)." : "Using \(String(format: "%.1f", playsFor)) seconds of the \(String(format: "%.1f", length))-second clip: from \(clock(start)) to \(clock(end))."
+        if onCommit != nil { s += " This part repeats for the whole video; each time, its last 1.6 seconds dissolve into its start." }
         if partLength > 0 {
             if playsFor + 0.3 < partLength { s += repeats && canRepeat ? " This part of the song lasts \(Int(partLength.rounded())) seconds, so the clip repeats." : " This part of the song lasts \(Int(partLength.rounded())) seconds: the clip plays once, then the last picture holds and the camera moves between its main features." }
             else if playsFor > partLength + 0.3 { s += " This part of the song lasts \(Int(partLength.rounded())) seconds, so the end of the clip is not reached." }
@@ -230,6 +240,7 @@ struct VideoTrimView: View {
     }
     func commit() {
         let e: Double? = end >= length - 0.01 ? nil : end
+        if let f = onCommit { f(start, e); return }
         if let id = clipID { model.setClipTrim(section: section, clip: id, start: start, end: e) } else { model.setVideoTrim(section: section, start: start, end: e) }
     }
     func reset() { stopPlay(); start = 0; end = length; commit(); showFrame(at: 0) }

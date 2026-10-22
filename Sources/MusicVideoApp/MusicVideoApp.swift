@@ -88,6 +88,9 @@ struct MusicVideoApp: App {
                 }.keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(updater.isInstalling || !model.historyAvailable || (model.editRedo.isEmpty && (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager?.canRedo != true))
             }
+            CommandGroup(after: .newItem) {
+                Button("Projects…") { model.showProjects = true }.keyboardShortcut("o")
+            }
             CommandGroup(replacing: .help) {
                 Button("Help & Questions…") { model.helpScreen = model.screenName; model.showHelp = true }.keyboardShortcut("?", modifiers: .command)
                 Button("Quick Guide") { model.showGuide = true }

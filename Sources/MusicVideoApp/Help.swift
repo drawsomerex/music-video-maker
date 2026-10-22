@@ -83,7 +83,7 @@ struct QuickGuideView: View {
                         }
                     }
                     Divider()
-                    Text("Tip: rest your mouse on any button for a moment and a short explanation appears. Your work is saved automatically, so you can close the app and come back to it with “Open earlier project”. The Song · Pictures · Video steps at the top can be clicked to go back at any time.")
+                    Text("Tip: rest your mouse on any button for a moment and a short explanation appears. Your work is saved automatically, so you can close the app and come back to it with “Projects” (Command-O). The Song · Pictures · Video steps at the top can be clicked to go back at any time.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.trailing, 8)

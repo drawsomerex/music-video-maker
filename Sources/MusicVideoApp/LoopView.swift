@@ -32,6 +32,7 @@ struct LoopView: View {
     @State private var customHours = 2.0
     @State private var pictureTargeted = false
     @State private var clipTargeted = false
+    @State private var showTrim = false
 
     var p: LoopProject { model.loopProject ?? LoopProject() }
     func bind<T>(_ k: WritableKeyPath<LoopProject, T>) -> Binding<T> { Binding(get: { p[keyPath: k] }, set: { v in model.editLoop { $0[keyPath: k] = v } }) }
@@ -70,9 +71,10 @@ struct LoopView: View {
                 .help("Picture \(OpenRouter.formatUSD(p.imagesUSD)) and loop clip \(OpenRouter.formatUSD(p.videoUSD)) for this looping video (the cost OpenRouter reported).")
             Button { if let d = model.loopDir { NSWorkspace.shared.activateFileViewerSelecting([d]) } } label: { Label("Show folder", systemImage: "folder") }.labelStyle(.iconOnly)
                 .help("Opens this looping video's folder in Finder: the song, pictures, clips and previews.")
+            Button { model.showProjects = true } label: { Label("Projects", systemImage: "square.grid.2x2") }.labelStyle(.iconOnly).help("All your projects (Command-O).")
             HelpButton(screen: "Looping long music video")
             Button { model.closeLoop() } label: { Label("Close", systemImage: "xmark.circle") }
-                .help("Closes this looping video and returns to the start. Everything is saved; open it again with “Open earlier project”.")
+                .help("Closes this looping video and returns to the start. Everything is saved; open it again from “Projects” (Command-O).")
         }
         .padding(.horizontal, 20).padding(.vertical, 8).background(.regularMaterial)
     }
@@ -208,6 +210,17 @@ struct LoopView: View {
                             Text("This is exactly how it repeats in the long video (shown without sound).").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                }
+                if let w = p.clipWarning {
+                    Label(w, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                if let c = p.clip, let u = model.loopFile(c) {
+                    DisclosureGroup(isExpanded: $showTrim) {
+                        VideoTrimView(fileURL: u, length: nil, start: p.trim.start, end: p.trim.end, heading: "The part that loops",
+                                      subheading: "Only the part between the green and red markers repeats. Leave out anything you don't want (a jump, a flip, a moment that looks odd).") { s, e in model.loopSetTrim(start: s, end: e) }
+                            .id(c).padding(.top, 6)
+                    } label: { Label("Choose the part that loops", systemImage: "scissors").font(.callout.weight(.semibold)) }
+                        .onAppear { if p.clipWarning != nil { showTrim = true } }
                 }
                 if p.clips.count > 1 {
                     HStack(spacing: 6) {
