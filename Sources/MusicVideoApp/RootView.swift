@@ -15,6 +15,7 @@ struct RootView: View {
         }
         .background(WindowFitter())
         .sheet(isPresented: $model.showProjects) { ProjectsView().environmentObject(model) }
+        .sheet(item: $model.pictureFit) { PictureFitSheet(req: $0).environmentObject(model) }
         .animation(.smooth(duration: 0.3), value: updaterVisible)
         .animation(.smooth(duration: 0.25), value: model.busy)
     }

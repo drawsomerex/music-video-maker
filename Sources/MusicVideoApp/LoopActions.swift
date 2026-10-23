@@ -151,6 +151,9 @@ extension AppModel {
         }
     }
     func loopUsePicture(_ url: URL) {
+        fitThen(url, scene: loopProject?.scene ?? "", addCost: { [weak self] c in self?.editLoop { $0.imagesUSD += c } }) { [weak self] u in self?.loopUsePictureNow(u) }
+    }
+    private func loopUsePictureNow(_ url: URL) {
         guard var p = loopProject, let d = loopDir else { return }
         do { try LoopVideo.addPicture(&p, dir: d, file: url, config: config); loopProject = p } catch { errorMessage = error.localizedDescription; return }
         loopDescribeMotion()

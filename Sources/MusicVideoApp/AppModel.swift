@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
     var loopListenTask: Task<Void, Never>?
+    @Published var pictureFit: PictureFitRequest?   // an outside photo that isn't widescreen, waiting to be extended or cropped
     @Published var loopSample: URL?                // a short preview of the long video to play (with sound)
     @Published var loopListening: String?          // "Listening to the songs (3 of 17)…" while new songs are being measured
     @Published var showProjects = false
@@ -838,6 +839,9 @@ final class AppModel: ObservableObject {
     }
 
     func load(_ url: URL, section: Int) {
+        fitThen(url, addCost: { [weak self] c in self?.plan?.totalGenerationCostUSD += c; self?.persist() }) { [weak self] u in self?.loadNow(u, section: section) }
+    }
+    private func loadNow(_ url: URL, section: Int) {
         guard var p = plan, let w = workDir else { return }
         checkpoint("Load artwork")
         do {

@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -411,6 +411,21 @@ struct MVideo: AsyncParsableCommand {
             let t0 = Date()
             try await LoopVideo.render(p, dir: dir, output: o) { ph, f in print(String(format: "\r%3d%%  %@", Int(f * 100), ph), terminator: ""); fflush(stdout) }
             print(String(format: "\n✅ %@  (%.0fs)", o.path, Date().timeIntervalSince(t0)))
+        }
+    }
+
+    struct Fit: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Make a photo widescreen (16:9): extend it with the picture maker (the photo itself is kept; a few cents) or crop it.")
+        @Argument var picture: String
+        @Option(help: "Where to save it") var out: String
+        @Flag(help: "Crop the middle instead of extending") var crop = false
+        @Option(help: "The scene, in words (helps the new sides match)") var scene = ""
+        func run() async throws {
+            let u = URL(fileURLWithPath: (picture as NSString).expandingTildeInPath), o = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+            print(PictureFit.describe(u) + (PictureFit.needsFitting(u) ? "" : " (close enough to widescreen: no change needed)"))
+            if crop { try PictureFit.crop(u, rect: PictureFit.cropRect(aspect: PictureFit.aspect(u) ?? PictureFit.target), output: o); print("✅ \(o.path)"); return }
+            let cost = try await PictureFit.extend(u, output: o, scene: scene)
+            print("✅ \(o.path)  cost \(OpenRouter.formatUSD(cost))")
         }
     }
 

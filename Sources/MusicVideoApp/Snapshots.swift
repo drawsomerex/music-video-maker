@@ -143,6 +143,10 @@ enum Snapshots {
                 shot("s-song-page", sz(1000, 1000), LyricDividerView(), wait: 2)
                 NSApplication.shared.terminate(nil); return
             }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "fit", let u = ProcessInfo.processInfo.environment["MV_FIT_PHOTO"].map({ URL(fileURLWithPath: $0) }) {   // the not-widescreen sheet
+                shot("fit-sheet", sz(860, 640), PictureFitSheet(req: PictureFitRequest(source: u, scene: "", use: { _ in }, addCost: { _ in })), wait: 2)
+                NSApplication.shared.terminate(nil); return
+            }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "zoom", let u = ProcessInfo.processInfo.environment["MV_ZOOM_VIDEO"].map({ URL(fileURLWithPath: $0) }) {   // the full-screen viewer
                 func rep(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
                 let v = ZoomVideoView(player: AVPlayer(url: u)); v.frame = CGRect(x: 0, y: 0, width: 1600, height: 900); v.layout()
