@@ -24,7 +24,9 @@ public enum OpenRouterVideo {
     public static func clipSeconds(forSectionSeconds s: Double) -> Int { min(maxSeconds, max(minSeconds, Int(ceil(s - 0.001)))) }
 
     /// Makes one clip from a first-frame picture. `onPhase` reports progress text. Throws on any refusal (a refused request is never charged).
-    public static func generate(prompt: String, firstFrameJPEG: Data, seconds: Int, apiKey: String, resolution res: String = OpenRouterVideo.resolution, onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> Clip {
+    /// `exactPrompt`: HeyGen follows the prompt word for word instead of rewriting it first (its "prompt enhancement" off), for a fully written brief.
+    public static func generate(prompt: String, firstFrameJPEG: Data, seconds: Int, apiKey: String, resolution res: String = OpenRouterVideo.resolution, seed: Int? = nil, exactPrompt: Bool = false,
+                                onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> Clip {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first.") }
         func request(_ method: String, _ url: String, body: [String: Any]? = nil) async throws -> (Int, Data) {
@@ -39,9 +41,11 @@ public enum OpenRouterVideo {
             if let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let e = j["error"] as? [String: Any], let m = e["message"] as? String { return m }
             return String(data: d, encoding: .utf8)?.prefix(200).description ?? "unknown error"
         }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model, "prompt": prompt, "duration": seconds, "resolution": res, "aspect_ratio": "16:9", "generate_audio": true,   // HeyGen always renders sound; the song replaces it
             "frame_images": [["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + firstFrameJPEG.base64EncodedString()], "frame_type": "first_frame"]]]
+        if let seed { body["seed"] = seed }
+        if exactPrompt { body["provider"] = ["options": ["heygen": ["parameters": ["prompt_enhancement": "disabled"]]]] }
         onPhase?("Sending the picture to HeyGen…")
         let (st, d) = try await request("POST", "https://openrouter.ai/api/v1/videos", body: body)
         guard (200..<300).contains(st), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let id = j["id"] as? String else {

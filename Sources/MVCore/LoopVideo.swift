@@ -194,7 +194,8 @@ public enum LoopVideo {
         let prompt = """
         A song called "\(title)" will play for hours as calm background (study) music over ONE looping video scene.\(style.isEmpty ? "" : " The look: \(style).")\(about.isEmpty ? "" : " About the music, in the maker's words (the scenes must suit it): \(about)")
         Suggest 10 different scenes that loop beautifully: a fixed viewpoint with gentle, continuous, repeating motion (rain on a window, a crackling fireplace, a waterfall, \
-        a river, falling snow, swaying grass, steam from a cup, city lights in the rain, waves, candle light). Motion that repeats in place, never something travelling across. No people walking in or out, no text.
+        a river, falling snow, steam from a cup, city lights in the rain, waves, candle light, mist over a lake). Motion that repeats in place, never something travelling across. \
+        Prefer water, fire, light, rain, snow and mist; avoid falling petals, leaves, paper or hair blowing about (the clip maker animates those poorly). No people walking in or out, no text.
         \(avoid.isEmpty ? "" : "Do not repeat these: " + avoid.prefix(20).joined(separator: " | ") + "\n")Each scene is one vivid sentence of 12–25 words. Reply with ONLY the 10 scenes, one per line, no numbers.
         """
         let r = try await omlx.chat(model: omlx.llm, parts: [.text(prompt)], maxTokens: 900)
@@ -237,18 +238,29 @@ public enum LoopVideo {
         save(p, dir)
     }
 
-    /// Written for a seamless loop: the camera never moves, everything that would really move does so naturally and evenly, in motion that repeats in place.
-    /// Clouds billow softly where they are instead of sliding across (a slide never comes back, so it shows when the clip repeats); anything that turns or
-    /// flows keeps the same direction; nothing enters or leaves; the light stays the same.
-    public static func clipPrompt(scene: String, motion: String = "") -> String {
-        let m = motion.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(scene.isEmpty ? "" : scene + " ")" +
-        (m.isEmpty ? "Everything that would really move in this scene moves naturally (such as water, waves, rain, snow, clouds, fire, smoke, leaves or flickering light). "
-                   : "What moves: \(m). Everything else that would naturally move moves gently too. ") +
-        "A seamless looping shot: the camera is completely still (locked-off tripod, no zoom, no pan). The motion is continuous, even and repeating for the whole clip: " +
-        "ripples, waves, flicker, swaying and falling things repeat in place. Clouds stay where they are and only billow softly, very slowly; they never slide across the sky. " +
-        "Anything that turns or flows (a water wheel, a waterfall, a stream) keeps going the same way at the same speed the whole time and never reverses. " +
-        "People and animals only move a little in place. Nothing enters or leaves the frame, no sudden events, the lighting stays the same, and the last moment looks like the first. Calm, peaceful, no text."
+    /// The clip brief, written the way HeyGen recommends for its model: long and in labelled parts (camera, setting, look, light, action, exclusions,
+    /// audio), sent word for word (its prompt rewriting off). The picture is the literal first frame, so the words go on what moves, what must not,
+    /// and what must never happen; "no …" clauses are followed closely. A camera and lens are named only for photographic looks (on a painting they
+    /// would pull it towards a photo).
+    public static func clipPrompt(scene: String, motion: String = "", style: String = "") -> String {
+        let m = motion.trimmingCharacters(in: CharacterSet(charactersIn: " \n.")), sc = scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let st = style.trimmingCharacters(in: CharacterSet(charactersIn: " \n."))
+        let photographic = ["photo", "realistic", "cinematic", "35mm", "film still", "documentary", "live-action", "live action"].contains { st.lowercased().contains($0) }
+        return [
+            "Camera: " + (photographic ? "Shot on a large-format cinema camera with a 35mm lens at T4, locked off on a heavy tripod. " : "") +
+                "The frame is locked and the camera does not move at all for the whole clip: no pan, no tilt, no zoom, no push-in, no drift, no shake.",
+            "Setting: " + (sc.isEmpty ? "the scene in the first frame." : sc + (sc.hasSuffix(".") ? "" : ".")) +
+                " The first frame is the finished picture: keep its composition, framing and every object exactly where they are.",
+            "Look: " + (st.isEmpty ? "exactly the look of the first frame." : st + ".") + " The look, the colours and the texture stay exactly as in the first frame" +
+                (photographic ? "; natural film grain, no smoothing, no beauty filter." : "; the marks of the medium (brushstrokes, paper, grain) stay fixed in place and never shimmer, swim or smooth into a glossy digital or 3D look."),
+            "Light: the light stays exactly as in the first frame for the whole clip, with the same brightness, colours and direction: no fading, no flashes, no change of time of day (only real firelight or candlelight may flicker).",
+            "Action, from the first second to the last: " + (m.isEmpty ? "everything that would really move in this scene moves gently (water, rain, snow, fire, smoke, mist or flickering light)." : m + ".") +
+                " This motion is continuous and steady and repeats in place at the same gentle pace for all \(clipSeconds) seconds: nothing starts, builds, peaks or ends, and there are no one-off events (a single splash, a sudden gust). " +
+                "Clouds keep their places and only billow softly; they never slide across the sky. Anything that turns or flows (a water wheel, a waterfall, a stream) keeps the same direction and speed the whole time and never reverses. " +
+                "People and animals only move a little in place. Everything else stays perfectly still. The last second looks like the first.",
+            "Exclusions: one continuous shot with no visible edit. No cuts, no mirror flip, no change of scene, no morphing, no new objects, nothing entering or leaving the frame, no people or animals appearing, no text, logos or lettering.",
+            "Audio: quiet natural ambience of the scene only. No music, no dialogue.",
+        ].joined(separator: "\n")
     }
 
     /// Looks at the picture once (a cheap cloud vision call, a fraction of a cent) and lists what should move in the loop clip. Returns the text and its cost.
@@ -288,8 +300,8 @@ public enum LoopVideo {
         guard let pic = p.picture, let frame = Pipeline.firstFrameJPEG(file: dir.appendingPathComponent(pic)) else { throw MVError("Make or add the picture first. The clip starts from it.") }
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         var saved = p
-        let clip = try await OpenRouterVideo.generate(prompt: clipPrompt(scene: scene, motion: p.motion), firstFrameJPEG: frame, seconds: clipSeconds, apiKey: config.openRouterKey,
-                                                      resolution: p.sharpClip ? "2K" : OpenRouterVideo.resolution,
+        let clip = try await OpenRouterVideo.generate(prompt: clipPrompt(scene: scene, motion: p.motion, style: p.style), firstFrameJPEG: frame, seconds: clipSeconds, apiKey: config.openRouterKey,
+                                                      resolution: p.sharpClip ? "2K" : OpenRouterVideo.resolution, exactPrompt: true,
                                                       onJob: { id in saved.pendingJob = id; save(saved, dir) }, onPhase: onPhase)
         p.pendingJob = nil
         try keepClip(&p, dir: dir, data: clip.data, cost: clip.costUSD ?? clipPrice(sharp: p.sharpClip, perSecond768: OpenRouterVideo.fallbackPricePerSecond), config: config)
