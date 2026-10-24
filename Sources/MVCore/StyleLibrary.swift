@@ -73,7 +73,7 @@ public final class StyleLibrary: ObservableObject, @unchecked Sendable {
     public func isModified(_ p: StylePreset) -> Bool { p.builtIn && original(id: p.id).map { $0.name != p.name || $0.prompt != p.prompt } == true }
     public var hasDeletedBuiltIns: Bool { !deleted.isEmpty }
 
-    static func shippedList() -> [StylePreset] { builtIns.map { StylePreset(name: $0.0, prompt: $0.1 + " " + StylePreset.detail, builtIn: true) } }
+    static func shippedList() -> [StylePreset] { builtIns.map { StylePreset(name: $0.0, prompt: StylePreset.withoutLighting($0.1) + " " + StylePreset.detail, builtIn: true) } }
 
     private func load() {
         var list = StyleLibrary.shippedList()
@@ -83,7 +83,10 @@ public final class StyleLibrary: ObservableObject, @unchecked Sendable {
             var saved = st.presets
             // built-ins saved before every style asked for super high detail: brought up to date unless you changed their text
             for i in saved.indices where saved[i].builtIn {
-                if let b = StyleLibrary.builtIns.first(where: { StylePreset.slug($0.0) == saved[i].id }), saved[i].prompt == b.1 { saved[i].prompt = b.1 + " " + StylePreset.detail }
+                // (and, since 1.20.2, without any lighting: the scene decides the light)
+                if let b = StyleLibrary.builtIns.first(where: { StylePreset.slug($0.0) == saved[i].id }), saved[i].prompt == b.1 || saved[i].prompt == b.1 + " " + StylePreset.detail {
+                    saved[i].prompt = StylePreset.withoutLighting(b.1) + " " + StylePreset.detail
+                }
             }
             let have = Set(saved.map(\.id))
             for b in list where !have.contains(b.id) && !deleted.contains(b.id) { saved.append(b) }

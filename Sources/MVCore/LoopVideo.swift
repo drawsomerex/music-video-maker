@@ -20,6 +20,31 @@ public enum NextFocus: String, Codable, CaseIterable, Sendable {
     public var action: String { switch self { case .place: "Next scene: same place, new moment"; case .building: "Next scene: same building, new view"; case .subject: "Next scene: same subject, new place" } }
 }
 
+/// Weather for a landscape picture (any = what the scene says).
+public enum LoopWeather: String, Codable, CaseIterable, Sendable {
+    case any, clear, softClouds, overcast, rain, storm, snow, mist, clearingStorm
+    public var name: String {
+        switch self { case .any: "As the scene says"; case .clear: "Clear sky"; case .softClouds: "Soft clouds"; case .overcast: "Overcast"; case .rain: "Gentle rain"
+        case .storm: "Thunderstorm"; case .snow: "Falling snow"; case .mist: "Mist and fog"; case .clearingStorm: "Clearing storm" }
+    }
+    public var words: String {
+        switch self { case .any: ""; case .clear: "a clear, cloudless sky"; case .softClouds: "a few soft, still clouds"; case .overcast: "a soft, grey overcast sky"
+        case .rain: "gentle steady rain falling, wet surfaces and soft grey clouds"; case .storm: "a dramatic thunderstorm: dark, heavy storm clouds, driving rain and a moody, stormy atmosphere"
+        case .snow: "snow gently falling, a snowy landscape"; case .mist: "soft mist and fog drifting low over the land and water"; case .clearingStorm: "a storm clearing: breaking dark clouds with light spilling through" }
+    }
+}
+/// Time of day for a landscape picture (any = what the scene says).
+public enum LoopTimeOfDay: String, Codable, CaseIterable, Sendable {
+    case any, dawn, morning, midday, goldenEvening, dusk, night
+    public var name: String {
+        switch self { case .any: "As the scene says"; case .dawn: "Dawn"; case .morning: "Morning"; case .midday: "Midday"; case .goldenEvening: "Golden evening"; case .dusk: "Dusk"; case .night: "Moonlit night" }
+    }
+    public var words: String {
+        switch self { case .any: ""; case .dawn: "at dawn, soft first light"; case .morning: "in fresh morning light"; case .midday: "at midday, bright even daylight"
+        case .goldenEvening: "in the golden light of early evening"; case .dusk: "at dusk, the last light fading"; case .night: "at night under moonlight" }
+    }
+}
+
 /// The part of a clip that loops (seconds into the clip; end nil = to the end).
 public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public var blend: Double? = nil      // blend: the dissolve from the end back to the start (nil = 1.6 s)
     public var clean: [Double]? = nil          // the usable part of the clip [start, end] when it flips, cuts or turns the other way (nil = all of it); the slow dissolve stays inside it
@@ -61,7 +86,11 @@ public struct LoopProject: Codable, Equatable {
     public var subjectClose: [String: Double] = [:]   // pictures drawn from the subject photo that came out too much like it (picture → distance), for a warning
     public var subjectKind: SubjectKind = .auto
     public var nextFocus: NextFocus? = nil      // what "Next scene" keeps (nil = decided from the subject: a creature → the subject, a building → the building, none → the place)
-    public var sceneChanges: [String] = []      // the major changes used for "next scene" pictures so far (not repeated)
+    public var sceneChanges: [String] = []
+    public var source: String?                  // the source image every "Next scene" starts from (stays the same however many pictures are drawn)
+    public var weather: LoopWeather = .any      // a landscape's weather for the pictures drawn (any = what the scene says)
+    public var timeOfDay: LoopTimeOfDay = .any  // and its time of day
+    public var sceneDrawn: String?              // the scene words the picture in use was drawn from (words typed since then are your next scene)      // the major changes used for "next scene" pictures so far (not repeated)
     public var subject: String?                 // a photo of the subject the drawn picture shows (redrawn in the style), in the project folder
     public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
     public var pendingJob: String?              // a HeyGen job that was paid for but not collected yet (the app was closed)
@@ -78,7 +107,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, source, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -105,6 +134,10 @@ public struct LoopProject: Codable, Equatable {
         subjectKind = try c.decodeIfPresent(SubjectKind.self, forKey: .subjectKind) ?? .auto
         sceneChanges = try c.decodeIfPresent([String].self, forKey: .sceneChanges) ?? []
         nextFocus = try c.decodeIfPresent(NextFocus.self, forKey: .nextFocus)
+        sceneDrawn = try c.decodeIfPresent(String.self, forKey: .sceneDrawn)
+        weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
         sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .never
         sceneMinutes = try c.decodeIfPresent(Double.self, forKey: .sceneMinutes) ?? 10
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
@@ -228,21 +261,48 @@ public enum LoopVideo {
         return Array(lines.prefix(10))
     }
 
+    /// Scene ideas from a picture (the picture in use, or the subject photo): ten next scenes that keep what you chose. The place: the same spot at other
+    /// times, in other weather or seasons. The building: the same building from other viewpoints and at other times. The subject: the same subject in ten other places.
+    public static func suggestScenes(picture: URL, focus: NextFocus, about: String = "", avoid: [String] = [], config: Config = .load()) async throws -> [String] {
+        guard let img = loadImage(picture, maxPixel: 768), let jpeg = PictureFit.jpegData(img, quality: 0.8) else { throw MVError("The picture couldn't be read.") }
+        var text = "This picture is the starting point for a long, calm looping video (study music)."
+        if !about.isEmpty { text += " About the music: \(about)." }
+        switch focus {
+        case .place: text += " Suggest 10 scenes of the SAME place (the same landmarks and layout), each with one clear change: another time of day, weather (rain, a storm, snow, mist), season, or a calm new element that belongs there."
+        case .building: text += " Suggest 10 scenes of the SAME main building, kept true to life: each from another natural viewpoint and at another time, in other weather or another season."
+        case .subject: text += " Suggest 10 scenes of the SAME main subject (the main creature, person or object in the picture) in 10 completely different calm places."
+        }
+        text += " Each must suit a fixed camera with gentle motion that repeats in place (water, rain, snow, mist, fire, smoke, flickering light); nothing walking or travelling across, no text."
+        if !avoid.isEmpty { text += " Do not repeat these: " + avoid.prefix(20).joined(separator: " | ") + "." }
+        text += " Each scene is one vivid sentence of 12–25 words. Reply with ONLY the 10 scenes, one per line, no numbers."
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
+        req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.9, "messages": [["role": "user", "content": content]]] as [String: Any])
+        let (d, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+              let msg = (ch["message"] as? [String: Any])?["content"] as? String else { throw MVError("No scene ideas came back. Try again.") }
+        let lines = msg.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " -•*\"0123456789.)")) }.filter { $0.count > 20 }
+        guard !lines.isEmpty else { throw MVError("No scene ideas came back. Try again.") }
+        return Array(lines.prefix(10))
+    }
+
     /// Draws the picture the clip starts from. Returns its cost.
     @discardableResult
     public static func makePicture(_ p: inout LoopProject, dir: URL, config: Config = .load()) async throws -> Double {
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !scene.isEmpty else { throw MVError("Describe the scene first (or press “Suggest scenes”).") }
-        let prompt = "\(scene)\(p.style.isEmpty ? "" : " Style: \(p.style).") A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
-            "elements that can move gently and endlessly (water, light, weather, smoke, leaves)." + (p.clearSky ? " A clear, cloudless sky." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+        let cloudless = p.clearSky && !mentionsSky(scene) && (p.weather == .any || p.weather == .clear)
+        let prompt = "\(scene)\(conditions(p))\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
+            "elements that can move gently and endlessly (water, light, weather, smoke, leaves)." + (cloudless ? " A clear, cloudless sky." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
         let subject = p.subject.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
         let kind = p.subject.map { SubjectPicture.kind(p.subjectKind, file: dir.appendingPathComponent($0)) } ?? .creature
         let gen = try await OpenRouter.generateImage(prompt: prompt + (subject != nil ? " The attached reference picture is the SUBJECT: \(SubjectPicture.instruction(kind))." : ""),
-                                                     apiKey: config.openRouterKey, referenceJPEGs: subject.map { [$0] } ?? [])
+                                                     apiKey: config.openRouterKey, referenceJPEGs: subject.map { [$0] } ?? [], scene: scene)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
-        p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1
+        p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1; p.sceneDrawn = scene
         if subject != nil, let s = p.subject, let d = SubjectPicture.distance(dir.appendingPathComponent(s), dir.appendingPathComponent(name)), d < SubjectPicture.tooClose(kind) { p.subjectClose[name] = Double(d) }
         save(p, dir)
         return gen.costUSD
@@ -257,7 +317,7 @@ public enum LoopVideo {
         return SubjectPicture.kind(p.subjectKind, file: dir.appendingPathComponent(s)) == .place ? .building : .subject
     }
 
-    public static func nextSceneIdea(picture: URL, scene: String, focus: NextFocus = .place, avoid: [String] = [], config: Config = .load()) async throws -> (scene: String, change: String, cost: Double) {
+    public static func nextSceneIdea(picture: URL, scene: String, focus: NextFocus = .place, avoid: [String] = [], keep: String = "", config: Config = .load()) async throws -> (scene: String, change: String, cost: Double) {
         guard let img = loadImage(picture, maxPixel: 768), let jpeg = PictureFit.jpegData(img, quality: 0.8) else { throw MVError("The picture couldn't be read.") }
         let described: String = scene.isEmpty ? "" : " (it was described as: \(scene))"
         var text = "This picture is one scene of a long, calm looping video" + described + ". "
@@ -274,6 +334,7 @@ public enum LoopVideo {
             text += "(dawn, golden evening, moonlit night), different weather (gentle rain, falling snow, mist, a clearing storm), a different season, or a calm new element that belongs there "
             text += "(lanterns lit in the windows, a boat moored at the shore, a campfire, fireflies). Motion in the clip must repeat in place, so no people or animals walking, no vehicles travelling. "
             if !avoid.isEmpty { text += "Do not repeat these changes: " + avoid.joined(separator: "; ") + ". " }
+            if !keep.isEmpty { text += "The weather and time of day are fixed (\(keep)), so the major change must be something else (the season, a calm new element, the view). " }
             if focus == .building { text += "Choose a noticeably different but natural viewpoint of the building. " }
             text += "Reply with exactly two lines. Line 1: the new scene in one vivid sentence of 15–35 words, naming the location and the change. Line 2: CHANGE: the major change in 3–8 words."
         }
@@ -294,10 +355,16 @@ public enum LoopVideo {
     /// (make a clip from it and add it to "Scenes"). Returns the cost.
     @discardableResult
     public static func makeNextPicture(_ p: inout LoopProject, dir: URL, config: Config = .load()) async throws -> Double {
-        guard let pic = p.picture else { throw MVError("Draw or add the first picture first.") }
+        // the source image: chosen once (the picture in use the first time) and kept, so every next scene starts from the same picture
+        if p.source == nil || !FileManager.default.fileExists(atPath: dir.appendingPathComponent(p.source!).path) { p.source = p.picture }
+        guard let pic = p.source else { throw MVError("Draw or add the first picture first.") }
         let prevURL = dir.appendingPathComponent(pic)
         let focus = nextFocus(p, dir: dir)
-        let idea = try await nextSceneIdea(picture: prevURL, scene: p.scene, focus: focus, avoid: p.sceneChanges, config: config)
+        // a scene you typed since the last picture is drawn as it is (your words, never replaced); otherwise the app picks the change
+        let typed = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fixed = [p.weather.words, p.timeOfDay.words].filter { !$0.isEmpty }
+        let idea = !typed.isEmpty && typed != p.sceneDrawn ? (scene: typed, change: typed, cost: 0.0)
+                                                           : try await nextSceneIdea(picture: prevURL, scene: p.scene, focus: focus, avoid: p.sceneChanges, keep: fixed.joined(separator: ", "), config: config)
         guard let img = loadImage(prevURL, maxPixel: 1024), let prev = PictureFit.jpegData(img, quality: 0.85) else { throw MVError("The picture couldn't be read.") }
         let change = idea.change.isEmpty ? idea.scene : idea.change
         let keep: String
@@ -308,18 +375,36 @@ public enum LoopVideo {
         }
         let subject = p.subject.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
         let refs = focus != .place ? [prev] + (subject.map { [$0] } ?? []) : [prev]
-        let prompt = "\(idea.scene)\(p.style.isEmpty ? "" : " Style: \(p.style).") A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition. " +
-            (refs.count > 1 ? "Two reference pictures are attached: the FIRST is the PREVIOUS scene of this video; the SECOND is a photo of the real \(focus == .building ? "building" : "subject"), only to keep it accurate (never copy it). " : "The attached reference picture is the PREVIOUS scene of this video. ") +
+        let prompt = "\(idea.scene)\(conditions(p))\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition. " +
+            (refs.count > 1 ? "Two reference pictures are attached: the FIRST is the SOURCE scene of this video; the SECOND is a photo of the real \(focus == .building ? "building" : "subject"), only to keep it accurate (never copy it). " : "The attached reference picture is the SOURCE scene of this video. ") +
             keep + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs)
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs, scene: idea.scene)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD + idea.cost; p.pictureCount += 1
-        p.scene = idea.scene
+        p.scene = idea.scene; p.sceneDrawn = idea.scene
         if !idea.change.isEmpty { p.sceneChanges.append(idea.change) }
         save(p, dir)
         return gen.costUSD + idea.cost
+    }
+
+    /// The chosen weather and time of day, in words for the picture maker ("" when both are left to the scene).
+    public static func conditions(_ p: LoopProject) -> String {
+        let parts = [p.weather.words, p.timeOfDay.words].filter { !$0.isEmpty }
+        return parts.isEmpty ? "" : " Weather and time (these decide the light and the sky): " + parts.joined(separator: ", ") + "."
+    }
+
+    /// True when the scene words say something about the sky or the weather (then "Cloudless sky" is not added).
+    static func mentionsSky(_ scene: String) -> Bool {
+        scene.range(of: #"\b(storm\w*|rain\w*|cloud\w*|overcast|thunder\w*|lightning|snow\w*|mist\w*|fog\w*|haz[ey]|sky|skies|sunset|sunrise|dawn|dusk|night|moon\w*|stars?|aurora|wind\w*|gale|blizzard|drizzl\w*|sleet|grey|gray)\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Uses a picture of your own as the source image for next scenes (copied in; it is not the picture in use).
+    public static func setSource(_ p: inout LoopProject, dir: URL, file: URL) throws {
+        let name = "source-\(Int(Date().timeIntervalSince1970)).\(file.pathExtension.lowercased())"
+        try FileManager.default.copyItem(at: file, to: dir.appendingPathComponent(name))
+        p.source = name; save(p, dir)
     }
 
     /// Uses a picture of your own.
@@ -346,7 +431,7 @@ public enum LoopVideo {
     /// would pull it towards a photo).
     public static func clipPrompt(scene: String, motion: String = "", style: String = "") -> String {
         let m = motion.trimmingCharacters(in: CharacterSet(charactersIn: " \n.")), sc = scene.trimmingCharacters(in: .whitespacesAndNewlines)
-        let st = style.trimmingCharacters(in: CharacterSet(charactersIn: " \n."))
+        let st = StylePreset.withoutLighting(style).trimmingCharacters(in: CharacterSet(charactersIn: " \n."))
         let photographic = ["photo", "realistic", "cinematic", "35mm", "film still", "documentary", "live-action", "live action"].contains { st.lowercased().contains($0) }
         return [
             "Camera: " + (photographic ? "Shot on a large-format cinema camera with a 35mm lens at T4, locked off on a heavy tripod. " : "") +
@@ -402,7 +487,8 @@ public enum LoopVideo {
         guard let pic = p.picture, let frame = Pipeline.firstFrameJPEG(file: dir.appendingPathComponent(pic)) else { throw MVError("Make or add the picture first. The clip starts from it.") }
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         var saved = p
-        let clip = try await OpenRouterVideo.generate(prompt: clipPrompt(scene: scene, motion: p.motion, style: p.style), firstFrameJPEG: frame, seconds: clipSeconds, apiKey: config.openRouterKey,
+        let brief = await PromptCheck.fix(clipPrompt(scene: scene, motion: p.motion, style: p.style), scene: scene, kind: .clip, apiKey: config.openRouterKey)
+        let clip = try await OpenRouterVideo.generate(prompt: brief, firstFrameJPEG: frame, seconds: clipSeconds, apiKey: config.openRouterKey,
                                                       resolution: p.sharpClip ? "2K" : OpenRouterVideo.resolution, exactPrompt: true,
                                                       onJob: { id in saved.pendingJob = id; save(saved, dir) }, onPhase: onPhase)
         p.pendingJob = nil

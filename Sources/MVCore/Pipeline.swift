@@ -290,7 +290,7 @@ public enum Pipeline {
     /// What to paste into the image generator for one section (section index −1 = title card).
     public static func fullPrompt(_ plan: Plan, section index: Int) -> String {
         let s = index < 0 ? plan.intro : plan.sections[index]
-        let style = plan.style.isEmpty ? "" : " Style: \(plan.style)"
+        let style = StylePreset.styleClause(plan.style)
         let setting = plan.setting.trimmingCharacters(in: .whitespacesAndNewlines)
         let stated = setting.isEmpty || s.prompt.lowercased().contains(setting.lowercased())
         let comp = s.focal.count >= 2 ? " Composition: two distinct focal points placed apart in the frame, both clearly visible: \(s.focal[0]) and \(s.focal[1])." : ""
@@ -608,7 +608,8 @@ public enum Pipeline {
         } else if guide != nil {
             prompt += " Match ONLY the artistic style of the attached reference picture (technique, brushwork, rendering). Do NOT copy its subject or composition: show the scene described above."
         }
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEGs: refs)
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEGs: refs,
+                                                     scene: (index < 0 ? plan.intro : plan.sections[index]).prompt)
         let tmpName = String(format: "%02d_sunburst.%@", index + 1, gen.fileExtension)
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_\(tmpName)")
         defer { try? FileManager.default.removeItem(at: tmpURL) }

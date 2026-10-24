@@ -365,7 +365,21 @@ struct LoopView: View {
     /// The next picture of a series, from the one in use: what it keeps (the place, the building, or the subject) in one switch, and a button that says what will happen.
     var nextSceneRow: some View {
         let focus = model.loopDir.map { LoopVideo.nextFocus(p, dir: $0) } ?? .place
+        let source = p.source ?? p.picture
         return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Source image").font(.callout.weight(.semibold))
+                if let u = model.loopFile(source) { Thumb(file: u).frame(width: 72, height: 41).clipShape(RoundedRectangle(cornerRadius: 5)) }
+                if p.source != nil && p.source != p.picture {
+                    Button("Use the current picture") { model.editLoop { $0.source = $0.picture } }.disabled(working)
+                        .help("Makes the picture shown above the source image for the next scenes.")
+                }
+                Button("Choose…") { model.loopChooseSource() }.disabled(working)
+                    .help("Choose a picture of your own as the source image.")
+                Text(p.source == nil ? "the picture above; it stays the source once you draw a next scene" : "every next scene starts from this picture, however many you draw")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+            }
             HStack(spacing: 10) {
                 Text("Next picture keeps").font(.callout.weight(.semibold))
                 Picker("", selection: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } })) {
@@ -373,6 +387,15 @@ struct LoopView: View {
                 }.pickerStyle(.segmented).labelsHidden().fixedSize()
                 Button { model.loopMakeNextPicture() } label: { Label(focus.action + " (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }
                     .disabled(working)
+            }
+            if focus != .subject {
+                HStack(spacing: 10) {
+                    Text("Weather").font(.callout.weight(.semibold))
+                    Picker("", selection: bind(\.weather)) { ForEach(LoopWeather.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+                    Text("Time of day").font(.callout.weight(.semibold))
+                    Picker("", selection: bind(\.timeOfDay)) { ForEach(LoopTimeOfDay.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+                }
+                .help("For landscapes: the weather and time of day of the pictures drawn from now on (the first picture and every next scene). “As the scene says” leaves it to your words.")
             }
             Text(focus == .subject ? "The same subject, moved to a completely different place and seen from another angle."
                  : (focus == .building ? "The same building, kept true to life, from another angle at another time, in other weather or another season."
@@ -534,7 +557,14 @@ struct LoopView: View {
 
     func suggest() {
         ideasBusy = true
-        Task { defer { ideasBusy = false }; do { ideas = try await model.loopSuggestScenes(avoid: ideas) } catch { model.errorMessage = error.localizedDescription } }
+        Task {
+            defer { ideasBusy = false }
+            do {
+                ideas = try await model.loopSuggestScenes(avoid: ideas)
+                // the first idea goes straight into the scene, unless you have written one yourself
+                if let first = ideas.first, p.scene.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { model.editLoop { $0.scene = first } }
+            } catch { model.errorMessage = error.localizedDescription }
+        }
     }
 }
 

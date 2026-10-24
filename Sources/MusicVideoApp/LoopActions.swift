@@ -118,8 +118,10 @@ extension AppModel {
                 let done = try await work(p0, d)
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
-                    if done.scene != p0.scene { cur.scene = done.scene }                // the next scene's description
+                    if done.scene != p0.scene && cur.scene == p0.scene { cur.scene = done.scene }   // the next scene's description, unless you typed meanwhile
+                    cur.sceneDrawn = done.sceneDrawn
                     cur.sceneChanges = done.sceneChanges; cur.subjectClose = done.subjectClose
+                    if cur.source == p0.source { cur.source = done.source }
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
@@ -139,6 +141,10 @@ extension AppModel {
     // MARK: the picture
     func loopSuggestScenes(avoid: [String]) async throws -> [String] {
         guard let p = loopProject else { return [] }
+        // with a picture (or a subject photo): ideas from it, keeping what "Next picture keeps" says; without one: ideas from the title (on this Mac)
+        if hasOpenRouterKey, let d = loopDir, let pic = p.source ?? p.picture ?? p.subject {
+            return try await LoopVideo.suggestScenes(picture: d.appendingPathComponent(pic), focus: LoopVideo.nextFocus(p, dir: d), about: p.about, avoid: avoid, config: config)
+        }
         return try await LoopVideo.suggestScenes(title: p.title, style: p.style, about: p.about, avoid: avoid, config: config)
     }
 
@@ -162,6 +168,15 @@ extension AppModel {
             var q = p; try await LoopVideo.makeNextPicture(&q, dir: d, config: cfg)
             await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
             await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q
+        }
+    }
+    /// A picture of your own as the source image for next scenes (shaped to widescreen first if needed).
+    func loopChooseSource() {
+        let o = NSOpenPanel(); o.allowedContentTypes = [.image]; o.message = "Choose the source image every next scene starts from"
+        guard o.runModal() == .OK, let u = o.url else { return }
+        fitThen(u, scene: loopProject?.scene ?? "", addCost: { [weak self] c in self?.editLoop { $0.imagesUSD += c } }) { [weak self] f in
+            guard let self, var p = self.loopProject, let d = self.loopDir else { return }
+            do { try LoopVideo.setSource(&p, dir: d, file: f); self.loopProject = p } catch { self.errorMessage = error.localizedDescription }
         }
     }
     func loopUsePicture(_ url: URL) {

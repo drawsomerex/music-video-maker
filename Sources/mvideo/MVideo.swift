@@ -346,6 +346,11 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Search for a subject photo with these words and use the first result") var findSubject: String?
         @Flag(help: "Draw the picture now (costs a few cents), then stop") var draw = false
         @Flag(help: "Draw the next scene from the picture in use (same place, one major change, slightly different angle), then stop") var nextScene = false
+        @Option(help: "Weather for the pictures: any, clear, softClouds, overcast, rain, storm, snow, mist, clearingStorm") var weather: String?
+        @Option(help: "Time of day for the pictures: any, dawn, morning, midday, goldenEvening, dusk, night") var timeOfDay: String?
+        @Option(help: "What next scenes keep: place, building or subject") var keep: String?
+        @Option(help: "The look (art style)") var style: String?
+        @Flag(help: "Print 10 scene ideas (from the picture when there is one), then stop") var suggest = false
         @Option(help: "Change the scene: never, time, songs or both (uses every clip in the project)") var sceneChange: String?
         @Option(help: "Minutes between scene changes by time") var sceneMinutes: Double?
         @Flag(help: "Make one YouTube Short per song (beside the long video), then stop") var shorts = false
@@ -386,6 +391,10 @@ struct MVideo: AsyncParsableCommand {
             p.hours = hours
             if let pic = picture { let n = "picture-cli." + URL(fileURLWithPath: pic).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: pic), to: dir.appendingPathComponent(n)); p.picture = n }
             if let sc = scene { p.scene = sc }
+            if let w = weather { p.weather = LoopWeather(rawValue: w) ?? .any }
+            if let t = timeOfDay { p.timeOfDay = LoopTimeOfDay(rawValue: t) ?? .any }
+            if let k = keep { p.nextFocus = NextFocus(rawValue: k) }
+            if let st = style { p.style = st }
             if let c = sceneChange { p.sceneChange = LoopSceneChange(rawValue: c) ?? .never; p.sceneClips = p.clips }
             if let m = sceneMinutes { p.sceneMinutes = m }
             if let q = findSubject {
@@ -394,6 +403,12 @@ struct MVideo: AsyncParsableCommand {
             }
             if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: sj), to: dir.appendingPathComponent(n)); p.subject = n }
             if draw { let c = try await LoopVideo.makePicture(&p, dir: dir); print("✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
+            if suggest {
+                let ideas: [String]
+                if let pic = p.source ?? p.picture ?? p.subject { ideas = try await LoopVideo.suggestScenes(picture: dir.appendingPathComponent(pic), focus: LoopVideo.nextFocus(p, dir: dir), about: p.about) }
+                else { ideas = try await LoopVideo.suggestScenes(title: p.title, style: p.style, about: p.about) }
+                LoopVideo.save(p, dir); print(ideas.joined(separator: "\n")); return
+            }
             if nextScene { let c = try await LoopVideo.makeNextPicture(&p, dir: dir); print("scene: \(p.scene)\nchange: \(p.sceneChanges.last ?? "")\n✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
             LoopVideo.save(p, dir)
             if youtube {

@@ -405,6 +405,23 @@ public struct Config: Codable {
 public struct StylePreset: Identifiable, Hashable, Sendable, Codable {
     /// Every style asks for this (and every picture request adds it when the style doesn't already say it).
     public static let detail = "Ultra-detailed, super-high-resolution 8K image with crisp fine detail, sharp textures and clean edges throughout."
+    /// A style is only the medium and technique: any part of it about lighting, time of day or weather is left out, so the scene decides those
+    /// (a stormy scene must never be turned into a golden-hour one by the style).
+    public static func withoutLighting(_ style: String) -> String {
+        let words = #"\b(light|lights|lighting|lit|sunlight|sunlit|sunbeams?|sun|sunset|sunrise|golden[- ]hour|dawn|dusk|night|night-time|nighttime|moon|moonlit|moonlight|glow|glows|glowing|backlit|backlight|spotlights?|chiaroscuro|daylight|twilight|evening|morning)\b"#
+        let parts = style.components(separatedBy: CharacterSet(charactersIn: ",;"))
+        let kept = parts.filter { $0.range(of: words, options: [.regularExpression, .caseInsensitive]) == nil }
+        var out = kept.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: ", ")
+        out = out.replacingOccurrences(of: #"\s+and\s*$"#, with: "", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+        if !out.isEmpty && !out.hasSuffix(".") { out += "." }
+        return out
+    }
+    /// What every picture request says about the style: the medium only; the scene decides the light, the time of day and the weather.
+    public static func styleClause(_ style: String) -> String {
+        let s = withoutLighting(style)
+        return s.isEmpty ? "" : " Style (medium and technique only): \(s) The lighting, time of day and weather come only from the scene described, never from the style."
+    }
+
     /// The prompt with the detail wording added, unless it already asks for high detail and resolution.
     public static func withDetail(_ prompt: String) -> String {
         let l = prompt.lowercased()

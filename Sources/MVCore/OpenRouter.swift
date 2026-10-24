@@ -102,9 +102,12 @@ public enum OpenRouter {
     }
 
     /// Generates a single 16:9 Medium image using `openai/gpt-image-2.5-sunburst` via OpenRouter.
-    public static func generateImage(prompt: String, apiKey: String, fallbackCostEstimate: Double = defaultEstimatedCostPerImage, referenceJPEGs: [Data] = []) async throws -> GeneratedImage {
+    /// `scene`: the user's own words for this picture; the prompt is checked against it first (the scene wins over any contradiction). nil = no check.
+    public static func generateImage(prompt promptIn: String, apiKey: String, fallbackCostEstimate: Double = defaultEstimatedCostPerImage, referenceJPEGs: [Data] = [], scene: String? = nil) async throws -> GeneratedImage {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first to generate images.") }
+        var prompt = promptIn
+        if let sc = scene { prompt = await PromptCheck.fix(promptIn, scene: sc, kind: .picture, apiKey: key) }
 
         let preCredits = try? await fetchCredits(apiKey: key)
 

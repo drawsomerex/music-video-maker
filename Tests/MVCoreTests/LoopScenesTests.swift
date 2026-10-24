@@ -68,3 +68,24 @@ final class SubjectKindTests: XCTestCase {
         XCTAssertLessThan(SubjectPicture.tooClose(.place), SubjectPicture.tooClose(.creature))
     }
 }
+
+/// A style never decides the light; the scene's weather words turn "Cloudless sky" off; the weather and time menus are put into words.
+final class StyleLightTests: XCTestCase {
+    func testStylesLoseTheirLighting() {
+        let s = StylePreset.withoutLighting("Photorealistic 35mm cinematic still frame, natural golden-hour and practical lighting, shallow depth of field, Kodak Vision3 film grain and anamorphic lens bokeh.")
+        XCTAssertFalse(s.lowercased().contains("golden"))
+        XCTAssertTrue(s.contains("Kodak Vision3 film grain"))
+        for p in StyleLibrary.shippedList() {
+            XCTAssertNil(p.prompt.range(of: #"\b(lighting|golden[- ]hour|sunbeams?|spotlights?|moonlit)\b"#, options: [.regularExpression, .caseInsensitive]), p.name)
+        }
+        XCTAssertTrue(StylePreset.styleClause("Oil painting, warm chiaroscuro lighting.").contains("never from the style"))
+    }
+    func testWeatherWordsTurnCloudlessSkyOff() {
+        XCTAssertTrue(LoopVideo.mentionsSky("A lighthouse battered by a violent storm"))
+        XCTAssertTrue(LoopVideo.mentionsSky("Snow falling on a quiet village"))
+        XCTAssertFalse(LoopVideo.mentionsSky("A stone bridge over a quiet river"))
+        var p = LoopProject(); p.weather = .storm; p.timeOfDay = .dusk
+        XCTAssertTrue(LoopVideo.conditions(p).contains("thunderstorm")); XCTAssertTrue(LoopVideo.conditions(p).contains("dusk"))
+        XCTAssertEqual(LoopVideo.conditions(LoopProject()), "")
+    }
+}

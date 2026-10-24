@@ -135,7 +135,7 @@ public struct PromptWriter {
         \(PromptWriter.theme(title: title, subject: subject))
         \(PromptWriter.settingBlock(setting))\(fixedStyle.isEmpty ? "" : "Chosen visual style: \(fixedStyle)\n")
         We are making a lyric music video. Use the song description below as the single source of truth for setting, era, mood and recurring subjects. A human will paste each prompt below into an AI image generator and load the pictures back in, so the images must look like they belong together.
-        1. \(fixedStyle.isEmpty ? "Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), colour palette, lighting, era, mood. 20–35 words." : "Use the chosen visual style above for the \"style\" field.")
+        1. \(fixedStyle.isEmpty ? "Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), technique, colour palette, era. Never lighting, time of day or weather (each picture's scene decides those). 20–35 words." : "Use the chosen visual style above for the \"style\" field.")
         2. For each numbered section write a vivid, concrete, self-contained image prompt (1–2 sentences, 25–45 words) depicting what that section's lyrics describe or evoke: \
         setting, subject, composition (wide or medium shot, no close-ups of faces), time of day, weather. Keep places, era and recurring subjects consistent from section to section. The sections are CONSECUTIVE SCENES OF ONE STORY: each picture follows on from the picture before it (same world, time moving forward) and moves the narrative forward; never repeat or go back. BUT every picture must look DRAMATICALLY DIFFERENT from the one before it: change the main subject, the kind of shot (alternate between a sweeping wide view, a low ground-level view, a high aerial view, a detail of an object, a view framed through something, a silhouette), the scale, the dominant colours and the time of day. Never two wide landscapes, or two pictures of the same subject, in a row. If a section's lyrics repeat an earlier one (a chorus), show a different moment or camera angle of the same story beat. Each section ends with a [look: …] hint (time of day, weather, camera view): use it, so the pictures look different from one another while staying in the same setting. EVERY section needs its own unique picture: a different subject, place within the story, composition or time of day — never repeat or lightly reword another section's prompt. Music-only sections (instrumental intro, breaks, outro) also get their own prompt tied to the song's world. \
         NO text, lettering, signs or logos in the image. Do not repeat the style line inside the prompts. Section -1 is the opening title-card background: an establishing scene for the whole song.
@@ -167,7 +167,7 @@ public struct PromptWriter {
             }
         }
         if styleOut.isEmpty {
-            styleOut = "Cinematic widescreen illustration with warm natural lighting, rich atmospheric depth and cohesive color grading."
+            styleOut = "Cinematic widescreen illustration with rich atmospheric depth and cohesive color grading."
         }
         // Fill any missing sections individually so truncated JSON never aborts the plan.
         let missing = sections.filter { (out[$0.id] ?? "").count < 12 }
