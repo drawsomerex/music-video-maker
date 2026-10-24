@@ -82,6 +82,9 @@ struct PlanView: View {
         .onChange(of: model.requestRegenAll) { _, v in if v { confirmRegenAll = true; model.requestRegenAll = false } }
         .sheet(isPresented: $showDescriptionSheet) { DescriptionSheet().environmentObject(model) }
         .sheet(isPresented: $showStyleSheet) { StyleSheet(inProject: true).environmentObject(model) }
+        .sheet(isPresented: $showSubjectSheet) {
+            SubjectSheet(current: plan.subjectPicture.flatMap { n in model.workDir?.appendingPathComponent(n) }, set: { model.setSongSubject($0) }, remove: { model.removeSongSubject() })
+        }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
                 .environmentObject(model)
@@ -150,6 +153,7 @@ struct PlanView: View {
     // MARK: top area — one clear message and a few labelled buttons (no hidden drop-downs)
     @State private var showDescriptionSheet = false
     @State private var showStyleSheet = false
+    @State private var showSubjectSheet = false
 
     var styleBar: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -209,6 +213,8 @@ struct PlanView: View {
         Menu {
             Button("Setting & description…") { showDescriptionSheet = true }
             Button("Art style…") { showStyleSheet = true }
+            Button(plan.subjectPicture == nil ? "Subject picture…" : "Subject picture… (in use)") { showSubjectSheet = true }
+                .help("A photo of the person, animal, object or place every new picture should show, redrawn in the art style. Choose your own or search for one.")
             Button(model.hasOpenRouterKey ? "Picture maker key & credit…" : "Add picture maker key…") { model.showOpenRouterKeySheet = true }
             Divider()
             if plan.shorts.isEmpty { Button("Make Shorts automatically") { model.autoMakeShorts() } }
@@ -701,6 +707,10 @@ struct DropWell: View {
                 if c.videoFile == nil, c.fullFile != nil { ClipPanel(section: section).frame(maxWidth: 1000, alignment: .leading) }
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
                 cameraControls(c).frame(maxWidth: 640, alignment: .leading)
+                if c.looksLikeSubject {
+                    Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, press “Try another picture”: it is asked for a new angle and pose every time.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 640, alignment: .leading)
+                }
                 if c.looksLikePrevious(model.previousPictureFile(section: section)) {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)

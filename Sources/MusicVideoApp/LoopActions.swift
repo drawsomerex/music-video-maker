@@ -248,6 +248,18 @@ extension AppModel {
         let h = p.hours == p.hours.rounded() ? "\(Int(p.hours)) hour\(p.hours == 1 ? "" : "s")" : String(format: "%.1f hours", p.hours)
         return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h).mp4")      // YouTube suggests the file name as the title: nothing about looping
     }
+    /// Where a looping video's Shorts go: a folder beside the long video.
+    func loopShortsFolder(_ p: LoopProject) -> URL { loopOutputURL(p).deletingLastPathComponent().appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – Shorts") }
+    /// One YouTube Short per song (its liveliest 45 seconds, with its scene).
+    func loopMakeShorts() {
+        guard let p0 = loopProject else { return }
+        let folder = loopShortsFolder(p0)
+        runLoop("Making the Shorts…", estimate: Double(max(1, p0.tracks.count)) * 30) { [weak self] p, d in
+            let made = try await LoopVideo.makeShorts(p, dir: d, folder: folder) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = f } }
+            await MainActor.run { self?.notice = "Made \(made.count) Short\(made.count == 1 ? "" : "s") in “\(folder.lastPathComponent)”, each with a YouTube title, description and tags beside it."; NSWorkspace.shared.open(folder) }
+            return p
+        }
+    }
     /// Makes (or makes again) the YouTube thumbnail and description, before or after the long video.
     func loopMakeYouTube() {
         guard let p = loopProject else { return }

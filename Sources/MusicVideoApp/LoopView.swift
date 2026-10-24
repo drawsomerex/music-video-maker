@@ -33,6 +33,7 @@ struct LoopView: View {
     @State private var pictureTargeted = false
     @State private var clipTargeted = false
     @State private var showTrim = false
+    @State private var showSubject = false
 
     var p: LoopProject { model.loopProject ?? LoopProject() }
     func bind<T>(_ k: WritableKeyPath<LoopProject, T>) -> Binding<T> { Binding(get: { p[keyPath: k] }, set: { v in model.editLoop { $0[keyPath: k] = v } }) }
@@ -57,6 +58,7 @@ struct LoopView: View {
         .task { model.refreshVideoPrice() }
         .alert("Notice", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) { Button("OK", role: .cancel) {} } message: { Text(model.notice ?? "") }
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
+        .sheet(isPresented: $showSubject) { SubjectSheet(current: model.loopFile(p.subject), set: { model.setLoopSubject($0) }, remove: { model.editLoop { $0.subject = nil } }) }
         .sheet(isPresented: Binding(get: { model.loopSample != nil }, set: { if !$0 { model.loopSample = nil } })) {
             VStack(spacing: 12) {
                 HStack {
@@ -239,8 +241,21 @@ struct LoopView: View {
                     TextField("optional, e.g. soft watercolor", text: bind(\.style)).textFieldStyle(.roundedBorder)
                     Menu("Styles") { ForEach(StylePreset.all) { s in Button(s.name) { model.editLoop { $0.style = s.prompt } } } }.fixedSize()
                 }
+                HStack(spacing: 8) {
+                    Text("Subject").font(.callout.weight(.semibold))
+                    if let u = model.loopFile(p.subject) { Thumb(file: u).frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 5)) }
+                    Button(p.subject == nil ? "Choose or search…" : "Change…") { showSubject = true }
+                        .help("Optional: a photo of the person, animal, object or place the picture should show. It is redrawn in the look above; any photo works.")
+                    if p.subject != nil { Button("Remove") { model.editLoop { $0.subject = nil } } }
+                    Text(p.subject == nil ? "optional: a photo of who or what the picture should show" : "the next picture drawn shows this subject").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
                 Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky)).font(.callout)
                     .help("New pictures are drawn with a clear, cloudless sky. Clouds that move can't come back to where they started, so a clear sky gives the cleanest loop. Clouds still work: they just blend slowly at the join.")
+                if let pic = p.picture, p.subjectClose[pic] != nil {
+                    Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, draw another: it is asked for a new angle and pose every time.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
                 pictureWell
                 HStack(spacing: 8) {
                     Button { model.loopMakePicture() } label: { Label(p.picture == nil ? "Draw the picture from the scene (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))" : "Draw another picture (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles") }
@@ -345,6 +360,44 @@ struct LoopView: View {
             Text("\(p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"), for a 1080p video, at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
         }
     }
+    /// More than one scene: which clips, and when the picture changes (a slow cross-fade).
+    var scenesRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Change the scene").font(.callout.weight(.semibold))
+                Picker("", selection: bind(\.sceneChange)) { ForEach(LoopSceneChange.allCases, id: \.self) { Text($0.name).tag($0) } }
+                    .labelsHidden().fixedSize().disabled(p.clips.count < 2)
+                if p.sceneChange == .time || p.sceneChange == .both {
+                    Stepper("every \(Int(p.sceneMinutes)) min", value: bind(\.sceneMinutes), in: 1...60, step: 1).fixedSize()
+                }
+                Spacer()
+            }
+            .help("Changes to another of your clips with a slow cross-fade: every few minutes, when one song ends and the next begins, or both (a timed change close to a song change is left out). The music never changes because of it.")
+            if p.clips.count < 2 {
+                Text("To change scenes, make or add a second clip (another picture, then “Make another clip”). Every clip you make can be a scene.").font(.caption).foregroundStyle(.secondary)
+            } else if p.sceneChange != .never {
+                HStack(spacing: 8) {
+                    Text("Scenes:").font(.callout)
+                    ForEach(Array(p.clips.enumerated()), id: \.offset) { i, c in
+                        let on = LoopVideo.sceneClips(p).contains(c)
+                        Toggle(c == p.clip ? "Clip \(i + 1) (in use, first)" : "Clip \(i + 1)", isOn: Binding(get: { on }, set: { v in model.editLoop { q in
+                            guard c != q.clip else { return }                   // the clip in use always starts the video
+                            var list = LoopVideo.sceneClips(q)
+                            if v { if !list.contains(c) { list.append(c) } } else if list.count > 1 { list.removeAll { $0 == c } }
+                            q.sceneClips = list
+                        } })).toggleStyle(.button)
+                            .help(c == p.clip ? "The clip in use always starts the video." : "Use this clip as one of the scenes.")
+                    }
+                }
+                if let plan = model.loopPlan {
+                    let n = LoopVideo.sceneStarts(p, plan: plan).count - 1
+                    Text(n == 0 ? "No scene changes at this length (they need at least 30 seconds between them)." : "The scene changes \(n) time\(n == 1 ? "" : "s"), taking turns between \(LoopVideo.sceneClips(p).count) clips.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     /// The part of the picture that dissolves slowly, in words.
     func slowNote(_ share: Double?) -> String {
         guard let s = share, s >= 0.03 else { return "" }
@@ -391,6 +444,7 @@ struct LoopView: View {
                     }
                 }
                 lengthLine
+                scenesRow
                 let need = LoopVideo.estimatedBytes(seconds: model.loopPlan?.total ?? p.hours * 3600), out = model.loopOutputURL(p)
                 let free = LoopVideo.freeBytes(at: out.deletingLastPathComponent())
                 Text("1080p · about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file))" + (free.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) free on this disk" } ?? "") + ". Saved as “\(out.lastPathComponent)”.")
@@ -408,6 +462,15 @@ struct LoopView: View {
                         .help(p.clip == nil ? "Make or add the loop clip first." : "Makes the long video. Only a minute of video is drawn; the rest is the same loop written again and again, so even 12 hours takes minutes, not hours. Progress shows in the strip at the top.")
                     if let o = p.output, FileManager.default.fileExists(atPath: o) {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o)]) } label: { Label("Show the last video in Finder", systemImage: "folder") }
+                    }
+                }
+                HStack(spacing: 10) {
+                    Button { model.loopMakeShorts() } label: { Label(p.tracks.count > 1 ? "Make Shorts (one per song, \(p.tracks.count))" : "Make a Short", systemImage: "rectangle.portrait.on.rectangle.portrait") }
+                        .disabled(working || p.clip == nil || p.tracks.isEmpty)
+                        .help("YouTube Shorts: for each song, its liveliest 45 seconds with the scene it plays over (upright, the scene in the middle over a soft blurred copy, the song's title above and the video's title below). A text file beside each has its YouTube title, description and tags. Free and made on this Mac.")
+                    let shorts = model.loopShortsFolder(p)
+                    if FileManager.default.fileExists(atPath: shorts.path) {
+                        Button { NSWorkspace.shared.open(shorts) } label: { Label("Show the Shorts", systemImage: "folder") }
                     }
                 }
                 YouTubeFilesRow(files: p.thumbnail.flatMap { t in p.listing.map { (URL(fileURLWithPath: t), URL(fileURLWithPath: $0)) } }.flatMap { FileManager.default.fileExists(atPath: $0.0.path) ? $0 : nil },

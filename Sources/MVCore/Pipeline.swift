@@ -591,10 +591,16 @@ public enum Pipeline {
         // References: the PREVIOUS picture (so this one shows the same scene from a new perspective) and the style guide (so the look stays the same).
         let prev = previousPictureJPEG(plan: plan, for: index, work: work)
         let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: prev != nil)
-        let refs = [prev, guide].compactMap { $0 }
+        let subject = plan.subjectPicture.flatMap { SubjectPicture.referenceJPEG(work.appendingPathComponent($0)) }
+        let refs = [subject, prev, guide].compactMap { $0 }
         let view = prev != nil ? chooseCameraView(plan: plan, for: index) : nil
         if let t = view?.text { prompt += " Camera for this picture: \(t)." }
-        if prev != nil && guide != nil {
+        if subject != nil {
+            var roles = ["the SUBJECT: \(SubjectPicture.instruction)"]
+            if prev != nil { roles.append("the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition)") }
+            if guide != nil { roles.append("only sets the overall art style (technique, brushwork, rendering); do not copy its subject or composition") }
+            prompt += roles.count == 1 ? " The attached reference picture is \(roles[0])." : " \(roles.count) reference pictures are attached, in this order: " + roles.enumerated().map { "(\($0.offset + 1)) \($0.element)" }.joined(separator: "; ") + ". Show what is described above."
+        } else if prev != nil && guide != nil {
             prompt += " Two reference pictures are attached. The FIRST is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above. The SECOND only sets the overall art style."
         } else if prev != nil {
             prompt += " The attached reference is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above."
@@ -607,6 +613,12 @@ public enum Pipeline {
         defer { try? FileManager.default.removeItem(at: tmpURL) }
         try gen.data.write(to: tmpURL)
         _ = try attach(imageAt: tmpURL, section: index, plan: &plan, work: work)
+        // drawn from a subject photo: is it too close to the photo (same pose and angle)? Only a warning.
+        if let s = plan.subjectPicture, subject != nil, let file = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.fullFile,
+           let d = SubjectPicture.distance(work.appendingPathComponent(s), work.appendingPathComponent(file)) {
+            if index < 0 { if plan.intro.candidates.indices.contains(plan.intro.selected) { plan.intro.candidates[plan.intro.selected].subjectDistance = Double(d) } }
+            else if plan.sections[index].candidates.indices.contains(plan.sections[index].selected) { plan.sections[index].candidates[plan.sections[index].selected].subjectDistance = Double(d) }
+        }
         // where are the two focal points in the finished picture? The automatic camera travels from the first to the second.
         let secNow = index < 0 ? plan.intro : plan.sections[index]
         if let file = secNow.selectedCandidate?.fullFile, let loc = await locateFocalPoints(file: work.appendingPathComponent(file), names: secNow.focal, config: config) {

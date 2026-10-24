@@ -118,7 +118,7 @@ public enum OpenRouter {
 
         var payload: [String: Any] = [
             "model": imageModel,
-            "prompt": prompt,
+            "prompt": StylePreset.withDetail(prompt),
             "aspect_ratio": aspectRatio,
             "quality": quality
         ]

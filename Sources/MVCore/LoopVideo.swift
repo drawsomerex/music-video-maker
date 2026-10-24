@@ -47,6 +47,11 @@ public struct LoopProject: Codable, Equatable {
     public var clips: [String] = []             // every loop clip made or added
     public var clip: String?                    // the one in use
     public var sharpClip = false                // 2K instead of 768p (sharper, about three times the price)
+    public var sceneClips: [String] = []        // the clips the long video changes between (empty or one = only the clip in use)
+    public var sceneChange: LoopSceneChange = .never     // when the scene changes
+    public var sceneMinutes = 10.0              // for a change by time: every this many minutes
+    public var subjectClose: [String: Double] = [:]   // pictures drawn from the subject photo that came out too much like it (picture → distance), for a warning
+    public var subject: String?                 // a photo of the subject the drawn picture shows (redrawn in the style), in the project folder
     public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
     public var pendingJob: String?              // a HeyGen job that was paid for but not collected yet (the app was closed)
     public var hours = 1.0
@@ -62,7 +67,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -83,6 +88,11 @@ public struct LoopProject: Codable, Equatable {
         clips = try c.decodeIfPresent([String].self, forKey: .clips) ?? []; clip = try c.decodeIfPresent(String.self, forKey: .clip)
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
         clearSky = try c.decodeIfPresent(Bool.self, forKey: .clearSky) ?? false
+        subject = try c.decodeIfPresent(String.self, forKey: .subject)
+        sceneClips = try c.decodeIfPresent([String].self, forKey: .sceneClips) ?? []
+        subjectClose = try c.decodeIfPresent([String: Double].self, forKey: .subjectClose) ?? [:]
+        sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .never
+        sceneMinutes = try c.decodeIfPresent(Double.self, forKey: .sceneMinutes) ?? 10
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
         imagesUSD = try c.decodeIfPresent(Double.self, forKey: .imagesUSD) ?? 0; videoUSD = try c.decodeIfPresent(Double.self, forKey: .videoUSD) ?? 0
         pictureCount = try c.decodeIfPresent(Int.self, forKey: .pictureCount) ?? 0; output = try c.decodeIfPresent(String.self, forKey: .output)
@@ -211,11 +221,14 @@ public enum LoopVideo {
         guard !scene.isEmpty else { throw MVError("Describe the scene first (or press “Suggest scenes”).") }
         let prompt = "\(scene)\(p.style.isEmpty ? "" : " Style: \(p.style).") A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
             "elements that can move gently and endlessly (water, light, weather, smoke, leaves)." + (p.clearSky ? " A clear, cloudless sky." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey)
+        let subject = p.subject.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
+        let gen = try await OpenRouter.generateImage(prompt: prompt + (subject != nil ? " The attached reference picture is the SUBJECT: \(SubjectPicture.instruction)." : ""),
+                                                     apiKey: config.openRouterKey, referenceJPEGs: subject.map { [$0] } ?? [])
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1
+        if subject != nil, let s = p.subject, let d = SubjectPicture.distance(dir.appendingPathComponent(s), dir.appendingPathComponent(name)), d < SubjectPicture.tooClose { p.subjectClose[name] = Double(d) }
         save(p, dir)
         return gen.costUSD
     }
@@ -639,7 +652,19 @@ public enum LoopVideo {
             if let l = cardLayers[text] { return l }
             let l = IntroLayer(title: text, subject: "", W: W, H: H, end: 5); cardLayers[text] = l; return l
         }
-        func draw(loopTime t: Double, ctx: CGContext, titleTime: Double? = nil, fadeToBlack: Double = 0, fadeFromBlack: Double = 0, cards: [(text: String, t: Double)] = []) {
+        /// `also`: another scene's loop dissolving in over this one (scene changes), `alpha` 0…1.
+        func draw(loopTime t: Double, ctx: CGContext, titleTime: Double? = nil, fadeToBlack: Double = 0, fadeFromBlack: Double = 0, cards: [(text: String, t: Double)] = [],
+                  also: (painter: LoopPainter, t: Double, alpha: Double)? = nil) {
+            drawLoop(t, ctx: ctx)
+            if let o = also, o.alpha > 0 {
+                ctx.saveGState(); ctx.setAlpha(CGFloat(min(1, o.alpha))); ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+                o.painter.drawLoop(o.t, ctx: ctx)
+                ctx.endTransparencyLayer(); ctx.restoreGState()
+            }
+            drawOverlays(ctx: ctx, titleTime: titleTime, fadeToBlack: fadeToBlack, fadeFromBlack: fadeFromBlack, cards: cards)
+        }
+        /// The loop picture alone at loop time `t`.
+        func drawLoop(_ t: Double, ctx: CGContext) {
             ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
             let shot = shot(t)
             func frame(_ img: CGImage) -> CGRect {                   // filled to the frame, centred
@@ -655,6 +680,9 @@ public enum LoopVideo {
                 }
                 ctx.draw(b, in: frame(b)); ctx.restoreGState()
             }
+        }
+        /// The title screen, song cards and fades, on top of the loop.
+        func drawOverlays(ctx: CGContext, titleTime: Double?, fadeToBlack: Double, fadeFromBlack: Double, cards: [(text: String, t: Double)]) {
             if let tt = titleTime, let intro, tt < 9 {                    // the title screen: holds, then fades into the loop
                 let vis = tt < 6 ? 1.0 : max(0, 1 - (tt - 6) / 2.5)
                 ctx.saveGState(); ctx.setAlpha(CGFloat(vis)); intro.draw(t: tt, ctx: ctx); ctx.restoreGState()
@@ -711,12 +739,12 @@ public enum LoopVideo {
     /// A short sample of the long video, with sound, exactly as it will be (scene, music, joins, title cards), small enough to make in seconds.
     /// `from` and `seconds` are in the long video's own time.
     public static func renderPreview(_ p0: LoopProject, dir: URL, output: URL, from: Double, seconds: Double, W: Int = 1280, H: Int = 720, progress: ((Double) -> Void)? = nil) async throws {
-        guard let clipName = p0.clip else { throw MVError("Make or add the loop clip first.") }
+        guard p0.clip != nil else { throw MVError("Make or add the loop clip first.") }
         var p = p0
         try ensureAnalysis(&p, dir: dir)
         guard let plan = plan(p), !plan.plays.isEmpty else { throw MVError("Add a song first.") }
         let start = max(0, min(from, plan.total - 1)), end = min(plan.total, start + seconds)
-        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: W, H: H, title: p.cards == .none ? nil : p.shownTitle, trim: p.trim)
+        let scenes = SceneTimeline(p, plan: plan, dir: dir, W: W, H: H, title: p.cards == .none ? nil : p.shownTitle)
         let cards = cardTimes(p, plan: plan), showTitle = p.cards != .none
         try? FileManager.default.removeItem(at: output)
         let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
@@ -759,11 +787,10 @@ public enum LoopVideo {
                 CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
                 if let pb {
                     let s = start + Double(vi) / Double(fps)
-                    let periodFrames = max(fps, Int((painter.period * Double(fps)).rounded()))
                     let f = Int((s * Double(fps)).rounded())
                     let active = cards.compactMap { c in s >= c.start && s < c.start + cardSeconds ? (text: c.text, t: s - c.start) : nil }
-                    paint(pb) { painter.draw(loopTime: Double(f % periodFrames) / Double(fps), ctx: $0, titleTime: showTitle && s < 9 ? s : nil,
-                                             fadeToBlack: max(0, min(1, (s - plan.songsEnd) / 3)), fadeFromBlack: max(0, 1 - s / 1.5), cards: active) }
+                    paint(pb) { scenes.draw(f, ctx: $0, titleTime: showTitle && s < 9 ? s : nil,
+                                            fadeToBlack: max(0, min(1, (s - plan.songsEnd) / 3)), fadeFromBlack: max(0, 1 - s / 1.5), cards: active) }
                     adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(vi), timescale: CMTimeScale(fps)))
                 }
                 vi += 1; did = true
@@ -789,7 +816,7 @@ public enum LoopVideo {
     /// Only a few short pieces are drawn and encoded: the opening, one loop, a few seconds around each title card, and the ending. Everything else is the
     /// same encoded loop written again and again (it has a keyframe every two seconds, so a piece can start and stop on any of them without a seam).
     public static func render(_ p0: LoopProject, dir: URL, output: URL, progress: @escaping (String, Double) -> Void) async throws {
-        guard let clipName = p0.clip else { throw MVError("Make or add the loop clip first.") }
+        guard p0.clip != nil else { throw MVError("Make or add the loop clip first.") }
         guard !p0.tracks.isEmpty else { throw MVError("Add a song first.") }
         var p = p0
         try ensureAnalysis(&p, dir: dir) { ph, f in progress(ph, 0.01 * f) }
@@ -798,20 +825,19 @@ public enum LoopVideo {
         if let free = freeBytes(at: output.deletingLastPathComponent()), free < need + 2_000_000_000 {
             throw MVError("This video needs about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file)) of free disk space, but only \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) is free. Free some space or choose a shorter length.")
         }
-        let painter = LoopPainter(clip: dir.appendingPathComponent(clipName), W: width, H: height, title: p.cards == .none ? nil : p.shownTitle, trim: p.trim)
-        let periodFrames = max(fps, Int((painter.period * Double(fps)).rounded()))
+        let scenes = SceneTimeline(p, plan: plan, dir: dir, W: width, H: height, title: p.cards == .none ? nil : p.shownTitle)
         let K = fps * 2                                                                   // a keyframe every two seconds of the loop
         let totalFrames = Int(ceil(plan.total * Double(fps)))
         let cards = cardTimes(p, plan: plan)
         let showTitle = p.cards != .none
 
-        func ph(_ f: Int) -> Int { f % periodFrames }
-        func onGrid(_ f: Int) -> Bool { ph(f) % K == 0 }
+        func onGrid(_ f: Int) -> Bool { scenes.phase(f, scenes.scene(f)) % K == 0 }
         func floorGrid(_ f: Int) -> Int { var g = max(0, min(f, totalFrames)); while g > 0 && !onGrid(g) { g -= 1 }; return g }
         func ceilGrid(_ f: Int) -> Int { var g = max(0, min(f, totalFrames)); while g < totalFrames && !onGrid(g) { g += 1 }; return g }
         // the drawn pieces: the opening (rising from black, with the title), each title card, the ending (fading to black)
         var ranges: [(Int, Int)] = [(0, ceilGrid(Int(((showTitle ? titleScreenEnd : 0) + 1.6) * Double(fps))))]
         for c in cards { ranges.append((floorGrid(Int(c.start * Double(fps))), ceilGrid(Int(ceil((c.start + cardSeconds) * Double(fps))) + 1))) }
+        for c in scenes.changes { ranges.append((floorGrid(c.0), ceilGrid(c.1))) }          // the cross-fades between scenes
         ranges.append((floorGrid(Int(plan.songsEnd * Double(fps)) - fps / 5), totalFrames))
         ranges.sort { $0.0 < $1.0 }
         var merged: [(Int, Int)] = []
@@ -821,8 +847,8 @@ public enum LoopVideo {
         func drawFrame(_ f: Int, _ ctx: CGContext) {
             let s = Double(f) / Double(fps)
             let active = cards.compactMap { c in s >= c.start && s < c.start + cardSeconds ? (text: c.text, t: s - c.start) : nil }
-            painter.draw(loopTime: Double(ph(f)) / Double(fps), ctx: ctx, titleTime: showTitle && s < 9 ? s : nil,
-                         fadeToBlack: max(0, min(1, (s - plan.songsEnd) / 3)), fadeFromBlack: max(0, 1 - s / 1.5), cards: active)
+            scenes.draw(f, ctx: ctx, titleTime: showTitle && s < 9 ? s : nil,
+                        fadeToBlack: max(0, min(1, (s - plan.songsEnd) / 3)), fadeFromBlack: max(0, 1 - s / 1.5), cards: active)
         }
         func encodePiece(_ r: (Int, Int)) throws -> [CMSampleBuffer] {
             for f in r.0..<r.1 {
@@ -833,15 +859,23 @@ public enum LoopVideo {
             }
             return enc.finishPiece()
         }
-        progress("Drawing the loop…", 0.02)
-        for f in 0..<periodFrames {                                                       // one plain loop, a keyframe every two seconds
-            try Task.checkCancellation()
-            guard let pb = pixelBuffer(width, height) else { continue }
-            paint(pb) { painter.draw(loopTime: Double(f) / Double(fps), ctx: $0) }
-            enc.encode(pb, index: f, keyframe: f % K == 0)
+        progress(scenes.painters.count > 1 ? "Drawing the \(scenes.painters.count) scenes…" : "Drawing the loop…", 0.02)
+        var middles: [[CMSampleBuffer]] = []
+        for (k, painter) in scenes.painters.enumerated() {                                // each scene's loop once, a keyframe every two seconds
+            for f in 0..<scenes.periods[k] {
+                try Task.checkCancellation()
+                guard let pb = pixelBuffer(width, height) else { continue }
+                paint(pb) { painter.draw(loopTime: Double(f) / Double(fps), ctx: $0) }
+                enc.encode(pb, index: f, keyframe: f % K == 0)
+            }
+            let m = enc.finishPiece()
+            guard m.count == scenes.periods[k] else { throw MVError("The video encoder gave no pictures.") }
+            middles.append(m)
         }
-        let middle = enc.finishPiece()
-        guard middle.count == periodFrames, let fmt = CMSampleBufferGetFormatDescription(middle[0]) else { throw MVError("The video encoder gave no pictures.") }
+        guard let fmt = CMSampleBufferGetFormatDescription(middles[0][0]) else { throw MVError("The video encoder gave no pictures.") }
+        for m in middles.dropFirst() where !CMFormatDescriptionEqual(CMSampleBufferGetFormatDescription(m[0]), otherFormatDescription: fmt) {
+            throw MVError("The video encoder changed its settings between the scenes. Please report this problem.")
+        }
 
         // writing: pieces where something is drawn on top, the encoded loop everywhere else, and the music made continuously
         try? FileManager.default.removeItem(at: output)
@@ -884,7 +918,7 @@ public enum LoopVideo {
                 }
                 guard !pieceSamples.isEmpty else { return nil }
                 src = pieceSamples[min(i - pieceStart, pieceSamples.count - 1)]
-            } else { src = middle[ph(i)] }
+            } else { let k = scenes.scene(i); src = middles[scenes.starts[k].painter][scenes.phase(i, k)] }
             var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: CMTimeScale(fps)), presentationTimeStamp: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)),
                                             decodeTimeStamp: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)))
             var copy: CMSampleBuffer?

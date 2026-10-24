@@ -51,6 +51,8 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     /// Framing check (drawn pictures only): how alike this picture's layout is to the picture before it, and which picture that was. Only used to warn.
     public var framingLuma: Double? = nil, framingEdge: Double? = nil
     public var framingAgainst: String? = nil
+    public var subjectDistance: Double? = nil     // drawn with a subject photo: how different from it (below SubjectPicture.tooClose = a warning)
+    public var looksLikeSubject: Bool { subjectDistance.map { Float($0) < SubjectPicture.tooClose } ?? false }
     public var cameraView: String? = nil          // the kind of camera view asked for when this picture was drawn (low, aerial, wide, …)
     /// True when this picture was found to repeat the framing of `previousFile` (the picture before it as it is now).
     public func looksLikePrevious(_ previousFile: String?) -> Bool {
@@ -62,7 +64,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var videoRepeat: Bool = false       // an imported clip repeats (with a crossfade) instead of holding its last frame while the camera moves
     public var videoEnd: Double? = nil         // where it stops (nil = the end of the clip)
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView, subjectDistance }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -95,6 +97,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         focalNames = try c.decodeIfPresent([String].self, forKey: .focalNames) ?? []
         framingLuma = try c.decodeIfPresent(Double.self, forKey: .framingLuma); framingEdge = try c.decodeIfPresent(Double.self, forKey: .framingEdge)
         framingAgainst = try c.decodeIfPresent(String.self, forKey: .framingAgainst); cameraView = try c.decodeIfPresent(String.self, forKey: .cameraView)
+        subjectDistance = try c.decodeIfPresent(Double.self, forKey: .subjectDistance)
     }
 
     public init(id: String, provider: String, thumbURL: String, fullURL: String, pageURL: String,
@@ -206,6 +209,7 @@ public struct Plan: Codable {
     public var imagesGeneratedCount: Int = 0         // total AI image generations/rerolls run for this song
     public var lastImageCostUSD: Double? = nil       // most recent actual per-image cost returned by OpenRouter
     public var totalVideoCostUSD: Double = 0         // what the video clips have cost so far
+    public var subjectPicture: String? = nil         // a photo of the subject every new picture shows (redrawn in the style), in the work folder
     public var styleGuideSection: Int? = nil         // the picture every other picture is drawn to match (nil = the title card, −1)
     /// Seconds added to every caption time when drawing (negative = captions appear sooner). Seen from the audience's side, captions that
     /// land exactly on the sound feel late, so new and old projects start slightly early; the user can fine-tune it per song.
@@ -225,7 +229,7 @@ public struct Plan: Codable {
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, totalVideoCostUSD, songNotes, thumbText
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, totalVideoCostUSD, songNotes, thumbText
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -250,6 +254,7 @@ public struct Plan: Codable {
         imagesGeneratedCount = try c.decodeIfPresent(Int.self, forKey: .imagesGeneratedCount) ?? 0
         lastImageCostUSD = try c.decodeIfPresent(Double.self, forKey: .lastImageCostUSD)
         styleGuideSection = try c.decodeIfPresent(Int.self, forKey: .styleGuideSection)
+        subjectPicture = try c.decodeIfPresent(String.self, forKey: .subjectPicture)
         totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
         partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []
@@ -394,6 +399,13 @@ public struct Config: Codable {
 
 /// A named picture style that is added to every picture prompt. Built-in presets can be edited or removed and you can add your own (see `StyleLibrary`).
 public struct StylePreset: Identifiable, Hashable, Sendable, Codable {
+    /// Every style asks for this (and every picture request adds it when the style doesn't already say it).
+    public static let detail = "Ultra-detailed, super-high-resolution 8K image with crisp fine detail, sharp textures and clean edges throughout."
+    /// The prompt with the detail wording added, unless it already asks for high detail and resolution.
+    public static func withDetail(_ prompt: String) -> String {
+        let l = prompt.lowercased()
+        return (l.contains("ultra-detailed") || l.contains("super-high-resolution") || l.contains("super high resolution")) ? prompt : prompt.trimmingCharacters(in: .whitespacesAndNewlines) + " " + detail
+    }
     public var id: String
     public var name: String
     public var prompt: String

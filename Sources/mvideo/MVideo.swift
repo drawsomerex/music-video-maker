@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -342,6 +342,12 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Find the best loop in a clip, then stop") var bestLoop: String?
         @Option(help: "Use this picture (copied in)") var picture: String?
         @Option(help: "The scene, in words") var scene: String?
+        @Option(help: "Subject photo (copied in): every picture drawn shows this subject") var subject: String?
+        @Option(help: "Search for a subject photo with these words and use the first result") var findSubject: String?
+        @Flag(help: "Draw the picture now (costs a few cents), then stop") var draw = false
+        @Option(help: "Change the scene: never, time, songs or both (uses every clip in the project)") var sceneChange: String?
+        @Option(help: "Minutes between scene changes by time") var sceneMinutes: Double?
+        @Flag(help: "Make one YouTube Short per song (beside the long video), then stop") var shorts = false
         func run() async throws {
             if let c = bestLoop {
                 let u = URL(fileURLWithPath: (c as NSString).expandingTildeInPath)
@@ -379,6 +385,14 @@ struct MVideo: AsyncParsableCommand {
             p.hours = hours
             if let pic = picture { let n = "picture-cli." + URL(fileURLWithPath: pic).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: pic), to: dir.appendingPathComponent(n)); p.picture = n }
             if let sc = scene { p.scene = sc }
+            if let c = sceneChange { p.sceneChange = LoopSceneChange(rawValue: c) ?? .never; p.sceneClips = p.clips }
+            if let m = sceneMinutes { p.sceneMinutes = m }
+            if let q = findSubject {
+                guard let h = await SubjectPicture.search(q).first else { throw MVError("No subject found for \(q).") }
+                let f = try await SubjectPicture.download(h, to: dir); p.subject = f.lastPathComponent; print("subject: \(h.title) (\(h.source)) -> \(f.lastPathComponent)")
+            }
+            if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: sj), to: dir.appendingPathComponent(n)); p.subject = n }
+            if draw { let c = try await LoopVideo.makePicture(&p, dir: dir); print("✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
             LoopVideo.save(p, dir)
             if youtube {
                 let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title).mp4")
@@ -397,6 +411,12 @@ struct MVideo: AsyncParsableCommand {
                 print(String(format: "total %.1f s", pl.total)); return
             }
             guard let cl = p.clip else { throw MVError("No loop clip yet: give --clip.") }
+            if shorts {
+                let folder = (out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath).deletingLastPathComponent() } ?? dir).appendingPathComponent("\(p.title) – Shorts")
+                let t0 = Date()
+                let made = try await LoopVideo.makeShorts(p, dir: dir, folder: folder) { ph, _ in print(ph) }
+                print(String(format: "✅ %d Shorts in %@ (%.0fs)", made.count, folder.path, Date().timeIntervalSince(t0))); return
+            }
             if let f = sampleFrom {
                 let o = dir.appendingPathComponent("sample.mp4"), t0 = Date()
                 try await LoopVideo.renderPreview(p, dir: dir, output: o, from: f, seconds: 40)
@@ -411,6 +431,22 @@ struct MVideo: AsyncParsableCommand {
             let t0 = Date()
             try await LoopVideo.render(p, dir: dir, output: o) { ph, f in print(String(format: "\r%3d%%  %@", Int(f * 100), ph), terminator: ""); fflush(stdout) }
             print(String(format: "\n✅ %@  (%.0fs)", o.path, Date().timeIntervalSince(t0)))
+        }
+    }
+
+    struct Draw: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Draw one picture of a music video project with the picture maker (a few cents).")
+        @Argument var work: String
+        @Option(help: "Which picture: 1, 2, … (0 = the title card)") var picture: Int
+        @Option(help: "Use this subject photo from now on (copied in)") var subject: String?
+        func run() async throws {
+            let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
+            var plan = try Pipeline.loadPlan(w)
+            if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? FileManager.default.removeItem(at: w.appendingPathComponent(n)); try FileManager.default.copyItem(at: URL(fileURLWithPath: sj), to: w.appendingPathComponent(n)); plan.subjectPicture = n }
+            let gen = try await Pipeline.generateSectionImage(section: picture - 1, plan: &plan, work: w)
+            try Pipeline.savePlan(plan, w)
+            let c = picture == 0 ? plan.intro.selectedCandidate : plan.sections[picture - 1].selectedCandidate
+            print("✅ \(c?.fullFile ?? "?")  cost \(OpenRouter.formatUSD(gen.costUSD))" + (c?.subjectDistance.map { String(format: "  different from the subject photo: %.2f%@", $0, c!.looksLikeSubject ? " (TOO CLOSE: warning shown)" : "") } ?? ""))
         }
     }
 
