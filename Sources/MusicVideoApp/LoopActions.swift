@@ -157,7 +157,8 @@ extension AppModel {
         guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
         config = Config.load()
         let cfg = config
-        runLoop("Drawing the next scene…", estimate: 60) { [weak self] p, d in
+        let what = loopProject.flatMap { p in loopDir.map { LoopVideo.nextFocus(p, dir: $0) } } ?? .place
+        runLoop(what.action.replacingOccurrences(of: "Next scene: ", with: "Drawing the next scene (") + ")…", estimate: 60) { [weak self] p, d in
             var q = p; try await LoopVideo.makeNextPicture(&q, dir: d, config: cfg)
             await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
             await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q

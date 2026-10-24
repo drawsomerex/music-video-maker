@@ -262,12 +262,10 @@ struct LoopView: View {
                     Button { model.loopMakePicture() } label: { Label(p.picture == nil ? "Draw the picture from the scene (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))" : "Draw another picture (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles") }
                         .buttonStyle(.borderedProminent).disabled(working || p.scene.trimmingCharacters(in: .whitespaces).isEmpty)
                         .help("Draws a widescreen picture of the scene above with the picture maker (a few cents).")
-                    Button { model.loopMakeNextPicture() } label: { Label("Next scene, same place (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }
-                        .disabled(working || p.picture == nil)
-                        .help("Looks at this picture and draws the next scene in the SAME place: one major change makes it clearly different (time of day, weather, season, or something new like lanterns or a boat), seen from a slightly different angle. Then make a clip from it and use it under “Change the scene”.")
                     Button { model.loopChoosePicture() } label: { Label("Use my own picture…", systemImage: "photo") }.disabled(working)
                         .help("Choose a picture from your Mac (or drag it onto the box). The loop clip starts from it.")
                 }
+                if p.picture != nil { nextSceneRow }
                 if p.pictures.count > 1 { thumbs(p.pictures, selected: p.picture) { n in model.editLoop { $0.picture = n }; model.loopDescribeMotion() } }
                 if p.picture != nil {
                     HStack {
@@ -364,6 +362,26 @@ struct LoopView: View {
             Text("\(p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"), for a 1080p video, at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
         }
     }
+    /// The next picture of a series, from the one in use: what it keeps (the place, the building, or the subject) in one switch, and a button that says what will happen.
+    var nextSceneRow: some View {
+        let focus = model.loopDir.map { LoopVideo.nextFocus(p, dir: $0) } ?? .place
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Next picture keeps").font(.callout.weight(.semibold))
+                Picker("", selection: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } })) {
+                    ForEach(NextFocus.allCases, id: \.self) { Text($0.name).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                Button { model.loopMakeNextPicture() } label: { Label(focus.action + " (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }
+                    .disabled(working)
+            }
+            Text(focus == .subject ? "The same subject, moved to a completely different place and seen from another angle."
+                 : (focus == .building ? "The same building, kept true to life, from another angle at another time, in other weather or another season."
+                                       : "The same spot from a slightly different angle, with one big change: another time of day, weather, season, or something new like lanterns or a boat."))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .help("Draws the next picture of a series from the picture in use, so the scenes of one video belong together. Make a clip from each one and use them under “Change the scene”.")
+    }
+
     /// More than one scene: which clips, and when the picture changes (a slow cross-fade).
     var scenesRow: some View {
         VStack(alignment: .leading, spacing: 6) {
