@@ -595,8 +595,9 @@ public enum Pipeline {
         let refs = [subject, prev, guide].compactMap { $0 }
         let view = prev != nil ? chooseCameraView(plan: plan, for: index) : nil
         if let t = view?.text { prompt += " Camera for this picture: \(t)." }
+        let subjectKind = plan.subjectPicture.map { SubjectPicture.kind(plan.subjectKind, file: work.appendingPathComponent($0)) } ?? .creature
         if subject != nil {
-            var roles = ["the SUBJECT: \(SubjectPicture.instruction)"]
+            var roles = ["the SUBJECT: \(SubjectPicture.instruction(subjectKind))"]
             if prev != nil { roles.append("the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition)") }
             if guide != nil { roles.append("only sets the overall art style (technique, brushwork, rendering); do not copy its subject or composition") }
             prompt += roles.count == 1 ? " The attached reference picture is \(roles[0])." : " \(roles.count) reference pictures are attached, in this order: " + roles.enumerated().map { "(\($0.offset + 1)) \($0.element)" }.joined(separator: "; ") + ". Show what is described above."
@@ -616,8 +617,9 @@ public enum Pipeline {
         // drawn from a subject photo: is it too close to the photo (same pose and angle)? Only a warning.
         if let s = plan.subjectPicture, subject != nil, let file = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.fullFile,
            let d = SubjectPicture.distance(work.appendingPathComponent(s), work.appendingPathComponent(file)) {
-            if index < 0 { if plan.intro.candidates.indices.contains(plan.intro.selected) { plan.intro.candidates[plan.intro.selected].subjectDistance = Double(d) } }
-            else if plan.sections[index].candidates.indices.contains(plan.sections[index].selected) { plan.sections[index].candidates[plan.sections[index].selected].subjectDistance = Double(d) }
+            let limit = Double(SubjectPicture.tooClose(subjectKind))
+            if index < 0 { if plan.intro.candidates.indices.contains(plan.intro.selected) { plan.intro.candidates[plan.intro.selected].subjectDistance = Double(d); plan.intro.candidates[plan.intro.selected].subjectLimit = limit } }
+            else if plan.sections[index].candidates.indices.contains(plan.sections[index].selected) { plan.sections[index].candidates[plan.sections[index].selected].subjectDistance = Double(d); plan.sections[index].candidates[plan.sections[index].selected].subjectLimit = limit }
         }
         // where are the two focal points in the finished picture? The automatic camera travels from the first to the second.
         let secNow = index < 0 ? plan.intro : plan.sections[index]

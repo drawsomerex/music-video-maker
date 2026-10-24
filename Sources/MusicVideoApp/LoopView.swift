@@ -58,7 +58,8 @@ struct LoopView: View {
         .task { model.refreshVideoPrice() }
         .alert("Notice", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) { Button("OK", role: .cancel) {} } message: { Text(model.notice ?? "") }
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
-        .sheet(isPresented: $showSubject) { SubjectSheet(current: model.loopFile(p.subject), set: { model.setLoopSubject($0) }, remove: { model.editLoop { $0.subject = nil } }) }
+        .sheet(isPresented: $showSubject) { SubjectSheet(current: model.loopFile(p.subject), set: { model.setLoopSubject($0) }, remove: { model.editLoop { $0.subject = nil } },
+                                                       kind: p.subjectKind, setKind: { k in model.editLoop { $0.subjectKind = k } }) }
         .sheet(isPresented: Binding(get: { model.loopSample != nil }, set: { if !$0 { model.loopSample = nil } })) {
             VStack(spacing: 12) {
                 HStack {
@@ -253,7 +254,7 @@ struct LoopView: View {
                 Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky)).font(.callout)
                     .help("New pictures are drawn with a clear, cloudless sky. Clouds that move can't come back to where they started, so a clear sky gives the cleanest loop. Clouds still work: they just blend slowly at the join.")
                 if let pic = p.picture, p.subjectClose[pic] != nil {
-                    Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, draw another: it is asked for a new angle and pose every time.", systemImage: "exclamationmark.triangle.fill")
+                    Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, draw another.", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 pictureWell
@@ -261,6 +262,9 @@ struct LoopView: View {
                     Button { model.loopMakePicture() } label: { Label(p.picture == nil ? "Draw the picture from the scene (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))" : "Draw another picture (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles") }
                         .buttonStyle(.borderedProminent).disabled(working || p.scene.trimmingCharacters(in: .whitespaces).isEmpty)
                         .help("Draws a widescreen picture of the scene above with the picture maker (a few cents).")
+                    Button { model.loopMakeNextPicture() } label: { Label("Next scene, same place (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }
+                        .disabled(working || p.picture == nil)
+                        .help("Looks at this picture and draws the next scene in the SAME place: one major change makes it clearly different (time of day, weather, season, or something new like lanterns or a boat), seen from a slightly different angle. Then make a clip from it and use it under “Change the scene”.")
                     Button { model.loopChoosePicture() } label: { Label("Use my own picture…", systemImage: "photo") }.disabled(working)
                         .help("Choose a picture from your Mac (or drag it onto the box). The loop clip starts from it.")
                 }

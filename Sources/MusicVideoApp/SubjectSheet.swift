@@ -8,6 +8,9 @@ struct SubjectSheet: View {
     let current: URL?
     let set: (URL) -> Void
     let remove: () -> Void
+    var kind: SubjectKind = .auto
+    var setKind: (SubjectKind) -> Void = { _ in }
+    @State private var chosen: SubjectKind = .auto
     @State private var query = ""
     @State private var hits: [SubjectHit] = []
     @State private var searching = false
@@ -18,7 +21,7 @@ struct SubjectSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Subject picture").font(.title2.bold())
-            Text("A photo of the person, animal, object or place the pictures should show. Every picture drawn from now on shows this subject, redrawn in the art style; the photo itself never appears in the video. Any photo works, since it is redrawn.")
+            Text("A photo of the person, animal, object or place the pictures should show. Every picture drawn from now on shows this subject, redrawn in the art style; the photo itself never appears in the video. A building or landscape stays true to the real place, seen from a slightly different angle; a creature is shown from a new angle and pose.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 ZStack {
@@ -27,6 +30,13 @@ struct SubjectSheet: View {
                     else { Text("No subject").font(.callout).foregroundStyle(.secondary) }
                 }.frame(width: 150, height: 100)
                 VStack(alignment: .leading, spacing: 8) {
+                    Picker("What is it?", selection: $chosen) {
+                        ForEach(SubjectKind.allCases, id: \.self) { k in
+                            Text(k == .auto ? "Decide from the photo" + (current.map { " (looks like " + (SubjectPicture.detect($0) == .place ? "a building or landscape" : "a creature") + ")" } ?? "") : k.name).tag(k)
+                        }
+                    }.fixedSize()
+                    .onChange(of: chosen) { _, v in setKind(v) }
+                    .help("A building or landscape is kept accurate to the real place and only seen from a slightly different angle. A creature, person or object is shown from a clearly different angle and pose, so the picture is new and not a copy of the photo.")
                     Button { chooseFile() } label: { Label("Choose a photo from my Mac…", systemImage: "photo") }
                     if current != nil { Button(role: .destructive) { remove(); dismiss() } label: { Label("Stop using a subject", systemImage: "xmark.circle") } }
                 }
@@ -60,6 +70,7 @@ struct SubjectSheet: View {
             HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }
         }
         .padding(22).frame(minWidth: 720, idealWidth: 860, minHeight: 600, idealHeight: 680)
+        .onAppear { chosen = kind }
     }
 
     func search() {
@@ -92,5 +103,6 @@ extension AppModel {
         guard let w = workDir, let n = copySubject(url, into: w), var p = plan else { return }
         checkpoint("Choose subject picture"); p.subjectPicture = n; plan = p; persist()
     }
+    func setSongSubjectKind(_ k: SubjectKind) { guard var p = plan, p.subjectKind != k else { return }; p.subjectKind = k; plan = p; persist() }
     func removeSongSubject() { guard var p = plan else { return }; checkpoint("Remove subject picture"); p.subjectPicture = nil; plan = p; persist() }
 }

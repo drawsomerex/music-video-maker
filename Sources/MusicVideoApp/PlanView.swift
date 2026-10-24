@@ -83,7 +83,8 @@ struct PlanView: View {
         .sheet(isPresented: $showDescriptionSheet) { DescriptionSheet().environmentObject(model) }
         .sheet(isPresented: $showStyleSheet) { StyleSheet(inProject: true).environmentObject(model) }
         .sheet(isPresented: $showSubjectSheet) {
-            SubjectSheet(current: plan.subjectPicture.flatMap { n in model.workDir?.appendingPathComponent(n) }, set: { model.setSongSubject($0) }, remove: { model.removeSongSubject() })
+            SubjectSheet(current: plan.subjectPicture.flatMap { n in model.workDir?.appendingPathComponent(n) }, set: { model.setSongSubject($0) }, remove: { model.removeSongSubject() },
+                         kind: plan.subjectKind, setKind: { model.setSongSubjectKind($0) })
         }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
@@ -708,7 +709,7 @@ struct DropWell: View {
                 if c.videoFile != nil { VideoTrimView(section: section, candidate: c, partLength: sec.duration).frame(maxWidth: 1000, alignment: .leading) }
                 cameraControls(c).frame(maxWidth: 640, alignment: .leading)
                 if c.looksLikeSubject {
-                    Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, press “Try another picture”: it is asked for a new angle and pose every time.", systemImage: "exclamationmark.triangle.fill")
+                    Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, press “Try another picture”.", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 640, alignment: .leading)
                 }
                 if c.looksLikePrevious(model.previousPictureFile(section: section)) {

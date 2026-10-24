@@ -6,6 +6,13 @@ import CoreGraphics
 import ImageIO
 import Vision
 
+/// What a subject is: decided from the photo (auto), or chosen. A place is kept accurate with a slightly different angle; a creature (or an object)
+/// is shown from a clearly different angle and pose.
+public enum SubjectKind: String, Codable, CaseIterable, Sendable {
+    case auto, place, creature
+    public var name: String { switch self { case .auto: "Decide from the photo"; case .place: "A building or landscape"; case .creature: "A creature, person or object" } }
+}
+
 public struct SubjectHit: Identifiable, Hashable, Sendable {
     public var id: String
     public var title: String
@@ -92,9 +99,32 @@ public enum SubjectPicture {
         return (try? x.computeDistance(&d, to: y)) != nil ? d : nil
     }
 
-    /// What the picture maker is told about the subject reference.
+    /// What the picture maker is told about a creature (or an object): a clearly different angle and pose, never a copy.
     public static let instruction = "only a guide to WHO or WHAT the subject is (the main person, animal, object or place it shows, with its kind, colours, markings and distinctive features). " +
         "Make a completely NEW, original picture of that subject: show it from a clearly DIFFERENT camera angle and distance than the reference, in a DIFFERENT pose or position, " +
         "in the new setting described, redrawn entirely in the art style described. Never copy, trace or reproduce the reference picture, its composition, framing, pose, background, " +
         "lighting or photographic look; a viewer must not be able to recognise the reference photo in the result"
+    /// What the picture maker is told about a building or a landscape: true to the real place, seen from a slightly different angle.
+    public static let placeInstruction = "a real building or landscape that must stay ACCURATE: keep its true architecture or landforms (shape, proportions, layout, windows, towers, " +
+        "rooflines, materials, the lie of the hills, water and rocks) so it is clearly recognisable as the same place. Show it from a SLIGHTLY different camera angle " +
+        "(a small step to one side, a little higher or lower, a slightly different distance), redrawn entirely in the art style described, with the light, weather and season of the scene described. " +
+        "Do not copy the photo's exact framing, crop, light or photographic look, and do not invent or remove parts of the building or landscape"
+
+    /// The instruction for a subject of this kind.
+    public static func instruction(_ kind: SubjectKind) -> String { kind == .place ? placeInstruction : instruction }
+    /// Below this a drawn picture is too much like the photo. A place is meant to stay close (only the angle moves a little), so only a near copy counts.
+    public static func tooClose(_ kind: SubjectKind) -> Float { kind == .place ? 0.45 : tooClose }
+
+    /// What the subject photo shows, from Apple Vision's on-device labels: a creature (a person or an animal) or a place (a building or a landscape).
+    public static func detect(_ url: URL) -> SubjectKind {
+        let r = VNClassifyImageRequest()
+        guard (try? VNImageRequestHandler(url: url).perform([r])) != nil, let res = r.results else { return .creature }
+        func conf(_ ids: [String]) -> Float { res.filter { ids.contains($0.identifier) }.map(\.confidence).max() ?? 0 }
+        if conf(["animal", "people", "adult", "child", "baby", "bird", "insect", "fish", "reptile", "mammal", "canine", "feline"]) >= 0.3 { return .creature }
+        if conf(["structure", "building", "architecture", "castle", "church", "tower", "bridge", "house", "land", "hill", "mountain", "cliff", "lake", "water_body", "forest", "valley", "shore", "beach", "waterfall"]) >= 0.3 { return .place }
+        return .creature
+    }
+    /// The kind to use: your choice, or what the photo shows.
+    public static func kind(_ chosen: SubjectKind, file: URL) -> SubjectKind { chosen == .auto ? detect(file) : chosen }
+
 }

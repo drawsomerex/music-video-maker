@@ -52,3 +52,19 @@ final class LoopScenesTests: XCTestCase {
         XCTAssertEqual(StylePreset.withDetail("Ultra-detailed oil painting."), "Ultra-detailed oil painting.", "not added twice")
     }
 }
+
+/// A building or landscape is kept accurate (only the angle moves a little); a creature gets a new angle and pose. The photos are copied to /tmp.
+final class SubjectKindTests: XCTestCase {
+    func testPlacesAndCreaturesAreToldApart() throws {
+        let cases: [(String, SubjectKind)] = [("subject-castle.jpg", .place), ("subject-valley.jpg", .place), ("subject-cow.jpg", .creature), ("subject-fox.jpg", .creature)]
+        for (f, want) in cases {
+            let u = URL(fileURLWithPath: "/tmp/" + f)
+            try XCTSkipUnless(FileManager.default.fileExists(atPath: u.path))
+            XCTAssertEqual(SubjectPicture.detect(u), want, f)
+            XCTAssertEqual(SubjectPicture.kind(.creature, file: u), .creature, "your own choice wins")
+        }
+        XCTAssertTrue(SubjectPicture.instruction(.place).contains("ACCURATE"))
+        XCTAssertTrue(SubjectPicture.instruction(.creature).contains("DIFFERENT pose"))
+        XCTAssertLessThan(SubjectPicture.tooClose(.place), SubjectPicture.tooClose(.creature))
+    }
+}

@@ -118,6 +118,8 @@ extension AppModel {
                 let done = try await work(p0, d)
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
+                    if done.scene != p0.scene { cur.scene = done.scene }                // the next scene's description
+                    cur.sceneChanges = done.sceneChanges; cur.subjectClose = done.subjectClose
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
@@ -146,6 +148,17 @@ extension AppModel {
         let cfg = config
         runLoop("Drawing the picture…", estimate: 50) { [weak self] p, d in
             var q = p; try await LoopVideo.makePicture(&q, dir: d, config: cfg)
+            await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
+            await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q
+        }
+    }
+    /// The next scene: the same place, one major change, a slightly different angle (from the picture in use).
+    func loopMakeNextPicture() {
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        config = Config.load()
+        let cfg = config
+        runLoop("Drawing the next scene…", estimate: 60) { [weak self] p, d in
+            var q = p; try await LoopVideo.makeNextPicture(&q, dir: d, config: cfg)
             await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
             await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q
         }

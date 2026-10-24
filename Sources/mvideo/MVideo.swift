@@ -345,6 +345,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Subject photo (copied in): every picture drawn shows this subject") var subject: String?
         @Option(help: "Search for a subject photo with these words and use the first result") var findSubject: String?
         @Flag(help: "Draw the picture now (costs a few cents), then stop") var draw = false
+        @Flag(help: "Draw the next scene from the picture in use (same place, one major change, slightly different angle), then stop") var nextScene = false
         @Option(help: "Change the scene: never, time, songs or both (uses every clip in the project)") var sceneChange: String?
         @Option(help: "Minutes between scene changes by time") var sceneMinutes: Double?
         @Flag(help: "Make one YouTube Short per song (beside the long video), then stop") var shorts = false
@@ -393,6 +394,7 @@ struct MVideo: AsyncParsableCommand {
             }
             if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: sj), to: dir.appendingPathComponent(n)); p.subject = n }
             if draw { let c = try await LoopVideo.makePicture(&p, dir: dir); print("✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
+            if nextScene { let c = try await LoopVideo.makeNextPicture(&p, dir: dir); print("scene: \(p.scene)\nchange: \(p.sceneChanges.last ?? "")\n✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
             LoopVideo.save(p, dir)
             if youtube {
                 let o = out.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? dir.appendingPathComponent("\(p.title).mp4")
