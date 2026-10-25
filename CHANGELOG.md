@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [2.0.0] - 2026-10-25
 - Type of shot: Wide landscape, Drone shot, Epic wide, Dramatic low angle, Eye level, Close-up, Telephoto, Leading lines, Framed through the foreground, Centred and symmetrical (next to Weather and Time of day, in both kinds of video and in the director's choices).
 - The director shows its progress: every step with a tick, the step it is on, and which picture or scene. Pause stops at the next safe point so you can change ideas, options or the scenes still to come, then Continue; Stop keeps everything made so far.
 - A picture is only based on the chosen reference picture when its idea shows that place, building or subject; pictures of something else follow their own words.
