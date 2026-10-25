@@ -42,6 +42,7 @@ struct TaskBanners: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
         VStack(spacing: 0) {
+            if let r = model.directorRun { DirectorBanner(run: r); Divider() }
             if model.busy {
                 BannerRow(title: model.busyPhase.isEmpty ? "Working in background…" : model.busyPhase, fraction: model.busyProgress, estimated: false, started: model.busyStarted, cancel: { model.cancelBackgroundTask() })
                 Divider()
@@ -101,5 +102,68 @@ struct TaskBanners: View {
         .animation(.smooth(duration: 0.25), value: model.videoJob == nil)
         .animation(.smooth(duration: 0.25), value: model.loopJob == nil)
         .animation(.smooth(duration: 0.25), value: model.doneNote)
+        .animation(.smooth(duration: 0.25), value: model.directorRun == nil)
     }
+}
+
+/// The director at work: every step with a tick, the one in progress, Pause / Continue and Stop.
+/// While paused you can change any picture idea, the picture options (style, brightness, weather, type of shot…), and for a looping video
+/// the scenes still to come; they are used when you press Continue.
+struct DirectorBanner: View {
+    @EnvironmentObject var model: AppModel
+    let run: DirectorRun
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.rectangle.stack.fill").foregroundStyle(.tint)
+                Text(run.waiting ? "The director is paused" : (run.paused ? "Pausing after this step…" : "The director is at work"))
+                    .font(.callout.weight(.semibold))
+                Text("Step \(min(run.current + 1, run.steps.count)) of \(run.steps.count)\(run.detail.isEmpty ? "" : " · " + run.detail)")
+                    .font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 8)
+                if run.paused {
+                    Button { model.continueDirector() } label: { Label("Continue", systemImage: "play.fill") }.buttonStyle(.borderedProminent).controlSize(.small)
+                        .help("Carries on from here, with any changes you made.")
+                } else {
+                    Button { model.pauseDirector() } label: { Label("Pause", systemImage: "pause.fill") }.buttonStyle(.bordered).controlSize(.small)
+                        .help("Stops at the next safe point (after the picture or clip being made) so you can change ideas, options or scenes, then Continue.")
+                }
+                Button(role: .destructive) { model.stopDirector() } label: { Label("Stop", systemImage: "stop.fill") }.buttonStyle(.bordered).controlSize(.small)
+                    .help("Stops the director. Everything made so far is kept.")
+            }
+            HStack(spacing: 6) {
+                ForEach(Array(run.steps.enumerated()), id: \.offset) { i, name in
+                    HStack(spacing: 4) {
+                        Image(systemName: i < run.current ? "checkmark.circle.fill" : (i == run.current ? (run.waiting ? "pause.circle.fill" : "circle.dotted.circle") : "circle"))
+                            .foregroundStyle(i < run.current ? Color.green : (i == run.current ? Color.accentColor : Color.secondary))
+                        Text(name).font(.caption.weight(i == run.current ? .semibold : .regular)).foregroundStyle(i <= run.current ? .primary : .secondary)
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Capsule().fill(i == run.current ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.05)))
+                    if i < run.steps.count - 1 { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
+                }
+                Spacer(minLength: 0)
+            }
+            if run.waiting {
+                Text(run.loop ? "Paused. Rewrite the scenes still to come below, or change the style, brightness, weather, time of day or type of shot above. Press Continue to carry on with your changes."
+                              : "Paused. Change any picture idea, the style, or the picture options (brightness, weather, time of day, type of shot, quality). The pictures still to come use your changes when you press Continue.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if run.loop, run.scenes.count > run.done {
+                    ForEach(run.done..<run.scenes.count, id: \.self) { k in
+                        HStack(alignment: .top) {
+                            Text("Scene \(k + 1)").font(.callout.weight(.semibold)).frame(width: 64, alignment: .leading)
+                            TextField("Scene \(k + 1)", text: Binding(get: { model.directorRun?.scenes[safe: k] ?? "" }, set: { v in if model.directorRun?.scenes.indices.contains(k) == true { model.directorRun?.scenes[k] = v } }), axis: .vertical)
+                                .lineLimit(1...3).textFieldStyle(.roundedBorder)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 9)
+        .background(Color.accentColor.opacity(0.06))
+    }
+}
+
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

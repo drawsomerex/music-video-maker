@@ -327,7 +327,7 @@ struct PlanView: View {
             Label("Picture options (for every picture drawn)", systemImage: "slider.horizontal.3").font(.headline)
             ReferenceRows(reference: plan.source.flatMap { w?.appendingPathComponent($0) },
                           note: plan.source == nil ? "Optional: a picture or photo to base every picture on. Without one, each picture is based on the picture before it."
-                                                   : "Every picture is based on this picture (always redrawn, never copied), and every picture idea uses it.",
+                                                   : "Pictures whose idea shows this place, building or subject are based on it (always redrawn, never copied); a picture whose idea is about something else is drawn from its own words.",
                           read: plan.source != nil ? plan.sourceNote.map { "Every picture idea uses: " + $0 } : nil,
                           useCurrent: current != nil && current != plan.source ? { model.useSectionAsSource(selection) } : nil,
                           choose: { model.chooseSongReference() }, find: { showSubjectSheet = true },
@@ -335,9 +335,10 @@ struct PlanView: View {
                           focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v }; if plan.source != nil, plan.sourceNoteFocus != v { model.readSourceIntoIdeas() } }),
                           weather: Binding(get: { plan.weather }, set: { v in model.editSong { $0.weather = v } }),
                           time: Binding(get: { plan.timeOfDay }, set: { v in model.editSong { $0.timeOfDay = v } }),
-                       disabled: model.busy,
+                       disabled: model.busy && model.directorRun?.waiting != true,
                           quality: Binding(get: { plan.pictureQuality }, set: { v in model.editSong { $0.pictureQuality = v } }),
-                          brightness: Binding(get: { plan.brightness }, set: { v in model.editSong { $0.brightness = v } }))
+                          brightness: Binding(get: { plan.brightness }, set: { v in model.editSong { $0.brightness = v } }),
+                          shot: Binding(get: { plan.shot }, set: { v in model.editSong { $0.shot = v } }))
         }
         .padding(12).frame(maxWidth: 1000, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))

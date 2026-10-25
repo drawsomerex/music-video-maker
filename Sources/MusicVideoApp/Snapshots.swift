@@ -143,6 +143,16 @@ enum Snapshots {
                 shot("s-song-page", sz(1000, 1000), LyricDividerView(), wait: 2)
                 NSApplication.shared.terminate(nil); return
             }
+            if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "director" {     // the director at work: steps, Pause / Continue / Stop
+                model.directorRun = DirectorRun(loop: false, steps: AppModel.songSteps, current: 3, detail: "Picture 4 of 13 (picture 3)")
+                model.busy = true; model.busyPhase = "4/13: Drawing Picture 03 (High quality)…"; model.busyProgress = 0.3
+                shot("director-working", CGSize(width: 1100, height: 200), TaskBanners())
+                model.directorRun = DirectorRun(loop: true, steps: AppModel.loopSteps, current: 3, detail: "Scene 2 of 3: the picture", paused: true, waiting: true,
+                                                scenes: ["A misty harbour at dawn with fishing boats", "The same harbour in gentle rain, lanterns lit", "Snow falling on the harbour at night"], done: 1)
+                shot("director-paused-loop", CGSize(width: 1100, height: 330), TaskBanners())
+                model.busy = false; model.directorRun = nil
+                NSApplication.shared.terminate(nil); return
+            }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "fit", let u = ProcessInfo.processInfo.environment["MV_FIT_PHOTO"].map({ URL(fileURLWithPath: $0) }) {   // the not-widescreen sheet
                 shot("fit-sheet", sz(860, 640), PictureFitSheet(req: PictureFitRequest(source: u, scene: "", use: { _ in }, addCost: { _ in })), wait: 2)
                 NSApplication.shared.terminate(nil); return

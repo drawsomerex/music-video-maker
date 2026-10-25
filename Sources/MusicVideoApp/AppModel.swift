@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
     var loopListenTask: Task<Void, Never>?
+    @Published var directorRun: DirectorRun?        // the director at work: its steps, where it is, paused or not
     @Published var directorReview: DirectorReview?  // the director's plan, waiting for you to approve its choices
     @Published var autoPending = false              // Automatic mode was chosen on the first screen: plan, draw and preview once the song is ready
     @Published var loopAutoFinished = false         // a looping video's Automatic mode has finished: open its preview
@@ -458,6 +459,7 @@ final class AppModel: ObservableObject {
                 if !Task.isCancelled { errorMessage = error.localizedDescription }
             }
             busy = false; busyProgress = 0; backgroundTask = nil
+            if directorRun?.loop == false { directorRun = nil }
         }
     }
 
@@ -465,6 +467,7 @@ final class AppModel: ObservableObject {
         backgroundTask?.cancel()
         backgroundTask = nil
         busy = false
+        if directorRun?.loop == false { directorRun = nil }
         resyncing = false
         hookBusy = false
     }
@@ -768,6 +771,15 @@ final class AppModel: ObservableObject {
         if let k = targets.firstIndex(of: guide), k > 0 { targets.remove(at: k); targets.insert(guide, at: 0) }
         runBackground(initialPhase: "\(titlePrefix) with \(OpenRouter.imageModel)…") { [weak self] in
             guard let self else { return }
+            try await self.drawLoop(targets, work: w)
+            try await then?()
+        }
+    }
+    /// Draws the pictures one after another, inside a task that is already running (the director waits here when you press Pause).
+    func drawLoop(_ targetsIn: [Int], work w: URL) async throws {
+            var targets = targetsIn
+            let guide = plan?.styleGuideSection ?? -1
+            if let k = targets.firstIndex(of: guide), k > 0 { targets.remove(at: k); targets.insert(guide, at: 0) }
             let total = targets.count
             var sessionSpent = 0.0
             var completed = 0
@@ -775,11 +787,13 @@ final class AppModel: ObservableObject {
             defer { self.workingSection = nil }
             for (idx, sec) in targets.enumerated() {
                 try Task.checkCancellation()
+                let label0 = sec < 0 ? "the title card" : "picture \(sec + 1)"
+                try await directorCheckpoint("Picture \(idx + 1) of \(total) (\(label0))", fraction: Double(idx) / Double(max(1, total)))
                 guard var p = self.plan else { break }
                 let before = p
                 self.workingSection = sec
                 let label = sec < 0 ? "Title Card" : String(format: "Picture %02d", sec + 1)
-                self.busyHandler("\(idx + 1)/\(total): Generating \(label) (16:9 Medium)…", Double(idx) / Double(total))
+                self.busyHandler("\(idx + 1)/\(total): Drawing \(label) (\(p.pictureQuality == .high ? "High" : "Medium") quality)…", Double(idx) / Double(total))
                 let gen = try await Pipeline.generateSectionImage(section: sec, plan: &p, work: w, config: self.config)
                 sessionSpent += gen.costUSD
                 completed += 1
@@ -794,8 +808,6 @@ final class AppModel: ObservableObject {
             self.refreshOpenRouterCredits(silent: true)
             _ = (completed, sessionSpent)                                  // the green "Done" line at the top shows how many and what they cost
             if !similar.isEmpty { self.notice = "Heads-up: \(similar.joined(separator: ", ")) \(similar.count == 1 ? "has" : "have") almost the same framing as the picture before. Nothing was redrawn; look and press “Try another picture” if you want a different view." }
-            try await then?()
-        }
     }
 
     /// The picture before this section's (the title card for the first section).

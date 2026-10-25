@@ -163,7 +163,10 @@ public struct PhotoSection: Codable, Identifiable {
     public var focal: [String] = []          // the two focal points named in the picture idea; the camera moves from the first to the second
     public var promptManual: Bool = false    // true once you edit the idea yourself: the story logic check never changes it
     public var logicNote: String? = nil      // what the story logic check changed in this idea (shown under the idea)
-    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal }
+    /// Whether this picture's idea shows what the picture to base it on shows (the same place, building or subject), and the idea that was decided for.
+    /// A picture whose idea is about something else is drawn from its own words, not forced to look like that photo.
+    public var usesSource: Bool? = nil, usesSourceFor: String? = nil
+    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal, usesSource, usesSourceFor }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id); start = try c.decode(Double.self, forKey: .start); end = try c.decode(Double.self, forKey: .end)
@@ -181,6 +184,7 @@ public struct PhotoSection: Codable, Identifiable {
         useClips = try c.decodeIfPresent(Bool.self, forKey: .useClips) ?? false
         repeatClips = try c.decodeIfPresent(Bool.self, forKey: .repeatClips) ?? false
         logicNote = try c.decodeIfPresent(String.self, forKey: .logicNote)
+        usesSource = try c.decodeIfPresent(Bool.self, forKey: .usesSource); usesSourceFor = try c.decodeIfPresent(String.self, forKey: .usesSourceFor)
     }
     public init(id: Int, start: Double, end: Double, lineIDs: [Int], queries: [String], candidates: [ImageCandidate], selected: Int, seed: UInt64) {
         self.id = id; self.start = start; self.end = end; self.lineIDs = lineIDs; self.queries = queries; self.candidates = candidates; self.selected = selected; self.seed = seed
@@ -225,6 +229,7 @@ public struct Plan: Codable {
     public var nextFocus: NextFocus? = nil             // what a picture keeps of the source / the picture before (nil = decided from the subject)
     public var weather: LoopWeather = .any             // the weather and time of day of the pictures drawn (any = what each picture's idea says)
     public var timeOfDay: LoopTimeOfDay = .any
+    public var shot: ShotType = .any                    // the type of shot of every picture (any = each picture's idea and the app's varied camera views)
     public var subjectKind: SubjectKind = .auto        // a building or landscape (kept accurate) or a creature (a new angle and pose); auto = from the photo
     public var subjectPicture: String? = nil         // a photo of the subject every new picture shows (redrawn in the style), in the work folder
     public var styleGuideSection: Int? = nil         // the picture every other picture is drawn to match (nil = the title card, −1)
@@ -246,7 +251,7 @@ public struct Plan: Codable {
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, sourceNote, sourceNoteFocus, treatment, cast, castSheet, pictureQuality, brightness, totalVideoCostUSD, songNotes, thumbText
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, shot, sourceNote, sourceNoteFocus, treatment, cast, castSheet, pictureQuality, brightness, totalVideoCostUSD, songNotes, thumbText
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -282,6 +287,7 @@ public struct Plan: Codable {
         pictureQuality = try c.decodeIfPresent(PictureQuality.self, forKey: .pictureQuality) ?? .high
         brightness = try c.decodeIfPresent(Brightness.self, forKey: .brightness) ?? .bright
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any; timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
+        shot = try c.decodeIfPresent(ShotType.self, forKey: .shot) ?? .any
         totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
         partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []

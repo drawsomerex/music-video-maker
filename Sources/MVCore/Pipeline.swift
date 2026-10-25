@@ -373,6 +373,22 @@ public enum Pipeline {
         return w
     }
 
+    /// Does this picture idea show what the picture to base it on shows (its place, building or subject)? A tiny language-model question
+    /// (a hundredth of a cent); when unsure or offline the answer is yes (the old behaviour).
+    public static func ideaUsesSource(idea: String, note: String, focus: NextFocus, config: Config = .load()) async -> (uses: Bool, cost: Double) {
+        let what = focus == .subject ? "subject" : (focus == .building ? "building" : "place")
+        let q = "A reference photo shows this \(what): \(note)\nA picture is to be drawn of: \(idea)\nDoes the picture show that same \(what) (so the photo should guide it)? Answer only yes or no."
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 30
+        req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let body = try? JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0, "max_tokens": 5, "usage": ["include": true],
+                                                                      "messages": [["role": "user", "content": q]]] as [String: Any]) else { return (true, 0) }
+        req.httpBody = body
+        guard let (d, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+              let msg = (ch["message"] as? [String: Any])?["content"] as? String else { return (true, 0) }
+        return (!msg.lowercased().hasPrefix("no"), ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0)
+    }
+
     /// Reads the source picture: one sentence about its place, its main building or its main subject (whichever every picture keeps). Returns it and the cost.
     public static func describeSource(_ file: URL, focus: NextFocus, config: Config = .load()) async throws -> (text: String, cost: Double) {
         guard let img = loadImage(file, maxPixel: 768), let jpeg = PictureFit.jpegData(img, quality: 0.8) else { throw MVError("The source picture couldn't be read.") }
@@ -632,14 +648,26 @@ public enum Pipeline {
         var prompt = fullPrompt(plan, section: index)
         let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
         // References: the picture this one starts from (the fixed source image, or else the picture before it), the subject photo, and the style guide.
-        let fromSource = plan.source.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
+        var fromSource = plan.source.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
+        // only when this picture's idea is about what that picture shows; an idea about something else is drawn from its own words
+        var skipPrevious = false
+        if fromSource != nil {
+            let sec = index < 0 ? plan.intro : plan.sections[index]
+            var uses = sec.usesSourceFor == sec.prompt ? sec.usesSource : nil
+            if uses == nil, let note = plan.sourceNote, !note.isEmpty {
+                let r = await ideaUsesSource(idea: sec.prompt, note: note, focus: plan.sourceNoteFocus ?? .place, config: config)
+                uses = r.uses; plan.totalGenerationCostUSD += r.cost
+                if index < 0 { plan.intro.usesSource = r.uses; plan.intro.usesSourceFor = sec.prompt } else { plan.sections[index].usesSource = r.uses; plan.sections[index].usesSourceFor = sec.prompt }
+            }
+            if uses == false { fromSource = nil; skipPrevious = true }
+        }
         let castRef = plan.castSheet.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
-        let base = fromSource ?? (castRef != nil ? nil : previousPictureJPEG(plan: plan, for: index, work: work))
+        let base = fromSource ?? (castRef != nil || skipPrevious ? nil : previousPictureJPEG(plan: plan, for: index, work: work))
         let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: base != nil)
         let refs = [base, castRef, guide].compactMap { $0 }
-        let view = base != nil ? chooseCameraView(plan: plan, for: index) : nil
+        let view = base != nil && plan.shot == .any ? chooseCameraView(plan: plan, for: index) : nil      // a chosen type of shot replaces the varied views
         if let t = view?.text { prompt += " Camera for this picture: \(t)." }
-        prompt += LoopVideo.conditions(weather: plan.weather, time: plan.timeOfDay)
+        prompt += LoopVideo.conditions(weather: plan.weather, time: plan.timeOfDay, shot: plan.shot)
         let focus = NextFocus.resolve(plan.nextFocus, reference: plan.source.map { work.appendingPathComponent($0) })
         var roles: [String] = []
         if base != nil {

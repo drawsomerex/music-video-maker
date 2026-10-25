@@ -144,9 +144,10 @@ extension AppModel {
             } catch is CancellationError {
             } catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
             loopJob = nil; loopTask = nil
+            if directorRun?.loop == true { directorRun = nil }
         }
     }
-    func cancelLoopJob() { loopTask?.cancel(); loopTask = nil; loopJob = nil }
+    func cancelLoopJob() { loopTask?.cancel(); loopTask = nil; loopJob = nil; if directorRun?.loop == true { directorRun = nil } }
 
     // MARK: the picture
     func loopSuggestScenes(avoid: [String]) async throws -> [String] {

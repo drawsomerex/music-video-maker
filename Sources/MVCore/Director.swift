@@ -17,10 +17,12 @@ public struct Treatment: Codable, Sendable {
     public var reference: String? = nil           // words to search for a photo of the recurring place, building or subject (nil = none)
     public var keep: NextFocus = .place
     public var pictures: [Int: String] = [:]      // section index (−1 = title card) → picture idea
+    public var usesReference: [Int: Bool] = [:]   // section index → whether that picture shows the reference's place, building or subject
     public var mood: Brightness = .bright         // the director's suggestion; pictures stay bright unless you approve otherwise
     public var cast = ""                          // the recurring people, props and places, with the traits that must never change
     public var weather: LoopWeather = .any        // the director's suggestions for the pictures (any = each picture's idea decides)
     public var timeOfDay: LoopTimeOfDay = .any
+    public var shot: ShotType = .any
     public var summary: String {
         "\(logline)\n\nConcept: \(concept)\nPalette: \(palette)\nMotifs: \(motifs.joined(separator: "; "))\nStyle: \(style)"
     }
@@ -36,6 +38,7 @@ public struct LoopTreatment: Codable, Sendable {
     public var mood: Brightness = .bright
     public var weather: LoopWeather = .any
     public var timeOfDay: LoopTimeOfDay = .any
+    public var shot: ShotType = .any
 }
 
 public enum Director {
@@ -79,7 +82,8 @@ public enum Director {
     }
     static var conditionsAsk: String {
         "Suggest the weather for the pictures, one of: " + LoopWeather.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
-            + " (\"any\" = each picture decides, usually best), and the time of day, one of: " + LoopTimeOfDay.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ") + "."
+            + " (\"any\" = each picture decides, usually best), the time of day, one of: " + LoopTimeOfDay.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            + ", and one type of shot for every picture, one of: " + ShotType.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ") + " (\"any\" = varied shots, usually best for a music video)."
     }
     /// Listens (Parakeet) to the songs of a looping video that haven't been heard yet (up to six), so the director knows their words.
     public static func listen(_ p: inout LoopProject, dir: URL, config: Config = .load()) async {
@@ -120,7 +124,7 @@ public enum Director {
         Suggest the mood: "bright" (the default), "natural", "moody" or "dark".
         \(conditionsAsk)
 
-        Reply with ONLY this JSON: {"logline":"...","concept":"...","palette":"...","motifs":["...","..."],"style":"...","mood":"bright","weather":"any","time":"any","cast":"...","reference":"search words" or null,"keep":"place|building|subject","pictures":[{"i":-1,"idea":"..."},{"i":0,"idea":"..."}, ...]} with one picture for EVERY index above.
+        Reply with ONLY this JSON: {"logline":"...","concept":"...","palette":"...","motifs":["...","..."],"style":"...","mood":"bright","weather":"any","time":"any","shot":"any","cast":"...","reference":"search words" or null,"keep":"place|building|subject","pictures":[{"i":-1,"idea":"...","ref":true},{"i":0,"idea":"...","ref":false}, ...]} with one picture for EVERY index above; "ref" says whether that picture shows the reference's place, building or subject (false for pictures of something else, so they are not forced to look like the photo).
         """
         let (j, cost) = try await ask(prompt, config: config)
         var t = Treatment()
@@ -131,10 +135,11 @@ public enum Director {
         t.mood = Brightness(rawValue: (j["mood"] as? String ?? "").lowercased()) ?? .bright
         t.cast = (j["cast"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         t.weather = LoopWeather(rawValue: j["weather"] as? String ?? "") ?? .any; t.timeOfDay = LoopTimeOfDay(rawValue: j["time"] as? String ?? "") ?? .any
+        t.shot = ShotType(rawValue: j["shot"] as? String ?? "") ?? .any
         for p in j["pictures"] as? [[String: Any]] ?? [] {
             guard let idea = (p["idea"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !idea.isEmpty else { continue }
             let i = (p["i"] as? Int) ?? Int(p["i"] as? String ?? "") ?? -99
-            if i == -1 || plan.sections.indices.contains(i) { t.pictures[i] = idea }
+            if i == -1 || plan.sections.indices.contains(i) { t.pictures[i] = idea; if let r = p["ref"] as? Bool { t.usesReference[i] = r } }
         }
         guard t.pictures.count >= max(1, (plan.sections.count + 1) / 2) else { throw MVError("The director's plan missed most of the pictures. Try again.") }
         return (t, cost)
@@ -158,7 +163,7 @@ public enum Director {
 
         Bright and luminous by default; suggest the mood: "bright" (the default), "natural", "moody" or "dark".
         \(conditionsAsk)
-        Reply with ONLY this JSON: {"logline":"...","style":"...","mood":"bright","weather":"any","time":"any","reference":"search words" or null,"keep":"place|building|subject","scenes":["first scene","next scene", ...]} with exactly \(scenes) scene\(scenes == 1 ? "" : "s").
+        Reply with ONLY this JSON: {"logline":"...","style":"...","mood":"bright","weather":"any","time":"any","shot":"any","reference":"search words" or null,"keep":"place|building|subject","scenes":["first scene","next scene", ...]} with exactly \(scenes) scene\(scenes == 1 ? "" : "s").
         """
         let (j, cost) = try await ask(prompt, config: config)
         var t = LoopTreatment()
@@ -167,6 +172,7 @@ public enum Director {
         t.keep = focus(j["keep"])
         t.mood = Brightness(rawValue: (j["mood"] as? String ?? "").lowercased()) ?? .bright
         t.weather = LoopWeather(rawValue: j["weather"] as? String ?? "") ?? .any; t.timeOfDay = LoopTimeOfDay(rawValue: j["time"] as? String ?? "") ?? .any
+        t.shot = ShotType(rawValue: j["shot"] as? String ?? "") ?? .any
         t.scenes = (j["scenes"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.count > 10 }
         guard !t.scenes.isEmpty else { throw MVError("The director's plan had no scenes. Try again.") }
         return (t, cost)

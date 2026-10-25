@@ -33,6 +33,7 @@ struct ReferenceRows: View {
     var disabled = false
     var quality: Binding<PictureQuality>? = nil
     var brightness: Binding<Brightness>? = nil
+    var shot: Binding<ShotType>? = nil
 
     @ViewBuilder var lookRow: some View {
         if let q = quality, let b = brightness {
@@ -88,6 +89,18 @@ struct ReferenceRows: View {
         }
     }
 
+    @ViewBuilder var shotRow: some View {
+        if let s = shot {
+            HStack(spacing: 8) {
+                Text("Type of shot").font(.callout.weight(.semibold))
+                Picker("", selection: s) { ForEach(ShotType.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+                Spacer(minLength: 0)
+            }
+            .disabled(disabled)
+            .help("Where the camera is and how the picture is framed: a wide landscape, a drone shot from above, a dramatic low angle, a close-up… “As the scene says” leaves it to the words (and, in a music video, varies the views from picture to picture).")
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // each row on one line when there is room, wrapped neatly when there is not
@@ -110,6 +123,7 @@ struct ReferenceRows: View {
                 .disabled(disabled)
                 .help("For landscapes: the weather and time of day of the pictures drawn from now on. “As the scene says” leaves it to the words; your words always win.")
             }
+            shotRow
             lookRow
             Text(focus == .subject ? "The place: anywhere the words say. The subject (a creature, person or thing) stays the same, from a new angle and in a new pose."
                  : (focus == .building ? "The building stays true to life; it is seen from another angle, at another time, in other weather or another season."

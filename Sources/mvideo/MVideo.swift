@@ -500,8 +500,8 @@ struct MVideo: AsyncParsableCommand {
             }
             let plan = try Pipeline.loadPlan(d)
             let (t, c) = try await Director.musicVideo(plan, work: d)
-            print(t.summary); print("REFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\nMOOD: \(t.mood.rawValue)  WEATHER: \(t.weather.rawValue)  TIME: \(t.timeOfDay.rawValue)\nCAST: \(t.cast)\n")
-            for i in ([-1] + Array(plan.sections.indices)) { if let idea = t.pictures[i] { print("\(i == -1 ? "title" : "\(i + 1)"). \(idea)") } }
+            print(t.summary); print("REFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\nMOOD: \(t.mood.rawValue)  WEATHER: \(t.weather.rawValue)  TIME: \(t.timeOfDay.rawValue)  SHOT: \(t.shot.rawValue)\nCAST: \(t.cast)\n")
+            for i in ([-1] + Array(plan.sections.indices)) { if let idea = t.pictures[i] { print("\(i == -1 ? "title" : "\(i + 1)").\(t.usesReference[i] == false ? " [own words, not the photo]" : "") \(idea)") } }
             print(String(format: "\ncost $%.4f", c))
         }
     }

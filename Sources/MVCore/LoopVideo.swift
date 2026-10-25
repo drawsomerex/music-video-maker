@@ -51,6 +51,33 @@ public enum LoopTimeOfDay: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// The type of shot (the camera's position and the framing) for the pictures drawn (any = what each picture's words say).
+public enum ShotType: String, Codable, CaseIterable, Sendable {
+    case any, landscape, drone, epic, lowAngle, eyeLevel, closeUp, telephoto, leadingLines, framed, symmetry
+    public var name: String {
+        switch self {
+        case .any: "As the scene says"; case .landscape: "Wide landscape"; case .drone: "Drone shot (from above)"; case .epic: "Epic wide (small figure, vast land)"
+        case .lowAngle: "Dramatic low angle"; case .eyeLevel: "Eye level, natural"; case .closeUp: "Close-up"; case .telephoto: "Telephoto (layered distance)"
+        case .leadingLines: "Leading lines"; case .framed: "Framed through the foreground"; case .symmetry: "Centred and symmetrical"
+        }
+    }
+    public var words: String {
+        switch self {
+        case .any: ""
+        case .landscape: "a wide landscape shot showing the whole scene, with a clear foreground, middle ground and far distance"
+        case .drone: "an aerial drone shot from high above, looking down and across the land"
+        case .epic: "an epic ultra-wide shot: the main subject is small against a vast landscape, showing its great scale"
+        case .lowAngle: "a dramatic low-angle shot looking up, with bold diagonal lines and a powerful composition"
+        case .eyeLevel: "a natural eye-level view, as if standing there"
+        case .closeUp: "an intimate close-up of the main subject, filling much of the frame, the background softly out of focus"
+        case .telephoto: "a long-lens telephoto shot that compresses the distance, with layers of hills, trees or buildings stacked one behind another"
+        case .leadingLines: "a composition with strong leading lines (a path, river, shoreline, road or fence) drawing the eye deep into the picture"
+        case .framed: "framed through something in the foreground (an archway, branches, a window or rocks) that surrounds the view"
+        case .symmetry: "a centred, symmetrical composition with the main subject in the middle"
+        }
+    }
+}
+
 /// The part of a clip that loops (seconds into the clip; end nil = to the end).
 public struct ClipTrim: Codable, Equatable { public var start = 0.0; public var end: Double? = nil; public var blend: Double? = nil      // blend: the dissolve from the end back to the start (nil = 1.6 s)
     public var clean: [Double]? = nil          // the usable part of the clip [start, end] when it flips, cuts or turns the other way (nil = all of it); the slow dissolve stays inside it
@@ -98,6 +125,7 @@ public struct LoopProject: Codable, Equatable {
     public var source: String?                  // the source image every "Next scene" starts from (stays the same however many pictures are drawn)
     public var weather: LoopWeather = .any      // a landscape's weather for the pictures drawn (any = what the scene says)
     public var timeOfDay: LoopTimeOfDay = .any  // and its time of day
+    public var shot: ShotType = .any            // the type of shot (camera position and framing) of the pictures drawn
     public var sceneDrawn: String?              // the scene words the picture in use was drawn from (words typed since then are your next scene)      // the major changes used for "next scene" pictures so far (not repeated)
     public var subject: String?                 // a photo of the subject the drawn picture shows (redrawn in the style), in the project folder
     public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
@@ -115,7 +143,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -150,6 +178,7 @@ public struct LoopProject: Codable, Equatable {
         if source == nil, let s = subject { source = s }            // one reference picture now: an older subject photo becomes it
         subject = nil
         timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
+        shot = try c.decodeIfPresent(ShotType.self, forKey: .shot) ?? .any
         sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .both
         sceneMinutes = try c.decodeIfPresent(Double.self, forKey: .sceneMinutes) ?? 10
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
@@ -401,10 +430,11 @@ public enum LoopVideo {
     }
 
     /// The chosen weather and time of day, in words for the picture maker ("" when both are left to the scene).
-    public static func conditions(_ p: LoopProject) -> String { conditions(weather: p.weather, time: p.timeOfDay) }
-    public static func conditions(weather: LoopWeather, time: LoopTimeOfDay) -> String {
+    public static func conditions(_ p: LoopProject) -> String { conditions(weather: p.weather, time: p.timeOfDay, shot: p.shot) }
+    public static func conditions(weather: LoopWeather, time: LoopTimeOfDay, shot: ShotType = .any) -> String {
         let parts = [weather.words, time.words].filter { !$0.isEmpty }
-        return parts.isEmpty ? "" : " Weather and time (these decide the light and the sky): " + parts.joined(separator: ", ") + "."
+        return (parts.isEmpty ? "" : " Weather and time (these decide the light and the sky): " + parts.joined(separator: ", ") + ".")
+            + (shot == .any ? "" : " Type of shot: \(shot.words).")
     }
 
     /// True when the scene words say something about the sky or the weather (then "Cloudless sky" is not added).

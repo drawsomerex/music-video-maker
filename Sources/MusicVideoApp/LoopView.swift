@@ -371,7 +371,7 @@ struct LoopView: View {
                              choose: { model.loopChooseSource() }, find: { showSubject = true },
                              remove: p.source != nil ? { model.editLoop { $0.source = nil } } : nil,
                              focus: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } }), weather: bind(\.weather), time: bind(\.timeOfDay),
-                             disabled: working, quality: bind(\.pictureQuality), brightness: bind(\.brightness))
+                             disabled: working && model.directorRun?.waiting != true, quality: bind(\.pictureQuality), brightness: bind(\.brightness), shot: bind(\.shot))
     }
     /// The next scene of a series: the same place, building or subject, something new.
     var nextSceneButton: some View {
