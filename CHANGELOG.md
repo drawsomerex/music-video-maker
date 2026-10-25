@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [1.25.0] - 2026-10-25
 - "Make it all automatically" is now one click (the price is on the button): the director plans, everything is drawn (and, for a looping video, the clips are made), and the preview opens.
 - "Plan with the director": see the director's choices in drop-down menus (Brightness, Style, Weather, Time of day, Picture quality, the picture to base it on, the cast, the number of scenes) and approve or change them before anything is drawn. Darker moods are only used when you choose them.
 - The cast: people, animals and objects that return through the video are described once and drawn on a cast sheet, and every picture keeps them the same.
