@@ -93,6 +93,8 @@ public struct LoopProject: Codable, Equatable {
     public var subjectKind: SubjectKind = .auto
     public var nextFocus: NextFocus? = nil      // what "Next scene" keeps (nil = decided from the subject: a creature → the subject, a building → the building, none → the place)
     public var sceneChanges: [String] = []
+    public var pictureQuality: PictureQuality = .high   // how the pictures are drawn
+    public var brightness: Brightness = .bright        // bright unless you approve otherwise
     public var source: String?                  // the source image every "Next scene" starts from (stays the same however many pictures are drawn)
     public var weather: LoopWeather = .any      // a landscape's weather for the pictures drawn (any = what the scene says)
     public var timeOfDay: LoopTimeOfDay = .any  // and its time of day
@@ -113,7 +115,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, source, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -143,6 +145,8 @@ public struct LoopProject: Codable, Equatable {
         sceneDrawn = try c.decodeIfPresent(String.self, forKey: .sceneDrawn)
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any
         source = try c.decodeIfPresent(String.self, forKey: .source)
+        pictureQuality = try c.decodeIfPresent(PictureQuality.self, forKey: .pictureQuality) ?? .high
+        brightness = try c.decodeIfPresent(Brightness.self, forKey: .brightness) ?? .bright
         if source == nil, let s = subject { source = s }            // one reference picture now: an older subject photo becomes it
         subject = nil
         timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
@@ -301,13 +305,14 @@ public enum LoopVideo {
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !scene.isEmpty else { throw MVError("Describe the scene first (or press “Suggest scenes”).") }
         let cloudless = p.clearSky && !mentionsSky(scene) && (p.weather == .any || p.weather == .clear)
-        let prompt = "\(scene)\(conditions(p))\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
+        let prompt = "\(scene)\(conditions(p)) \(p.brightness.words)\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
             "elements that can move gently and endlessly (water, light, weather, smoke, leaves)." + (cloudless ? " A clear, cloudless sky." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
         // the reference picture (if any): what to keep from it, never a copy of it
         let reference = p.source.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
         let focus = nextFocus(p, dir: dir)
         let gen = try await OpenRouter.generateImage(prompt: prompt + (reference != nil ? " The attached picture is \(SubjectPicture.referenceRole(focus))." : ""),
-                                                     apiKey: config.openRouterKey, referenceJPEGs: reference.map { [$0] } ?? [], scene: scene)
+                                                     apiKey: config.openRouterKey, referenceJPEGs: reference.map { [$0] } ?? [], scene: scene,
+                                                     quality: p.pictureQuality, rule: p.brightness.words)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
@@ -381,10 +386,10 @@ public enum LoopVideo {
         case .subject: keep = "Keep the SAME main subject (the main creature, person or object in the reference: exactly the same look, colours, markings and features) and the same art style, but put it in a completely DIFFERENT place: \(change). Show it from a different angle, in a calm, natural pose. Do not reuse the reference's background or composition."
         }
         let refs = [prev]
-        let prompt = "\(idea.scene)\(conditions(p))\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition. " +
+        let prompt = "\(idea.scene)\(conditions(p)) \(p.brightness.words)\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition. " +
             "The attached reference picture is the picture this video is based on (never copy it). " +
             keep + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs, scene: idea.scene)
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs, scene: idea.scene, quality: p.pictureQuality, rule: p.brightness.words)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)

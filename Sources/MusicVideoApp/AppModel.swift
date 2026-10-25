@@ -243,7 +243,8 @@ final class AppModel: ObservableObject {
     @Published var requestRegenAll = false      // the key window asks the Pictures screen to confirm “make every picture again”
 
     var hasOpenRouterKey: Bool { !config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    var perImageCostUSD: Double { plan?.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage }
+    /// About what one picture costs at the open project's quality (High ≈ 4¢, Medium ≈ 1¢).
+    var perImageCostUSD: Double { (stage == .loop ? loopProject?.pictureQuality : plan?.pictureQuality)?.estimate ?? PictureQuality.high.estimate }
     var missingImagesCostUSD: Double { Double(missing.count) * perImageCostUSD }
     var allImagesCostUSD: Double { Double(totalImages) * perImageCostUSD }
 

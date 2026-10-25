@@ -333,7 +333,9 @@ struct PlanView: View {
                           focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v }; if plan.source != nil, plan.sourceNoteFocus != v { model.readSourceIntoIdeas() } }),
                           weather: Binding(get: { plan.weather }, set: { v in model.editSong { $0.weather = v } }),
                           time: Binding(get: { plan.timeOfDay }, set: { v in model.editSong { $0.timeOfDay = v } }),
-                       disabled: model.busy)
+                       disabled: model.busy,
+                          quality: Binding(get: { plan.pictureQuality }, set: { v in model.editSong { $0.pictureQuality = v } }),
+                          brightness: Binding(get: { plan.brightness }, set: { v in model.editSong { $0.brightness = v } }))
         }
         .padding(12).frame(maxWidth: 1000, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))

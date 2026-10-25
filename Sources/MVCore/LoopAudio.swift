@@ -16,13 +16,15 @@ public struct LoopTrack: Codable, Equatable, Identifiable {
     public var title = ""                 // shown on its title card, in the chapters and the tracklist (default: the file name)
     public var seconds = 0.0
     public var cardOn = true              // its own title card (when cards are on for every song)
+    public var lyrics: String? = nil      // its words, heard with Parakeet for the director (nil = not listened to yet; empty = no words)
     public init(file: String, title: String, seconds: Double) { self.file = file; self.title = title; self.seconds = seconds }
-    enum CodingKeys: String, CodingKey { case id, file, title, seconds, cardOn }
+    enum CodingKeys: String, CodingKey { case id, file, title, seconds, cardOn, lyrics }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""; title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         seconds = try c.decodeIfPresent(Double.self, forKey: .seconds) ?? 0; cardOn = try c.decodeIfPresent(Bool.self, forKey: .cardOn) ?? true
+        lyrics = try c.decodeIfPresent(String.self, forKey: .lyrics)
     }
 }
 

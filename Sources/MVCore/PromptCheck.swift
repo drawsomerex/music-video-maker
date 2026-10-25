@@ -8,19 +8,20 @@ public enum PromptCheck {
     public static let model = "google/gemini-2.5-flash-lite"
 
     /// The checked prompt (or the original when the check can't be done).
-    public static func fix(_ prompt: String, scene: String, kind: Kind, apiKey: String) async -> String {
+    public static func fix(_ prompt: String, scene: String, kind: Kind, apiKey: String, rule: String? = nil) async -> String {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines), sc = scene.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty, !sc.isEmpty, ProcessInfo.processInfo.environment["MV_NO_PROMPT_CHECK"] == nil else { return prompt }
         let what = kind == .picture ? "an image generator" : "a video generator (it animates a still picture into a looping clip)"
         let rules = """
         You check a prompt just before it is sent to \(what). Return the same prompt, changed only where needed:
-        1. The SCENE below is the user's own words and always wins. Remove or rewrite anything in the prompt that contradicts it, above all about lighting, time of day, weather, season, sky and mood (for example delete "golden hour", "bright and cheerful", "evenly lit", "never dark or gloomy" or "a clear, cloudless sky" when the scene is a storm or a night; keep them when they agree).
+        0. \(rule.map { _ in "The AUTHOR'S RULE below was approved by the user and wins over everything, including the scene, on how bright and light the picture looks (the scene still decides the time of day, the weather and what happens): keep it, and remove anything in the prompt that contradicts it." } ?? "There is no author's rule.")
+        1. The SCENE below is the user's own words and always wins over everything except the author's rule. Remove or rewrite anything in the prompt that contradicts it, above all about lighting, time of day, weather, season, sky and mood (for example delete "golden hour", "bright and cheerful", "evenly lit", "never dark or gloomy" or "a clear, cloudless sky" when the scene is a storm or a night; keep them when they agree).
         2. Settle any other contradiction in the most sensible way for the scene.
         3. Keep everything else exactly: the art medium and technique, every instruction about attached reference pictures, every "no …" exclusion, the camera instructions, the composition and the labelled lines (keep each label).
         4. Do not add new content, do not shorten needlessly, keep it in English.
         Reply with ONLY the final prompt, nothing before or after it.
 
-        SCENE: \(sc)
+        \(rule.map { "AUTHOR'S RULE: \($0)\n" } ?? "")SCENE: \(sc)
 
         PROMPT:
         \(prompt)

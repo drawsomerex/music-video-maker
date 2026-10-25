@@ -294,7 +294,7 @@ public enum Pipeline {
         let setting = plan.setting.trimmingCharacters(in: .whitespacesAndNewlines)
         let stated = setting.isEmpty || s.prompt.lowercased().contains(setting.lowercased())
         let comp = s.focal.count >= 2 ? " Composition: two distinct focal points placed apart in the frame, both clearly visible: \(s.focal[0]) and \(s.focal[1])." : ""
-        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(comp)\(style) Bright, vivid, evenly lit with cheerful colours (never dark or gloomy). Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(comp)\(style) \(plan.brightness.words) Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
     }
 
     public static func promptsMarkdown(_ plan: Plan) -> String {
@@ -649,12 +649,23 @@ public enum Pipeline {
                                        : " \(roles.count) reference pictures are attached, in this order: " + roles.enumerated().map { "(\($0.offset + 1)) \($0.element)" }.joined(separator: "; ") + ". Show what is described above."
         }
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEGs: refs,
-                                                     scene: (index < 0 ? plan.intro : plan.sections[index]).prompt)
+                                                     scene: (index < 0 ? plan.intro : plan.sections[index]).prompt, quality: plan.pictureQuality, rule: plan.brightness.words)
         let tmpName = String(format: "%02d_sunburst.%@", index + 1, gen.fileExtension)
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_\(tmpName)")
         defer { try? FileManager.default.removeItem(at: tmpURL) }
         try gen.data.write(to: tmpURL)
-        _ = try attach(imageAt: tmpURL, section: index, plan: &plan, work: work)
+        // 4× sharper on this Mac (free, Apple's super resolution) when it can; otherwise the picture as drawn
+        let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
+        defer { try? FileManager.default.removeItem(at: sharp) }
+        _ = try attach(imageAt: await SuperRes.enlarge(tmpURL, to: sharp) ? sharp : tmpURL, section: index, plan: &plan, work: work)
+        // the automatic picture check (about a tenth of a cent): a fault gets a note and a one-click fix
+        let drawn = index < 0 ? plan.intro : plan.sections[index]
+        if let file = drawn.selectedCandidate?.fullFile,
+           let r = await PictureCheck.check(work.appendingPathComponent(file), idea: drawn.prompt, focal: drawn.focal, cast: plan.cast, config: config) {
+            func note(_ x: inout PhotoSection) { guard x.candidates.indices.contains(x.selected) else { return }; x.candidates[x.selected].checkNote = r.problem; x.candidates[x.selected].checkFix = r.fix }
+            if index < 0 { note(&plan.intro) } else { note(&plan.sections[index]) }
+            plan.totalGenerationCostUSD += r.cost
+        }
         // drawn from the reference picture: is it too close to it (a near copy)? Only a warning.
         if let s = plan.source, fromSource != nil, let file = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.fullFile,
            let d = SubjectPicture.distance(work.appendingPathComponent(s), work.appendingPathComponent(file)) {

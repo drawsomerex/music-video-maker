@@ -31,6 +31,30 @@ struct ReferenceRows: View {
     @Binding var time: LoopTimeOfDay
     var action: AnyView? = nil
     var disabled = false
+    var quality: Binding<PictureQuality>? = nil
+    var brightness: Binding<Brightness>? = nil
+
+    @ViewBuilder var lookRow: some View {
+        if let q = quality, let b = brightness {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { qualityPicker(q); brightnessPicker(b); Spacer(minLength: 0) }
+                VStack(alignment: .leading, spacing: 4) { qualityPicker(q); brightnessPicker(b) }
+            }
+            .disabled(disabled)
+        }
+    }
+    func qualityPicker(_ q: Binding<PictureQuality>) -> some View {
+        HStack(spacing: 8) {
+            Text("Picture quality").font(.callout.weight(.semibold))
+            Picker("", selection: q) { ForEach(PictureQuality.allCases, id: \.self) { Text("\($0.name) ≈ \(OpenRouter.formatUSD($0.estimate))").tag($0) } }.labelsHidden().fixedSize()
+        }.help("High draws noticeably finer, cleaner detail (about 4¢ a picture). Medium is cheaper (about 1¢).")
+    }
+    func brightnessPicker(_ b: Binding<Brightness>) -> some View {
+        HStack(spacing: 8) {
+            Text("Brightness").font(.callout.weight(.semibold))
+            Picker("", selection: b) { ForEach(Brightness.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+        }.help("Pictures are bright unless you choose otherwise. Even a night or a storm stays clearly visible at Bright. Choose Moody or Dark only if you want darker pictures.")
+    }
 
     var title: some View {
         HStack(spacing: 10) {
@@ -86,6 +110,7 @@ struct ReferenceRows: View {
                 .disabled(disabled)
                 .help("For landscapes: the weather and time of day of the pictures drawn from now on. “As the scene says” leaves it to the words; your words always win.")
             }
+            lookRow
             Text(focus == .subject ? "The place: anywhere the words say. The subject (a creature, person or thing) stays the same, from a new angle and in a new pose."
                  : (focus == .building ? "The building stays true to life; it is seen from another angle, at another time, in other weather or another season."
                                        : "The place stays the same; it is seen from a different angle, with what the words describe (another time, weather or season)."))

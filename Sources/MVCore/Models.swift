@@ -54,6 +54,8 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var subjectDistance: Double? = nil     // drawn with a subject photo: how different from it (too little = a warning)
     public var subjectLimit: Double? = nil        // below this it counts as too close (lower for a building or landscape, which is meant to stay close)
     public var looksLikeSubject: Bool { subjectDistance.map { $0 < (subjectLimit ?? Double(SubjectPicture.tooClose)) } ?? false }
+    public var checkNote: String? = nil           // the automatic picture check found a fault (scribbled text, extra fingers, a warped face…); nil = fine
+    public var checkFix: String? = nil            // the one change that fixes it ("Fix it" redraws only that, keeping everything else)
     public var cameraView: String? = nil          // the kind of camera view asked for when this picture was drawn (low, aerial, wide, …)
     /// True when this picture was found to repeat the framing of `previousFile` (the picture before it as it is now).
     public func looksLikePrevious(_ previousFile: String?) -> Bool {
@@ -65,7 +67,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var videoRepeat: Bool = false       // an imported clip repeats (with a crossfade) instead of holding its last frame while the camera moves
     public var videoEnd: Double? = nil         // where it stops (nil = the end of the clip)
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView, subjectDistance, subjectLimit }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView, subjectDistance, subjectLimit, checkNote, checkFix }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -100,6 +102,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         framingAgainst = try c.decodeIfPresent(String.self, forKey: .framingAgainst); cameraView = try c.decodeIfPresent(String.self, forKey: .cameraView)
         subjectDistance = try c.decodeIfPresent(Double.self, forKey: .subjectDistance)
         subjectLimit = try c.decodeIfPresent(Double.self, forKey: .subjectLimit)
+        checkNote = try c.decodeIfPresent(String.self, forKey: .checkNote); checkFix = try c.decodeIfPresent(String.self, forKey: .checkFix)
     }
 
     public init(id: String, provider: String, thumbURL: String, fullURL: String, pageURL: String,
@@ -211,6 +214,10 @@ public struct Plan: Codable {
     public var imagesGeneratedCount: Int = 0         // total AI image generations/rerolls run for this song
     public var lastImageCostUSD: Double? = nil       // most recent actual per-image cost returned by OpenRouter
     public var totalVideoCostUSD: Double = 0         // what the video clips have cost so far
+    public var pictureQuality: PictureQuality = .high   // how the pictures are drawn
+    public var brightness: Brightness = .bright        // bright unless you approve otherwise
+    public var cast = ""                               // the recurring people, animals, props and places with the traits that never change (every picture restates them)
+    public var castSheet: String? = nil                // a picture of that cast, made once; every picture is drawn to match it
     public var treatment: String? = nil                // Automatic mode: the director's plan (logline, concept, palette, motifs, style)
     public var sourceNote: String? = nil               // what the source image shows (the place, the building or the subject), read from it; every picture idea uses it
     public var sourceNoteFocus: NextFocus? = nil       // which of the three that description is about
@@ -239,7 +246,7 @@ public struct Plan: Codable {
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, sourceNote, sourceNoteFocus, treatment, totalVideoCostUSD, songNotes, thumbText
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, sourceNote, sourceNoteFocus, treatment, cast, castSheet, pictureQuality, brightness, totalVideoCostUSD, songNotes, thumbText
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -271,6 +278,9 @@ public struct Plan: Codable {
         subjectPicture = nil
         sourceNote = try c.decodeIfPresent(String.self, forKey: .sourceNote); sourceNoteFocus = try c.decodeIfPresent(NextFocus.self, forKey: .sourceNoteFocus)
         treatment = try c.decodeIfPresent(String.self, forKey: .treatment)
+        cast = try c.decodeIfPresent(String.self, forKey: .cast) ?? ""; castSheet = try c.decodeIfPresent(String.self, forKey: .castSheet)
+        pictureQuality = try c.decodeIfPresent(PictureQuality.self, forKey: .pictureQuality) ?? .high
+        brightness = try c.decodeIfPresent(Brightness.self, forKey: .brightness) ?? .bright
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any; timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
         totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
@@ -415,6 +425,28 @@ public struct Config: Codable {
 }
 
 /// A named picture style that is added to every picture prompt. Built-in presets can be edited or removed and you can add your own (see `StyleLibrary`).
+/// How the picture maker draws: High (the most detail, about 4¢ a picture) or Medium (cheaper, about 1¢).
+public enum PictureQuality: String, Codable, CaseIterable, Sendable {
+    case high, medium
+    public var name: String { self == .high ? "High (best detail)" : "Medium (cheaper)" }
+    /// About what one picture costs (a test in October 2026: 3.3¢ and 0.9¢, plus a little for reference pictures).
+    public var estimate: Double { self == .high ? 0.04 : 0.012 }
+}
+
+/// How bright the pictures are. Bright unless you choose otherwise: the scene decides the time of day and the weather, this decides how light it looks.
+public enum Brightness: String, Codable, CaseIterable, Sendable {
+    case bright, natural, moody, dark
+    public var name: String { switch self { case .bright: "Bright"; case .natural: "Natural"; case .moody: "Moody"; case .dark: "Dark" } }
+    public var words: String {
+        switch self {
+        case .bright: "Bright, vivid and well lit, with clear, cheerful colours: even a night, a storm or a shadowy place stays clearly visible and luminous (moonlight, lanterns, a glowing sky), never murky or gloomy."
+        case .natural: "Natural, true-to-life light and colour for the moment shown, everything clearly visible."
+        case .moody: "Moody and atmospheric: deeper shadows and richer contrast, but every subject still clearly visible."
+        case .dark: "Dark and dramatic: deep shadows and low-key light, night tones."
+        }
+    }
+}
+
 public struct StylePreset: Identifiable, Hashable, Sendable, Codable {
     /// Every style asks for this (and every picture request adds it when the style doesn't already say it).
     public static let detail = "Ultra-detailed, super-high-resolution 8K image with crisp fine detail, sharp textures and clean edges throughout."
