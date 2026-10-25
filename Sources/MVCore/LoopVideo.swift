@@ -16,6 +16,12 @@ import VideoToolbox
 public enum NextFocus: String, Codable, CaseIterable, Sendable {
     case place, building, subject
     public var name: String { switch self { case .place: "The place"; case .building: "The building"; case .subject: "The subject" } }
+    /// What to keep when you haven't chosen: the subject photo decides (a creature → the subject, a building or landscape → the building), otherwise the place.
+    public static func resolve(_ chosen: NextFocus?, subjectFile: URL?, subjectKind: SubjectKind) -> NextFocus {
+        if let c = chosen { return c }
+        guard let f = subjectFile else { return .place }
+        return SubjectPicture.kind(subjectKind, file: f) == .place ? .building : .subject
+    }
     /// What the button does, in words.
     public var action: String { switch self { case .place: "Next scene: same place, new moment"; case .building: "Next scene: same building, new view"; case .subject: "Next scene: same subject, new place" } }
 }
@@ -312,9 +318,7 @@ public enum LoopVideo {
     /// element) that makes it clearly a different scene in the SAME place, plus a slightly different camera angle. Returns the new scene in words, the change, and the cost.
     /// What "Next scene" keeps when you haven't chosen: the subject photo decides (a creature → the subject, a building or landscape → the building), otherwise the place.
     public static func nextFocus(_ p: LoopProject, dir: URL) -> NextFocus {
-        if let f = p.nextFocus { return f }
-        guard let s = p.subject else { return .place }
-        return SubjectPicture.kind(p.subjectKind, file: dir.appendingPathComponent(s)) == .place ? .building : .subject
+        NextFocus.resolve(p.nextFocus, subjectFile: p.subject.map { dir.appendingPathComponent($0) }, subjectKind: p.subjectKind)
     }
 
     public static func nextSceneIdea(picture: URL, scene: String, focus: NextFocus = .place, avoid: [String] = [], keep: String = "", config: Config = .load()) async throws -> (scene: String, change: String, cost: Double) {
@@ -390,8 +394,9 @@ public enum LoopVideo {
     }
 
     /// The chosen weather and time of day, in words for the picture maker ("" when both are left to the scene).
-    public static func conditions(_ p: LoopProject) -> String {
-        let parts = [p.weather.words, p.timeOfDay.words].filter { !$0.isEmpty }
+    public static func conditions(_ p: LoopProject) -> String { conditions(weather: p.weather, time: p.timeOfDay) }
+    public static func conditions(weather: LoopWeather, time: LoopTimeOfDay) -> String {
+        let parts = [weather.words, time.words].filter { !$0.isEmpty }
         return parts.isEmpty ? "" : " Weather and time (these decide the light and the sky): " + parts.joined(separator: ", ") + "."
     }
 

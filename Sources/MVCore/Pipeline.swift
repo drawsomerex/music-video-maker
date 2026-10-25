@@ -588,25 +588,31 @@ public enum Pipeline {
     public static func generateSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
         var prompt = fullPrompt(plan, section: index)
         let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
-        // References: the PREVIOUS picture (so this one shows the same scene from a new perspective) and the style guide (so the look stays the same).
-        let prev = previousPictureJPEG(plan: plan, for: index, work: work)
-        let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: prev != nil)
+        // References: the picture this one starts from (the fixed source image, or else the picture before it), the subject photo, and the style guide.
+        let fromSource = plan.source.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
+        let base = fromSource ?? previousPictureJPEG(plan: plan, for: index, work: work)
+        let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: base != nil)
         let subject = plan.subjectPicture.flatMap { SubjectPicture.referenceJPEG(work.appendingPathComponent($0)) }
-        let refs = [subject, prev, guide].compactMap { $0 }
-        let view = prev != nil ? chooseCameraView(plan: plan, for: index) : nil
+        let refs = [subject, base, guide].compactMap { $0 }
+        let view = base != nil ? chooseCameraView(plan: plan, for: index) : nil
         if let t = view?.text { prompt += " Camera for this picture: \(t)." }
+        prompt += LoopVideo.conditions(weather: plan.weather, time: plan.timeOfDay)
         let subjectKind = plan.subjectPicture.map { SubjectPicture.kind(plan.subjectKind, file: work.appendingPathComponent($0)) } ?? .creature
-        if subject != nil {
-            var roles = ["the SUBJECT: \(SubjectPicture.instruction(subjectKind))"]
-            if prev != nil { roles.append("the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition)") }
-            if guide != nil { roles.append("only sets the overall art style (technique, brushwork, rendering); do not copy its subject or composition") }
-            prompt += roles.count == 1 ? " The attached reference picture is \(roles[0])." : " \(roles.count) reference pictures are attached, in this order: " + roles.enumerated().map { "(\($0.offset + 1)) \($0.element)" }.joined(separator: "; ") + ". Show what is described above."
-        } else if prev != nil && guide != nil {
-            prompt += " Two reference pictures are attached. The FIRST is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above. The SECOND only sets the overall art style."
-        } else if prev != nil {
-            prompt += " The attached reference is the previous picture of the same scene: keep the same world (location, people, objects, season, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition) and show what is described above."
-        } else if guide != nil {
-            prompt += " Match ONLY the artistic style of the attached reference picture (technique, brushwork, rendering). Do NOT copy its subject or composition: show the scene described above."
+        let focus = NextFocus.resolve(plan.nextFocus, subjectFile: plan.subjectPicture.map { work.appendingPathComponent($0) }, subjectKind: plan.subjectKind)
+        let which = fromSource != nil ? "the SOURCE picture of this video" : "the previous picture of the same video"
+        var roles: [String] = []
+        if subject != nil { roles.append("the SUBJECT: \(SubjectPicture.instruction(subjectKind))") }
+        if base != nil {
+            switch focus {
+            case .place: roles.append("\(which): keep the same world (location, landmarks, people, objects, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition)")
+            case .building: roles.append("\(which): keep the SAME main building exactly as it is (its true architecture: shape, proportions, towers, windows, rooflines, materials) and the art style, seen from another natural viewpoint")
+            case .subject: roles.append("\(which): keep the SAME main subject (exactly the same look, colours, markings and features) and the art style, but put it in the place described above, seen from another angle; do not reuse that picture's background or composition")
+            }
+        }
+        if guide != nil { roles.append("only sets the overall art style (technique, brushwork, rendering); do not copy its subject or composition") }
+        if !roles.isEmpty {
+            prompt += roles.count == 1 ? " The attached reference picture is \(roles[0]). Show what is described above."
+                                       : " \(roles.count) reference pictures are attached, in this order: " + roles.enumerated().map { "(\($0.offset + 1)) \($0.element)" }.joined(separator: "; ") + ". Show what is described above."
         }
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: est, referenceJPEGs: refs,
                                                      scene: (index < 0 ? plan.intro : plan.sections[index]).prompt)

@@ -177,6 +177,7 @@ enum Snapshots {
                 shot("l-pictures-1100x720", sz(1100, 720), RootView(), wait: 2.5)
                 shot("l-pictures-860x560", sz(860, 560), RootView(), wait: 2.5)
                 shot("l-pictures-1720x1080", sz(1720, 1080), RootView(), wait: 2.5)
+                shot("l-pictures-tall", sz(1720, 2000), RootView(), wait: 2.5)
                 NSApplication.shared.terminate(nil); return
             }
             if ProcessInfo.processInfo.environment["MV_GALLERY_ONLY"] == "timeline" {

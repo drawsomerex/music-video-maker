@@ -214,8 +214,6 @@ struct PlanView: View {
         Menu {
             Button("Setting & description…") { showDescriptionSheet = true }
             Button("Art style…") { showStyleSheet = true }
-            Button(plan.subjectPicture == nil ? "Subject picture…" : "Subject picture… (in use)") { showSubjectSheet = true }
-                .help("A photo of the person, animal, object or place every new picture should show, redrawn in the art style. Choose your own or search for one.")
             Button(model.hasOpenRouterKey ? "Picture maker key & credit…" : "Add picture maker key…") { model.showOpenRouterKeySheet = true }
             Divider()
             if plan.shorts.isEmpty { Button("Make Shorts automatically") { model.autoMakeShorts() } }
@@ -306,16 +304,37 @@ struct PlanView: View {
                 detailHeader
                 if wideDetail {
                     HStack(alignment: .top, spacing: 22) {
-                        VStack(alignment: .leading, spacing: 16) { wordsBox; repeatBox; ideaBox; moveMenu }.frame(width: detailSize.width * 0.38)
+                        VStack(alignment: .leading, spacing: 16) { wordsBox; repeatBox; ideaBox; pictureOptionsBox; moveMenu }.frame(width: detailSize.width * 0.38)
                         DropWell(section: selection, maxPictureHeight: detailSize.height * 0.62).disabled(model.workingSection == selection)
                     }
                 } else {
-                    wordsBox; repeatBox; ideaBox; moveMenu
+                    wordsBox; repeatBox; ideaBox; pictureOptionsBox; moveMenu
                     DropWell(section: selection, maxPictureHeight: max(220, detailSize.height * 0.55)).disabled(model.workingSection == selection)
                 }
             }.padding(24)
         }
         .background(GeometryReader { g in Color.clear.onAppear { detailSize = g.size }.onChange(of: g.size) { _, v in detailSize = v } })
+    }
+
+    /// The picture options, the same as the looping video's: the subject, the source image, what each picture keeps, the weather and time of day.
+    var pictureOptionsBox: some View {
+        let w = model.workDir
+        let current = section.selectedCandidate?.fullFile
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Picture options (for every picture drawn)", systemImage: "slider.horizontal.3").font(.headline)
+            SubjectRow(file: plan.subjectPicture.flatMap { w?.appendingPathComponent($0) }, open: { showSubjectSheet = true }, remove: { model.removeSongSubject() }, disabled: model.busy)
+            SeriesRows(source: plan.source.flatMap { w?.appendingPathComponent($0) },
+                       sourceNote: plan.source == nil ? "none: each picture starts from the picture before it" : "every picture drawn starts from this picture",
+                       useCurrent: current != nil && current != plan.source ? { model.useSectionAsSource(selection) } : nil,
+                       choose: { model.chooseSongSource() },
+                       clear: plan.source != nil ? { model.clearSongSource() } : nil,
+                       focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v } }),
+                       weather: Binding(get: { plan.weather }, set: { v in model.editSong { $0.weather = v } }),
+                       time: Binding(get: { plan.timeOfDay }, set: { v in model.editSong { $0.timeOfDay = v } }),
+                       disabled: model.busy)
+        }
+        .padding(12).frame(maxWidth: 1000, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
     }
 
     @ViewBuilder var detailHeader: some View {
@@ -405,7 +424,7 @@ struct PlanView: View {
             }.labelStyle(.iconOnly)
             }
             TextEditor(text: Binding(get: { section.prompt }, set: { model.setPrompt($0, section: selection) }))
-                .font(.callout).scrollContentBackground(.hidden).padding(8).frame(minHeight: 86)
+                .font(.callout).scrollContentBackground(.hidden).padding(8).frame(minHeight: 86, maxHeight: 170)
                 .disabled(model.workingSection == selection)
                 .background(RoundedRectangle(cornerRadius: 10).fill(.background.opacity(0.7)))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))

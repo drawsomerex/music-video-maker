@@ -456,10 +456,18 @@ struct MVideo: AsyncParsableCommand {
         @Argument var work: String
         @Option(help: "Which picture: 1, 2, … (0 = the title card)") var picture: Int
         @Option(help: "Use this subject photo from now on (copied in)") var subject: String?
+        @Option(help: "Source image every picture starts from (a file in the project, e.g. full/section_3_….png)") var source: String?
+        @Option(help: "What a picture keeps: place, building or subject") var keep: String?
+        @Option(help: "Weather: any, clear, softClouds, overcast, rain, storm, snow, mist, clearingStorm") var weather: String?
+        @Option(help: "Time of day: any, dawn, morning, midday, goldenEvening, dusk, night") var timeOfDay: String?
         func run() async throws {
             let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
             var plan = try Pipeline.loadPlan(w)
             if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? FileManager.default.removeItem(at: w.appendingPathComponent(n)); try FileManager.default.copyItem(at: URL(fileURLWithPath: sj), to: w.appendingPathComponent(n)); plan.subjectPicture = n }
+            if let sr = source { plan.source = sr }
+            if let k = keep { plan.nextFocus = NextFocus(rawValue: k) }
+            if let x = weather { plan.weather = LoopWeather(rawValue: x) ?? .any }
+            if let x = timeOfDay { plan.timeOfDay = LoopTimeOfDay(rawValue: x) ?? .any }
             let gen = try await Pipeline.generateSectionImage(section: picture - 1, plan: &plan, work: w)
             try Pipeline.savePlan(plan, w)
             let c = picture == 0 ? plan.intro.selectedCandidate : plan.sections[picture - 1].selectedCandidate

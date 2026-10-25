@@ -103,6 +103,30 @@ extension AppModel {
         guard let w = workDir, let n = copySubject(url, into: w), var p = plan else { return }
         checkpoint("Choose subject picture"); p.subjectPicture = n; plan = p; persist()
     }
+    /// The music video's picture options (they work like the looping video's).
+    func editSong(_ f: (inout Plan) -> Void) { guard var p = plan else { return }; f(&p); plan = p; persist() }
+    var songFocus: NextFocus {
+        guard let p = plan else { return .place }
+        return NextFocus.resolve(p.nextFocus, subjectFile: p.subjectPicture.flatMap { n in workDir?.appendingPathComponent(n) }, subjectKind: p.subjectKind)
+    }
+    /// A picture of your own as the source image every picture starts from (shaped to widescreen first if needed).
+    func chooseSongSource() {
+        let o = NSOpenPanel(); o.allowedContentTypes = [.image]; o.message = "Choose the source image every picture starts from"
+        guard o.runModal() == .OK, let u = o.url else { return }
+        fitThen(u, addCost: { [weak self] c in self?.editSong { $0.totalGenerationCostUSD += c } }) { [weak self] f in
+            guard let self, let w = self.workDir else { return }
+            let name = "source-\(Int(Date().timeIntervalSince1970)).\(f.pathExtension.isEmpty ? "jpg" : f.pathExtension.lowercased())"
+            do { try FileManager.default.copyItem(at: f, to: w.appendingPathComponent(name)); self.checkpoint("Choose source image"); self.editSong { $0.source = name } }
+            catch { self.errorMessage = "Couldn't use that picture: \(error.localizedDescription)" }
+        }
+    }
+    /// The picture of a part becomes the source image.
+    func useSectionAsSource(_ section: Int) {
+        guard let p = plan, let f = (section < 0 ? p.intro : p.sections[section]).selectedCandidate?.fullFile else { return }
+        checkpoint("Choose source image"); editSong { $0.source = f }
+    }
+    func clearSongSource() { checkpoint("Clear source image"); editSong { $0.source = nil } }
+
     func setSongSubjectKind(_ k: SubjectKind) { guard var p = plan, p.subjectKind != k else { return }; p.subjectKind = k; plan = p; persist() }
     func removeSongSubject() { guard var p = plan else { return }; checkpoint("Remove subject picture"); p.subjectPicture = nil; plan = p; persist() }
 }

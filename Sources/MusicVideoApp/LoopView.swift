@@ -242,15 +242,7 @@ struct LoopView: View {
                     TextField("optional, e.g. soft watercolor", text: bind(\.style)).textFieldStyle(.roundedBorder)
                     Menu("Styles") { ForEach(StylePreset.all) { s in Button(s.name) { model.editLoop { $0.style = s.prompt } } } }.fixedSize()
                 }
-                HStack(spacing: 8) {
-                    Text("Subject").font(.callout.weight(.semibold))
-                    if let u = model.loopFile(p.subject) { Thumb(file: u).frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 5)) }
-                    Button(p.subject == nil ? "Choose or search…" : "Change…") { showSubject = true }
-                        .help("Optional: a photo of the person, animal, object or place the picture should show. It is redrawn in the look above; any photo works.")
-                    if p.subject != nil { Button("Remove") { model.editLoop { $0.subject = nil } } }
-                    Text(p.subject == nil ? "optional: a photo of who or what the picture should show" : "the next picture drawn shows this subject").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                }
+                SubjectRow(file: model.loopFile(p.subject), open: { showSubject = true }, remove: { model.editLoop { $0.subject = nil } }, disabled: working)
                 Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky)).font(.callout)
                     .help("New pictures are drawn with a clear, cloudless sky. Clouds that move can't come back to where they started, so a clear sky gives the cleanest loop. Clouds still work: they just blend slowly at the join.")
                 if let pic = p.picture, p.subjectClose[pic] != nil {
@@ -365,44 +357,14 @@ struct LoopView: View {
     /// The next picture of a series, from the one in use: what it keeps (the place, the building, or the subject) in one switch, and a button that says what will happen.
     var nextSceneRow: some View {
         let focus = model.loopDir.map { LoopVideo.nextFocus(p, dir: $0) } ?? .place
-        let source = p.source ?? p.picture
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Text("Source image").font(.callout.weight(.semibold))
-                if let u = model.loopFile(source) { Thumb(file: u).frame(width: 72, height: 41).clipShape(RoundedRectangle(cornerRadius: 5)) }
-                if p.source != nil && p.source != p.picture {
-                    Button("Use the current picture") { model.editLoop { $0.source = $0.picture } }.disabled(working)
-                        .help("Makes the picture shown above the source image for the next scenes.")
-                }
-                Button("Choose…") { model.loopChooseSource() }.disabled(working)
-                    .help("Choose a picture of your own as the source image.")
-                Text(p.source == nil ? "the picture above; it stays the source once you draw a next scene" : "every next scene starts from this picture, however many you draw")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }
-            HStack(spacing: 10) {
-                Text("Next picture keeps").font(.callout.weight(.semibold))
-                Picker("", selection: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } })) {
-                    ForEach(NextFocus.allCases, id: \.self) { Text($0.name).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden().fixedSize()
-                Button { model.loopMakeNextPicture() } label: { Label(focus.action + " (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }
-                    .disabled(working)
-            }
-            if focus != .subject {
-                HStack(spacing: 10) {
-                    Text("Weather").font(.callout.weight(.semibold))
-                    Picker("", selection: bind(\.weather)) { ForEach(LoopWeather.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
-                    Text("Time of day").font(.callout.weight(.semibold))
-                    Picker("", selection: bind(\.timeOfDay)) { ForEach(LoopTimeOfDay.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
-                }
-                .help("For landscapes: the weather and time of day of the pictures drawn from now on (the first picture and every next scene). “As the scene says” leaves it to your words.")
-            }
-            Text(focus == .subject ? "The same subject, moved to a completely different place and seen from another angle."
-                 : (focus == .building ? "The same building, kept true to life, from another angle at another time, in other weather or another season."
-                                       : "The same spot from a slightly different angle, with one big change: another time of day, weather, season, or something new like lanterns or a boat."))
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-        .help("Draws the next picture of a series from the picture in use, so the scenes of one video belong together. Make a clip from each one and use them under “Change the scene”.")
+        return SeriesRows(source: model.loopFile(p.source ?? p.picture),
+                          sourceNote: p.source == nil ? "the picture above; it stays the source once you draw a next scene" : "every next scene starts from this picture, however many you draw",
+                          useCurrent: p.source != nil && p.source != p.picture ? { model.editLoop { $0.source = $0.picture } } : nil,
+                          choose: { model.loopChooseSource() },
+                          focus: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } }), weather: bind(\.weather), time: bind(\.timeOfDay),
+                          action: AnyView(Button { model.loopMakeNextPicture() } label: { Label(focus.action + " (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }.disabled(working)),
+                          disabled: working)
+            .help("Draws the next picture of a series from the source image, so the scenes of one video belong together. Make a clip from each one and use them under “Change the scene”.")
     }
 
     /// More than one scene: which clips, and when the picture changes (a slow cross-fade).
