@@ -4,7 +4,10 @@ import Foundation
 /// Uses the local LLM (oMLX) to propose one consistent visual style and a self-contained image-generation prompt per section.
 public struct PromptWriter {
     let omlx: OMLX
+    /// What the source picture shows and how every idea must use it (empty = no source picture).
+    public var source = ""
     public init(omlx: OMLX) { self.omlx = omlx }
+    var sourceBlock: String { source.isEmpty ? "" : source + "\n" }
 
     static func theme(title: String, subject: String) -> String {
         (subject.trimmingCharacters(in: .whitespaces).isEmpty ? "Song: “\(title)”" : "Song: “\(title)”.\nSong description: \(subject)") + "\n" + brightRule
@@ -133,7 +136,7 @@ public struct PromptWriter {
         let fixedStyle = preferredStyle.trimmingCharacters(in: .whitespacesAndNewlines)
         var body = """
         \(PromptWriter.theme(title: title, subject: subject))
-        \(PromptWriter.settingBlock(setting))\(fixedStyle.isEmpty ? "" : "Chosen visual style: \(fixedStyle)\n")
+        \(PromptWriter.settingBlock(setting))\(sourceBlock)\(fixedStyle.isEmpty ? "" : "Chosen visual style: \(fixedStyle)\n")
         We are making a lyric music video. Use the song description below as the single source of truth for setting, era, mood and recurring subjects. A human will paste each prompt below into an AI image generator and load the pictures back in, so the images must look like they belong together.
         1. \(fixedStyle.isEmpty ? "Invent ONE visual style line that suits this song and keeps every image consistent: medium (e.g. cinematic photograph / oil painting / vintage illustration), technique, colour palette, era. Never lighting, time of day or weather (each picture's scene decides those). 20–35 words." : "Use the chosen visual style above for the \"style\" field.")
         2. For each numbered section write a vivid, concrete, self-contained image prompt (1–2 sentences, 25–45 words) depicting what that section's lyrics describe or evoke: \
@@ -231,7 +234,7 @@ public struct PromptWriter {
         let avoidText = avoid.isEmpty ? "" : "\nThese pictures already exist; the new one must clearly differ from every one of them in subject, place, composition and time of day:\n" + avoid.prefix(24).map { "- " + $0 }.joined(separator: "\n") + "\n"
         let prompt = """
         \(PromptWriter.theme(title: title, subject: subject))
-        \(PromptWriter.settingBlock(setting))Shared visual style (do not repeat it): \(style)
+        \(PromptWriter.settingBlock(setting))\(sourceBlock)Shared visual style (do not repeat it): \(style)
         Lyrics for this section: \(t)
         Look for this picture (use it): \(PromptVariety.hint())
         Current prompt: \(current)\(avoidText)
@@ -303,7 +306,7 @@ public struct PromptWriter {
         guard !canFix.isEmpty else { return ([:], [:]) }
         let prompt = """
         \(PromptWriter.theme(title: title, subject: subject))
-        \(PromptWriter.settingBlock(setting))These are the picture ideas of a lyric music video, in story order. Each picture is the next scene of ONE story.
+        \(PromptWriter.settingBlock(setting))\(sourceBlock)These are the picture ideas of a lyric music video, in story order. Each picture is the next scene of ONE story.
         \(list)
 
         Check the ideas numbered \(canFix) (the others are context only). An idea FAILS if (1) it shows something physically impossible, (2) it does not follow on from the idea before it (the place, people or time jump without reason), or (3) it does not fit the lyrics or the story of the song at that moment, or goes backwards in the story, or (4) it looks too much like the idea before it (the same kind of subject, shot, scale or colours): neighbouring pictures must look dramatically different.

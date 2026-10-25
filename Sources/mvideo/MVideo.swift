@@ -454,12 +454,13 @@ struct MVideo: AsyncParsableCommand {
     struct Draw: AsyncParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Draw one picture of a music video project with the picture maker (a few cents).")
         @Argument var work: String
-        @Option(help: "Which picture: 1, 2, … (0 = the title card)") var picture: Int
+        @Option(help: "Which picture: 1, 2, … (0 = the title card)") var picture: Int = 1
         @Option(help: "Use this subject photo from now on (copied in)") var subject: String?
         @Option(help: "Source image every picture starts from (a file in the project, e.g. full/section_3_….png)") var source: String?
         @Option(help: "What a picture keeps: place, building or subject") var keep: String?
         @Option(help: "Weather: any, clear, softClouds, overcast, rain, storm, snow, mist, clearingStorm") var weather: String?
         @Option(help: "Time of day: any, dawn, morning, midday, goldenEvening, dusk, night") var timeOfDay: String?
+        @Flag(help: "Read the source image and rewrite every picture idea to use it, then stop (no picture is drawn)") var readSource = false
         func run() async throws {
             let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
             var plan = try Pipeline.loadPlan(w)
@@ -468,6 +469,17 @@ struct MVideo: AsyncParsableCommand {
             if let k = keep { plan.nextFocus = NextFocus(rawValue: k) }
             if let x = weather { plan.weather = LoopWeather(rawValue: x) ?? .any }
             if let x = timeOfDay { plan.timeOfDay = LoopTimeOfDay(rawValue: x) ?? .any }
+            if readSource {
+                guard let src = plan.source else { throw MVError("Give --source.") }
+                let focus = NextFocus.resolve(plan.nextFocus, subjectFile: plan.subjectPicture.map { w.appendingPathComponent($0) }, subjectKind: plan.subjectKind)
+                let r = try await Pipeline.describeSource(w.appendingPathComponent(src), focus: focus)
+                plan.sourceNote = r.text; plan.sourceNoteFocus = focus
+                print("read (\(focus.rawValue)): \(r.text)")
+                try await Pipeline.regeneratePrompts(plan: &plan, keepStyle: true, keepWritten: true)
+                try Pipeline.savePlan(plan, w)
+                for (i, s) in plan.sections.prefix(6).enumerated() { print("\(i + 1): \(s.prompt)") }
+                return
+            }
             let gen = try await Pipeline.generateSectionImage(section: picture - 1, plan: &plan, work: w)
             try Pipeline.savePlan(plan, w)
             let c = picture == 0 ? plan.intro.selectedCandidate : plan.sections[picture - 1].selectedCandidate

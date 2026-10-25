@@ -328,7 +328,8 @@ struct PlanView: View {
                        useCurrent: current != nil && current != plan.source ? { model.useSectionAsSource(selection) } : nil,
                        choose: { model.chooseSongSource() },
                        clear: plan.source != nil ? { model.clearSongSource() } : nil,
-                       focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v } }),
+                       read: plan.source != nil ? plan.sourceNote.map { "Every picture idea uses: " + $0 } : nil,
+                       focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v }; if plan.source != nil, plan.sourceNoteFocus != v { model.readSourceIntoIdeas() } }),
                        weather: Binding(get: { plan.weather }, set: { v in model.editSong { $0.weather = v } }),
                        time: Binding(get: { plan.timeOfDay }, set: { v in model.editSong { $0.timeOfDay = v } }),
                        disabled: model.busy)

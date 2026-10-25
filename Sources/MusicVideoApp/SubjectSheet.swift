@@ -116,16 +116,40 @@ extension AppModel {
         fitThen(u, addCost: { [weak self] c in self?.editSong { $0.totalGenerationCostUSD += c } }) { [weak self] f in
             guard let self, let w = self.workDir else { return }
             let name = "source-\(Int(Date().timeIntervalSince1970)).\(f.pathExtension.isEmpty ? "jpg" : f.pathExtension.lowercased())"
-            do { try FileManager.default.copyItem(at: f, to: w.appendingPathComponent(name)); self.checkpoint("Choose source image"); self.editSong { $0.source = name } }
+            do { try FileManager.default.copyItem(at: f, to: w.appendingPathComponent(name)); self.checkpoint("Choose source image"); self.editSong { $0.source = name }; self.readSourceIntoIdeas() }
             catch { self.errorMessage = "Couldn't use that picture: \(error.localizedDescription)" }
         }
     }
     /// The picture of a part becomes the source image.
     func useSectionAsSource(_ section: Int) {
         guard let p = plan, let f = (section < 0 ? p.intro : p.sections[section]).selectedCandidate?.fullFile else { return }
-        checkpoint("Choose source image"); editSong { $0.source = f }
+        checkpoint("Choose source image"); editSong { $0.source = f }; readSourceIntoIdeas()
     }
-    func clearSongSource() { checkpoint("Clear source image"); editSong { $0.source = nil } }
+    /// Reads the source picture (its place, building or subject, whichever every picture keeps) and rewrites every picture idea to use it.
+    /// Ideas you wrote yourself stay; pictures already drawn stay.
+    func readSourceIntoIdeas() {
+        guard let p0 = plan, let w = workDir, let src = p0.source else { return }
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        let focus = songFocus, cfg = config
+        runBackground(initialPhase: "Reading the source picture…") { [weak self] in
+            guard let self, var p = self.plan else { return }
+            let r = try await Pipeline.describeSource(w.appendingPathComponent(src), focus: focus, config: cfg)
+            p.sourceNote = r.text; p.sourceNoteFocus = focus; p.totalGenerationCostUSD += r.cost
+            self.plan = p; self.persist()
+            let bh = self.busyHandler
+            bh("Rewriting the picture ideas to use it…", 0.1)
+            try await Pipeline.regeneratePrompts(plan: &p, keepStyle: true, keepWritten: true, config: cfg) { ph, f in bh(ph, 0.1 + f * 0.9) }
+            if var cur = self.plan, cur.source == p.source {
+                cur.intro.prompt = p.intro.prompt; cur.intro.focal = p.intro.focal
+                for i in cur.sections.indices where p.sections.indices.contains(i) && cur.sections[i].id == p.sections[i].id && !cur.sections[i].promptManual {
+                    cur.sections[i].prompt = p.sections[i].prompt; cur.sections[i].focal = p.sections[i].focal; cur.sections[i].logicNote = nil
+                }
+                self.plan = cur; self.persist()
+            }
+            self.notice = "Every picture idea now uses the source picture's " + (focus == .subject ? "subject" : (focus == .building ? "building" : "place")) + ": \(r.text) Ideas you wrote yourself were kept, and pictures already drawn stay until you draw them again."
+        }
+    }
+    func clearSongSource() { checkpoint("Clear source image"); editSong { $0.source = nil; $0.sourceNote = nil } }
 
     func setSongSubjectKind(_ k: SubjectKind) { guard var p = plan, p.subjectKind != k else { return }; p.subjectKind = k; plan = p; persist() }
     func removeSongSubject() { guard var p = plan else { return }; checkpoint("Remove subject picture"); p.subjectPicture = nil; plan = p; persist() }

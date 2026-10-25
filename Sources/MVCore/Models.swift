@@ -211,6 +211,8 @@ public struct Plan: Codable {
     public var imagesGeneratedCount: Int = 0         // total AI image generations/rerolls run for this song
     public var lastImageCostUSD: Double? = nil       // most recent actual per-image cost returned by OpenRouter
     public var totalVideoCostUSD: Double = 0         // what the video clips have cost so far
+    public var sourceNote: String? = nil               // what the source image shows (the place, the building or the subject), read from it; every picture idea uses it
+    public var sourceNoteFocus: NextFocus? = nil       // which of the three that description is about
     public var source: String? = nil                   // a fixed source image every picture starts from (nil = each picture follows the one before)
     public var nextFocus: NextFocus? = nil             // what a picture keeps of the source / the picture before (nil = decided from the subject)
     public var weather: LoopWeather = .any             // the weather and time of day of the pictures drawn (any = what each picture's idea says)
@@ -236,7 +238,7 @@ public struct Plan: Codable {
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, totalVideoCostUSD, songNotes, thumbText
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, sourceNote, sourceNoteFocus, totalVideoCostUSD, songNotes, thumbText
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -264,6 +266,7 @@ public struct Plan: Codable {
         subjectPicture = try c.decodeIfPresent(String.self, forKey: .subjectPicture)
         subjectKind = try c.decodeIfPresent(SubjectKind.self, forKey: .subjectKind) ?? .auto
         source = try c.decodeIfPresent(String.self, forKey: .source); nextFocus = try c.decodeIfPresent(NextFocus.self, forKey: .nextFocus)
+        sourceNote = try c.decodeIfPresent(String.self, forKey: .sourceNote); sourceNoteFocus = try c.decodeIfPresent(NextFocus.self, forKey: .sourceNoteFocus)
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any; timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
         totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift

@@ -433,11 +433,11 @@ final class AppModel: ObservableObject {
         { [weak self] phase, p in Task { @MainActor in self?.phase = phase; self?.progress = p } }
     }
 
-    private var busyHandler: ProgressHandler {
+    var busyHandler: ProgressHandler {
         { [weak self] phase, p in Task { @MainActor in self?.busyPhase = phase; self?.busyProgress = p } }
     }
 
-    private func runBackground(initialPhase: String, work: @escaping () async throws -> Void) {
+    func runBackground(initialPhase: String, work: @escaping () async throws -> Void) {
         backgroundTask?.cancel()
         busy = true; busyStarted = Date(); busyPhase = initialPhase; busyProgress = 0.05
         let spentBefore = (plan?.totalGenerationCostUSD ?? 0) + (plan?.totalVideoCostUSD ?? 0), title = initialPhase

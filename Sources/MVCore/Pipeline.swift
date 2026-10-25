@@ -338,7 +338,7 @@ public enum Pipeline {
     static func logicPass(plan: inout Plan, omlx: OMLX, only: Set<Int>? = nil) async {
         let all = [plan.intro] + plan.sections
         let items = all.map { s in (id: s.id, prompt: s.prompt, lyrics: s.lineIDs.prefix(4).compactMap { plan.lines.indices.contains($0) ? plan.lines[$0].text : nil }.joined(separator: " / "), manual: s.promptManual) }
-        let r = await PromptWriter(omlx: omlx).logicPass(items: items, only: only, title: plan.title, subject: plan.description, setting: plan.setting)
+        let r = await ideaWriter(plan, omlx).logicPass(items: items, only: only, title: plan.title, subject: plan.description, setting: plan.setting)
         for (i, p) in r.prompts {
             if i == -1 { plan.intro.prompt = p; plan.intro.logicNote = r.notes[i]; plan.intro.focal = [] }
             else if let k = plan.sections.firstIndex(where: { $0.id == i }) { plan.sections[k].prompt = p; plan.sections[k].logicNote = r.notes[i]; plan.sections[k].focal = [] }
@@ -352,19 +352,54 @@ public enum Pipeline {
         for i in plan.sections.indices where plan.sections[i].focal.count < 2 && !plan.sections[i].prompt.isEmpty { plan.sections[i].focal = await writer.focalPoints(of: plan.sections[i].prompt) }
     }
 
+    /// The idea writer for a song, told what its source picture shows and how every idea must use it.
+    static func ideaWriter(_ plan: Plan, _ omlx: OMLX) -> PromptWriter {
+        var w = PromptWriter(omlx: omlx)
+        if plan.source != nil, let note = plan.sourceNote?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+            switch plan.sourceNoteFocus ?? .place {
+            case .place: w.source = "SOURCE PICTURE (chosen by the author) shows THE PLACE of this video: \(note). EVERY picture takes place in this same place (its landmarks, buildings and landscape), seen from different angles and at the moments, times and weather the lyrics suggest. Name the place's features in every prompt."
+            case .building: w.source = "SOURCE PICTURE (chosen by the author) shows THE BUILDING of this video: \(note). This same building, true to life, appears in EVERY picture, seen from different viewpoints and distances and at the moments, times and weather the lyrics suggest. Name the building in every prompt."
+            case .subject: w.source = "SOURCE PICTURE (chosen by the author) shows THE SUBJECT of this video: \(note). This same subject, with exactly the same look, appears in EVERY picture, in the places and moments the lyrics suggest (different places are fine). Name the subject in every prompt."
+            }
+        }
+        return w
+    }
+
+    /// Reads the source picture: one sentence about its place, its main building or its main subject (whichever every picture keeps). Returns it and the cost.
+    public static func describeSource(_ file: URL, focus: NextFocus, config: Config = .load()) async throws -> (text: String, cost: Double) {
+        guard let img = loadImage(file, maxPixel: 768), let jpeg = PictureFit.jpegData(img, quality: 0.8) else { throw MVError("The source picture couldn't be read.") }
+        let what: String
+        switch focus {
+        case .place: what = "the PLACE it shows (the kind of place, landscape, landmarks, buildings, water, vegetation, era, season)"
+        case .building: what = "the main BUILDING or structure it shows (what it is, its shape, materials, towers, windows, roof, distinctive features, its surroundings)"
+        case .subject: what = "the main SUBJECT it shows (the person, animal or object: what it is, its colours, markings, clothing or distinctive features)"
+        }
+        let text = "Describe \(what) in one sentence of 15–35 words, for an illustrator who will draw it again in many pictures. Only what is visible, no art style, no lighting, no camera words. Reply with ONLY the sentence."
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
+        req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.2, "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
+        let (d, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+              let msg = (ch["message"] as? [String: Any])?["content"] as? String, msg.count > 10 else { throw MVError("The source picture couldn't be read. Try again.") }
+        return (msg.trimmingCharacters(in: CharacterSet(charactersIn: " \n\"“”")), ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0)
+    }
+
     /// Regenerates the style and every prompt from the (possibly edited) song description. Pictures already loaded are kept.
-    public static func regeneratePrompts(plan: inout Plan, keepStyle: Bool = false, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
+    /// `keepWritten`: ideas you wrote yourself stay as they are.
+    public static func regeneratePrompts(plan: inout Plan, keepStyle: Bool = false, keepWritten: Bool = false, config: Config = .load(), progress: ProgressHandler? = nil) async throws {
         progress?("Connecting to AI engine", 0.05)
         let omlx = OMLX(config: config); try await omlx.ensureReady()
         progress?("Writing image prompts for \(plan.sections.count + 1) sections", 0.20)
-        let w = try await PromptWriter(omlx: omlx).write(sections: [plan.intro] + plan.sections, lines: plan.lines, title: plan.title, subject: plan.description, preferredStyle: keepStyle ? plan.style : "", setting: plan.setting) { p, f in
+        let w = try await ideaWriter(plan, omlx).write(sections: [plan.intro] + plan.sections, lines: plan.lines, title: plan.title, subject: plan.description, preferredStyle: keepStyle ? plan.style : "", setting: plan.setting) { p, f in
             progress?(p, 0.25 + 0.70 * f)
         }
         if !keepStyle || plan.style.isEmpty { plan.style = w.style }
-        if let p = w.prompts[-1] { plan.intro.prompt = p; plan.intro.focal = w.focal[-1] ?? [] }
-        for i in plan.sections.indices { if let p = w.prompts[plan.sections[i].id] { plan.sections[i].prompt = p; plan.sections[i].focal = w.focal[plan.sections[i].id] ?? [] } }
-        plan.intro.promptManual = false; plan.intro.logicNote = nil
-        for i in plan.sections.indices { plan.sections[i].promptManual = false; plan.sections[i].logicNote = nil }
+        if let p = w.prompts[-1], !(keepWritten && plan.intro.promptManual) { plan.intro.prompt = p; plan.intro.focal = w.focal[-1] ?? []; plan.intro.promptManual = false; plan.intro.logicNote = nil }
+        for i in plan.sections.indices where !(keepWritten && plan.sections[i].promptManual) {
+            if let p = w.prompts[plan.sections[i].id] { plan.sections[i].prompt = p; plan.sections[i].focal = w.focal[plan.sections[i].id] ?? [] }
+            plan.sections[i].promptManual = false; plan.sections[i].logicNote = nil
+        }
         progress?("Checking that the story flows from picture to picture", 0.96)
         await logicPass(plan: &plan, omlx: omlx)
         await fillFocal(plan: &plan, omlx: omlx)
@@ -387,7 +422,7 @@ public enum Pipeline {
         for i in plan.sections.indices { plan.sections[i].id += 1; if let r = plan.sections[i].repeatOf { plan.sections[i].repeatOf = r + 1 } }
         progress?("Writing a picture idea for the music before the words", 0.4)
         let others = [plan.intro.prompt] + plan.sections.map(\.prompt)
-        intro.prompt = try await PromptWriter(omlx: omlx).rewriteDistinct(section: intro, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: "", others: others, setting: plan.setting)
+        intro.prompt = try await ideaWriter(plan, omlx).rewriteDistinct(section: intro, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: "", others: others, setting: plan.setting)
         plan.sections.insert(intro, at: 0)
         progress?("Done", 1.0)
     }
@@ -400,7 +435,7 @@ public enum Pipeline {
         let others = ([plan.intro.prompt] + plan.sections.map(\.prompt)).filter { $0 != s.prompt }
         let prev = index <= 0 ? (index < 0 ? "" : plan.intro.prompt) : plan.sections[index - 1].prompt
         let next = index + 1 < plan.sections.count ? plan.sections[index + 1].prompt : ""
-        let p = try await PromptWriter(omlx: omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2, setting: plan.setting, previous: prev, next: next)
+        let p = try await ideaWriter(plan, omlx).rewriteDistinct(section: s, lines: plan.lines, title: plan.title, subject: plan.description, style: plan.style, current: s.prompt, others: others, salt: index + 2, setting: plan.setting, previous: prev, next: next)
         if index < 0 { plan.intro.prompt = p; plan.intro.promptManual = false; plan.intro.logicNote = nil } else { plan.sections[index].prompt = p; plan.sections[index].promptManual = false; plan.sections[index].logicNote = nil }
         if index < 0 { plan.intro.focal = [] } else { plan.sections[index].focal = [] }
         progress?("Checking that it follows the story", 0.8)

@@ -58,6 +58,7 @@ struct SeriesRows: View {
     var useCurrent: (() -> Void)? = nil
     let choose: () -> Void
     var clear: (() -> Void)? = nil
+    var read: String? = nil                     // what was read from the source picture, shown under it
     @Binding var focus: NextFocus
     @Binding var weather: LoopWeather
     @Binding var time: LoopTimeOfDay
@@ -74,6 +75,9 @@ struct SeriesRows: View {
                     HStack(spacing: 8) { sourceButtons; Spacer(minLength: 0) }
                     Text(sourceNote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            if let r = read {
+                Label(r, systemImage: "text.viewfinder").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) { keepsLabel; keepsPicker; if let a = action { a }; Spacer(minLength: 0) }
