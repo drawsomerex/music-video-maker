@@ -614,6 +614,25 @@ struct SettingsView: View {
                 if let err = model.openRouterCreditError { Text(err).font(.callout).foregroundStyle(.red) }
                 Text("About \(OpenRouter.formatUSD(model.perImageCostUSD)) per picture. Each song remembers how much it has cost.").font(.callout).foregroundStyle(.secondary)
             }
+            Section("YouTube links (optional)") {
+                TextField("Your website", text: $model.config.website, prompt: Text("for example mysongs.com"))
+                    .help("Added near the top of every YouTube description the app writes (music videos, looping videos and Shorts).")
+                TextField("Your tip jar link", text: $model.config.tipJar, prompt: Text("for example ko-fi.com/yourname"))
+                    .help("A link where people can thank you (Ko-fi, Buy Me a Coffee, PayPal.me…). Added to every YouTube description.")
+                LabeledContent("Your logo on thumbnails") {
+                    HStack(spacing: 8) {
+                        if let u = model.config.logoURL, let img = NSImage(contentsOf: u) {
+                            Image(nsImage: img).resizable().scaledToFit().frame(height: 28)
+                            Button("Remove") { try? model.config.setLogo(nil); save() }.help("No logo on the thumbnails.")
+                        } else { Text("None").foregroundStyle(.secondary) }
+                        Button(model.config.logoURL == nil ? "Choose…" : "Change…") {
+                            let p = NSOpenPanel(); p.allowedContentTypes = [.png, .jpeg, .heic, .tiff]; p.message = "Choose your logo (a PNG with a see-through background looks best)"
+                            if p.runModal() == .OK, let u = p.url { do { try model.config.setLogo(u); save() } catch { model.errorMessage = "Couldn't use that logo: \(error.localizedDescription)" } }
+                        }.help("Put small and slightly see-through in the top corner of every YouTube thumbnail, away from the title.")
+                    }
+                }
+                Text("Each one is off until you fill it in, and then it is used everywhere: the links in every YouTube description and the logo on every thumbnail made from now on. To add them to a video already made, press “YouTube thumbnail & description” again.").font(.callout).foregroundStyle(.secondary)
+            }
             UpdatesSettingsSection()
             Section("Shortcuts & help") {
                 LabeledContent("Music Video Maker") {
@@ -654,6 +673,7 @@ struct SettingsView: View {
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.videoRealismCheck) { save() }
+        .onChange(of: model.config.website) { save() }.onChange(of: model.config.tipJar) { save() }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
         .onChange(of: model.config.sttModel) { save() }.onChange(of: model.config.llmModel) { save() }
     }

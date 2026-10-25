@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Settings ▸ YouTube links: your website, your tip jar link and your logo. Each is off until you fill it in; then the links go near the top of every YouTube description (music videos, looping videos and Shorts) and the logo goes small and tasteful in the top corner of every thumbnail.
+- Release builds no longer ask for 12 GB of free space (that is only needed for a first install with the models).
 
 ## [1.25.0] - 2026-10-25
 - "Make it all automatically" is now one click (the price is on the button): the director plans, everything is drawn (and, for a looping video, the clips are made), and the preview opens.

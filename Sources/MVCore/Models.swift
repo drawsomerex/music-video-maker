@@ -375,11 +375,14 @@ public struct Config: Codable {
     public var projectsFolder: String = ""    // where project folders are created (blank = ~/Movies/Music Videos)
     public var outputFolder: String = ""      // where finished videos & Shorts go (blank = next to each project)
     public var openRouterKey: String = ""     // OpenRouter API key for image generation (openai/gpt-image-2.5-sunburst)
+    public var website: String = ""           // your website: added to every YouTube description (blank = none)
+    public var tipJar: String = ""            // your tip jar link (Ko-fi, Buy Me a Coffee, PayPal…): added to every YouTube description
+    public var logo: String = ""              // your logo (a file in the app's own folder): put small in a corner of every YouTube thumbnail (blank = none)
     public var videoRealismCheck: Bool = true  // after each video clip, a cheap cloud check looks for physically impossible things (about 0.1 cent)
     public var effectiveOpenRouterKey: String { openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines) }
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey, videoRealismCheck }
+    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey, videoRealismCheck, website, tipJar, logo }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         omlxURL = try c.decodeIfPresent(String.self, forKey: .omlxURL) ?? ""
@@ -390,6 +393,24 @@ public struct Config: Codable {
         outputFolder = try c.decodeIfPresent(String.self, forKey: .outputFolder) ?? ""
         openRouterKey = try c.decodeIfPresent(String.self, forKey: .openRouterKey) ?? ""
         videoRealismCheck = try c.decodeIfPresent(Bool.self, forKey: .videoRealismCheck) ?? true
+        website = try c.decodeIfPresent(String.self, forKey: .website) ?? ""; tipJar = try c.decodeIfPresent(String.self, forKey: .tipJar) ?? ""
+        logo = try c.decodeIfPresent(String.self, forKey: .logo) ?? ""
+    }
+
+    /// The logo file, if one is set and still there.
+    public var logoURL: URL? {
+        guard !logo.isEmpty else { return nil }
+        let u = Config.url.deletingLastPathComponent().appendingPathComponent(logo)
+        return FileManager.default.fileExists(atPath: u.path) ? u : nil
+    }
+    /// Keeps a copy of your logo in the app's own folder (so it stays even if the original moves) and remembers it.
+    public mutating func setLogo(_ file: URL?) throws {
+        let dir = Config.url.deletingLastPathComponent()
+        if let old = logoURL { try? FileManager.default.removeItem(at: old) }
+        guard let f = file else { logo = ""; return }
+        let name = "logo-\(Int(Date().timeIntervalSince1970)).\(f.pathExtension.isEmpty ? "png" : f.pathExtension.lowercased())"
+        try FileManager.default.copyItem(at: f, to: dir.appendingPathComponent(name))
+        logo = name
     }
 
     /// Folder that holds project folders.

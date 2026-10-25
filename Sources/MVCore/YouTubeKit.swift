@@ -30,7 +30,7 @@ public enum YouTubeKit {
     // MARK: thumbnail
     /// Draws the thumbnail: the picture filling the frame, a soft shade on the side the title goes, the title large (up to three lines),
     /// a small badge above it (e.g. "8 HOURS") and a short line below (e.g. "Study · Focus · Sleep"). The bottom right stays clear (YouTube puts the length there).
-    public static func thumbnail(picture: URL, title: String?, badge: String?, line: String?, output: URL) throws {
+    public static func thumbnail(picture: URL, title: String?, badge: String?, line: String?, output: URL, logo: URL? = Config.load().logoURL) throws {
         guard let img = loadImage(picture, maxPixel: 2400) else { throw MVError("The picture for the thumbnail could not be read.") }
         let W = thumbW, H = thumbH, Wd = Double(W), Hd = Double(H)
         let ctx = makeContext(W, H)
@@ -87,6 +87,18 @@ public enum YouTubeKit {
         }
         if let t = titleImg { place(t, inset: Hd * 0.02) }
         if let l = lineImg { y -= gap; place(l, inset: Hd * 0.012) }
+        // your logo, small and quiet in the top corner away from the title (the bottom right is where YouTube shows the length)
+        if let lf = logo, let mark = loadImage(lf, maxPixel: 600) {
+            let lw = Double(mark.width), lh = Double(mark.height)
+            let k = min(Hd * 0.10 / lh, Wd * 0.18 / lw)
+            let w = lw * k, h = lh * k, pad = Hd * 0.045
+            let r = CGRect(x: left ? Wd - pad - w : pad, y: Hd - pad - h, width: w, height: h)
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: Hd * 0.012, color: CGColor(gray: 0, alpha: 0.45))
+            ctx.setAlpha(0.9)
+            ctx.draw(mark, in: r)
+            ctx.restoreGState()
+        }
 
         guard let out = ctx.makeImage() else { throw MVError("The thumbnail could not be drawn.") }
         // YouTube takes up to 2 MB
@@ -101,6 +113,26 @@ public enum YouTubeKit {
     }
 
     // MARK: description
+    /// Your website and tip jar (Settings), as a block for the description. Empty when neither is set.
+    public static func linksBlock(website: String, tipJar: String) -> String {
+        func link(_ s: String) -> String? {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return nil }
+            return t.lowercased().hasPrefix("http://") || t.lowercased().hasPrefix("https://") ? t : "https://" + t
+        }
+        return [link(website).map { "🌐 Website: \($0)" }, link(tipJar).map { "☕ Tip jar (thank you!): \($0)" }].compactMap { $0 }.joined(separator: "\n")
+    }
+    /// Puts the links after the description's first paragraph (near the top, where people see them), keeping it inside YouTube's 5,000 characters.
+    public static func withLinks(_ l: Listing, config: Config) -> Listing {
+        let block = linksBlock(website: config.website, tipJar: config.tipJar)
+        guard !block.isEmpty, !l.description.contains(block) else { return l }
+        var out = l
+        let d = l.description
+        if let r = d.range(of: "\n\n") { out.description = String(d[..<r.lowerBound]) + "\n\n" + block + "\n\n" + String(d[r.upperBound...]) }
+        else { out.description = d + "\n\n" + block }
+        if out.description.count > 4990 { out.description = String(out.description.prefix(4990)) }
+        return out
+    }
     public struct Listing { public var title: String; public var description: String; public var tags: [String]; public var hashtags: [String]
         /// As saved next to the video: ready to paste field by field into YouTube Studio.
         public var text: String {
@@ -164,7 +196,8 @@ public enum YouTubeKit {
 
     /// The listing for a looping long music video. One song: no chapters. Several: chapters for the first time through the playlist (and a tracklist).
     /// It never says that anything loops or repeats. The description stays inside YouTube's 5,000 characters.
-    public static func loopListing(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing {
+    public static func loopListing(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing { withLinks(await loopListingText(p, plan: plan, config: config), config: config) }
+    static func loopListingText(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing {
         let hours = p.playOnce ? durationText(plan?.total ?? p.tracks.reduce(0) { $0 + $1.seconds }) : hoursText(p.hours), scene = p.scene.isEmpty ? p.motion : p.scene
         let names = p.tracks.map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) }.map { $0.isEmpty ? "Untitled" : $0 }
         let several = names.count > 1
@@ -216,7 +249,8 @@ public enum YouTubeKit {
     }
 
     /// The listing for a lyric music video (the full lyrics go at the end of the description: search engines read them).
-    public static func lyricListing(_ plan: Plan, config: Config = .load()) async -> Listing {
+    public static func lyricListing(_ plan: Plan, config: Config = .load()) async -> Listing { withLinks(await lyricListingText(plan, config: config), config: config) }
+    static func lyricListingText(_ plan: Plan, config: Config = .load()) async -> Listing {
         let lyrics = plan.lines.map(\.text).joined(separator: "\n")
         let prompt = """
         Write a YouTube listing that ranks well in search for the lyric music video of the song "\(plan.title)".
@@ -238,7 +272,8 @@ public enum YouTubeKit {
     }
 
     /// The listing for a YouTube Short: a short title with the strongest words first, the Short's own lines, and #Shorts.
-    public static func shortListing(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing {
+    public static func shortListing(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing { withLinks(await shortListingText(plan, clip: c, config: config), config: config) }
+    static func shortListingText(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing {
         let lyr = plan.lines.filter { $0.end > c.start && $0.start < c.end }.map(\.text)
         let hook = c.hook.isEmpty ? plan.title : c.hook
         let prompt = """
