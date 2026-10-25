@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [1.27.0] - 2026-10-25
 - YouTube descriptions: your website and tip jar links now come straight after the first sentence, so they show before YouTube's "…more" instead of being hidden.
 - No emojis in YouTube titles or descriptions.
 - Settings explains why YouTube may show the links as plain text: a channel needs Advanced features (YouTube Studio ▸ Settings ▸ Channel ▸ Feature eligibility) before description links are clickable, and Shorts never have clickable links.
