@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [1.24.0] - 2026-10-24
 - Picture quality: choose High (best detail, the default) or Medium (cheaper), in the music video and looping screens.
 - Brightness: Bright (the default), Natural, Moody or Dark. Pictures stay bright unless you choose otherwise.
 - The director reads the title, the song description (its main guide) and the lyrics (their story); a song without lyrics is transcribed with Parakeet first. It also suggests the mood, weather, time of day and the recurring cast.
