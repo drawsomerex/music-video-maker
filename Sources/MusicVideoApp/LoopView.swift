@@ -85,9 +85,12 @@ struct LoopView: View {
                 Text(p.title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            Button { model.loopAutoAsk() } label: { Label("Make it all automatically", systemImage: "wand.and.stars") }
+            Button { model.loopDirectorPlan() } label: { Label("Plan with the director…", systemImage: "person.crop.rectangle.stack") }
+                .disabled(working || p.tracks.isEmpty)
+                .help("The director plans the scenes, then you see its choices (brightness, style, weather, time of day, quality, the picture to base it on, how many scenes) and approve or change them before anything is made.")
+            Button { model.loopAutoAsk() } label: { Label("Make it all automatically (≈ \(OpenRouter.formatUSD(model.loopAutoPrice)))", systemImage: "wand.and.stars") }
                 .buttonStyle(.borderedProminent).disabled(working || p.tracks.isEmpty)
-                .help("Automatic mode: a director plans the scenes and the style (and finds a reference photo if it helps), you see the price, then the app draws the pictures, makes the loop clips and opens a preview.")
+                .help("One click: a director plans \(model.loopAutoScenes) scene\(model.loopAutoScenes == 1 ? "" : "s") and the style (and finds a reference photo if it helps), then the app draws the pictures, makes the loop clips and opens a preview.")
             Text("Spent: \(OpenRouter.formatUSD(p.imagesUSD + p.videoUSD))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 .help("Picture \(OpenRouter.formatUSD(p.imagesUSD)) and loop clip \(OpenRouter.formatUSD(p.videoUSD)) for this looping video (the cost OpenRouter reported).")
             Button { if let d = model.loopDir { NSWorkspace.shared.activateFileViewerSelecting([d]) } } label: { Label("Show folder", systemImage: "folder") }.labelStyle(.iconOnly)

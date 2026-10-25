@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, Direct.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, Direct.self, Check.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -499,10 +499,25 @@ struct MVideo: AsyncParsableCommand {
                 print(String(format: "\ncost $%.4f", c)); return
             }
             let plan = try Pipeline.loadPlan(d)
-            let (t, c) = try await Director.musicVideo(plan)
-            print(t.summary); print("REFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\n")
+            let (t, c) = try await Director.musicVideo(plan, work: d)
+            print(t.summary); print("REFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\nMOOD: \(t.mood.rawValue)  WEATHER: \(t.weather.rawValue)  TIME: \(t.timeOfDay.rawValue)\nCAST: \(t.cast)\n")
             for i in ([-1] + Array(plan.sections.indices)) { if let idea = t.pictures[i] { print("\(i == -1 ? "title" : "\(i + 1)"). \(idea)") } }
             print(String(format: "\ncost $%.4f", c))
+        }
+    }
+
+    struct Check: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Run the automatic picture check on a picture (about a tenth of a cent) and, with --sharpen, make it 4× sharper on this Mac.")
+        @Argument var picture: String
+        @Option(help: "What the picture was meant to show") var idea = ""
+        @Option(help: "Save the sharper picture here") var sharpen: String?
+        func run() async throws {
+            let u = URL(fileURLWithPath: (picture as NSString).expandingTildeInPath)
+            if let r = await PictureCheck.check(u, idea: idea, focal: []) { print(r.problem.map { "FAULT: \($0)\nFIX: \(r.fix ?? "")" } ?? "OK: no faults found", String(format: "(cost $%.5f)", r.cost)) } else { print("The check didn't answer.") }
+            if let o = sharpen {
+                let t0 = Date(), ok = await SuperRes.enlarge(u, to: URL(fileURLWithPath: (o as NSString).expandingTildeInPath))
+                print(ok ? "✅ sharper picture saved (\(String(format: "%.1f", Date().timeIntervalSince(t0))) s)" : "Super resolution isn't available on this Mac.")
+            }
         }
     }
 

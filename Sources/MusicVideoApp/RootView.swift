@@ -303,7 +303,7 @@ struct SetupView: View {
                 Label("Do it all automatically", systemImage: "wand.and.stars").font(.headline).padding(.horizontal, 8).padding(.vertical, 4)
             }
             .controlSize(.large).disabled(!model.canStart || model.isRecording || !model.hasOpenRouterKey)
-            .help(model.hasOpenRouterKey ? "Automatic mode: the app listens to the song, a director plans the whole video (the story, the style, every picture), you see the price, and then it draws everything and opens the preview."
+            .help(model.hasOpenRouterKey ? "Automatic mode: the app listens to the song, a director plans the whole video (the story, the style, every picture), then it draws everything and opens the preview. One click, no questions."
                                          : "Automatic mode needs your OpenRouter key (Settings).")
             Button { model.autoPending = false; model.start() } label: {
                 Label(model.hasProject ? "Plan as a new video" : "Plan my video", systemImage: "arrow.right.circle.fill")

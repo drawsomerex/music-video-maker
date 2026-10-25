@@ -293,8 +293,16 @@ public enum Pipeline {
         let style = StylePreset.styleClause(plan.style)
         let setting = plan.setting.trimmingCharacters(in: .whitespacesAndNewlines)
         let stated = setting.isEmpty || s.prompt.lowercased().contains(setting.lowercased())
-        let comp = s.focal.count >= 2 ? " Composition: two distinct focal points placed apart in the frame, both clearly visible: \(s.focal[0]) and \(s.focal[1])." : ""
-        return "\(stated ? "" : "Setting: \(setting). ")\(s.prompt)\(comp)\(style) \(plan.brightness.words) Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+        // a labelled layout: the intended use, the scene, the cast, the composition for the camera move, the style, then a few firm rules
+        var t = "A still picture for a music video; it will be slowly panned and zoomed, so keep the important things well inside the frame."
+        t += "\nScene: \(stated ? "" : "\(setting). ")\(s.prompt)"
+        let cast = plan.cast.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cast.isEmpty { t += "\nRecurring cast (wherever they appear, draw them exactly like this; do not redesign them): \(cast)" }
+        if s.focal.count >= 2 { t += "\nComposition: two distinct focal points placed apart in the frame, both clearly visible, so the camera can travel from one to the other: \(s.focal[0]) and \(s.focal[1])." }
+        if !style.isEmpty { t += "\n" + style.trimmingCharacters(in: .whitespaces) }
+        t += "\nLight: \(plan.brightness.words)"
+        t += "\nRules: widescreen 16:9 landscape composition; no text, letters, signatures or watermarks; natural hands and faces."
+        return t
     }
 
     public static func promptsMarkdown(_ plan: Plan) -> String {
@@ -625,9 +633,10 @@ public enum Pipeline {
         let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
         // References: the picture this one starts from (the fixed source image, or else the picture before it), the subject photo, and the style guide.
         let fromSource = plan.source.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
-        let base = fromSource ?? previousPictureJPEG(plan: plan, for: index, work: work)
+        let castRef = plan.castSheet.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
+        let base = fromSource ?? (castRef != nil ? nil : previousPictureJPEG(plan: plan, for: index, work: work))
         let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: base != nil)
-        let refs = [base, guide].compactMap { $0 }
+        let refs = [base, castRef, guide].compactMap { $0 }
         let view = base != nil ? chooseCameraView(plan: plan, for: index) : nil
         if let t = view?.text { prompt += " Camera for this picture: \(t)." }
         prompt += LoopVideo.conditions(weather: plan.weather, time: plan.timeOfDay)
@@ -643,6 +652,7 @@ public enum Pipeline {
                 }
             }
         }
+        if castRef != nil { roles.append("the cast sheet of this video: draw every recurring person, animal and object exactly as they look on it (the same faces, hair, clothing, colours and shapes); do not redesign them; do not copy the sheet's layout or plain background") }
         if guide != nil { roles.append("only sets the overall art style (technique, brushwork, rendering); do not copy its subject or composition") }
         if !roles.isEmpty {
             prompt += roles.count == 1 ? " The attached reference picture is \(roles[0]). Show what is described above."
@@ -715,6 +725,48 @@ public enum Pipeline {
         plan.lastImageCostUSD = gen.costUSD
         try savePlan(plan, work)
         return gen
+    }
+
+    /// "Fix it": redraws the picture with only the one change the picture check suggested (the picture itself is the reference).
+    /// It becomes a new choice for that part, so the old one can still be picked.
+    @discardableResult
+    public static func fixSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
+        let s = index < 0 ? plan.intro : plan.sections[index]
+        guard let c = s.selectedCandidate, let file = c.fullFile, let fix = c.checkFix,
+              let img = loadImage(work.appendingPathComponent(file), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.9) else { throw MVError("There is nothing to fix in this picture.") }
+        let gen = try await OpenRouter.generateImage(prompt: PictureCheck.fixPrompt(fix), apiKey: config.openRouterKey, fallbackCostEstimate: plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage,
+                                                     referenceJPEGs: [jpeg], quality: plan.pictureQuality)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_fix.\(gen.fileExtension)")
+        let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
+        defer { try? FileManager.default.removeItem(at: tmp); try? FileManager.default.removeItem(at: sharp) }
+        try gen.data.write(to: tmp)
+        _ = try attach(imageAt: await SuperRes.enlarge(tmp, to: sharp) ? sharp : tmp, section: index, plan: &plan, work: work)
+        func carry(_ x: inout PhotoSection) {           // the camera and focal points stay as they were
+            guard x.candidates.indices.contains(x.selected) else { return }
+            var n = x.candidates[x.selected]
+            n.focalAX = c.focalAX; n.focalAY = c.focalAY; n.focalBX = c.focalBX; n.focalBY = c.focalBY; n.focalNames = c.focalNames
+            n.camStartX = c.camStartX; n.camStartY = c.camStartY; n.camEndX = c.camEndX; n.camEndY = c.camEndY; n.camZoom = c.camZoom
+            n.provider = "OpenRouter"; n.credit = "Fixed: \(fix) (\(OpenRouter.formatUSD(gen.costUSD)))"
+            x.candidates[x.selected] = n
+        }
+        if index < 0 { carry(&plan.intro) } else { carry(&plan.sections[index]) }
+        plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1; plan.lastImageCostUSD = gen.costUSD
+        try savePlan(plan, work)
+        return gen
+    }
+
+    /// The cast sheet: one picture of the recurring people, animals and objects (made once from the director's plan); every picture is drawn to match it.
+    @discardableResult
+    public static func makeCastSheet(plan: inout Plan, work: URL, config: Config = .load()) async throws -> Double {
+        let cast = plan.cast.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cast.isEmpty else { return 0 }
+        let prompt = "A clean reference sheet (character and prop sheet) for an illustrator: each recurring person, animal and object of this video shown once, side by side, full figure, facing the viewer, on a plain light background, evenly and brightly lit, clearly separated. \(cast)\(StylePreset.styleClause(plan.style)) No text, no labels, no lettering, no watermark."
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, quality: plan.pictureQuality)
+        let name = "castsheet-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
+        try gen.data.write(to: work.appendingPathComponent(name))
+        plan.castSheet = name; plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1
+        try savePlan(plan, work)
+        return gen.costUSD
     }
 
     // MARK: YouTube Shorts

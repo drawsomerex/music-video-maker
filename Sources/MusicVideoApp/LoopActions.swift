@@ -127,6 +127,11 @@ extension AppModel {
                     if done.style != p0.style && cur.style == p0.style { cur.style = done.style }
                     if cur.nextFocus == p0.nextFocus { cur.nextFocus = done.nextFocus }
                     if cur.source == p0.source { cur.source = done.source }
+                    if cur.brightness == p0.brightness { cur.brightness = done.brightness }
+                    if cur.pictureQuality == p0.pictureQuality { cur.pictureQuality = done.pictureQuality }
+                    if cur.weather == p0.weather { cur.weather = done.weather }
+                    if cur.timeOfDay == p0.timeOfDay { cur.timeOfDay = done.timeOfDay }
+                    for k in cur.tracks.indices where cur.tracks[k].lyrics == nil { if let t = done.tracks.first(where: { $0.id == cur.tracks[k].id }) { cur.tracks[k].lyrics = t.lyrics } }
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay

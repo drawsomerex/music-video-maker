@@ -72,7 +72,7 @@ final class AppModel: ObservableObject {
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
     var loopListenTask: Task<Void, Never>?
-    @Published var autoAsk: AutoAsk?                // Automatic mode: a price to agree to before it goes on
+    @Published var directorReview: DirectorReview?  // the director's plan, waiting for you to approve its choices
     @Published var autoPending = false              // Automatic mode was chosen on the first screen: plan, draw and preview once the song is ready
     @Published var loopAutoFinished = false         // a looping video's Automatic mode has finished: open its preview
     @Published var pictureFit: PictureFitRequest?   // an outside photo that isn't widescreen, waiting to be extended or cropped
@@ -630,6 +630,7 @@ final class AppModel: ObservableObject {
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
                 if autoPending { autoPending = false; autoDirect() }
+                else if hasOpenRouterKey { directorIdeas(silent: true) }      // the director writes the picture ideas (the local ones stay if it can't)
             } catch is CancellationError {
                 stage = .setup
             } catch {
@@ -828,6 +829,7 @@ final class AppModel: ObservableObject {
     }
 
     func regeneratePrompts(keepStyle: Bool = true) {
+        if hasOpenRouterKey { directorIdeas(); return }
         guard var p = plan else { return }
         runBackground(initialPhase: "Writing image prompts from description…") { [weak self] in
             guard let self else { return }

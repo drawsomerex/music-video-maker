@@ -209,8 +209,10 @@ struct PlanView: View {
     }
     var moreMenu: some View {
         Menu {
-            Button("Plan and draw everything automatically…") { model.autoDirect() }
-                .help("Automatic mode: a director plans the whole video (the story, the style, a reference picture if one helps, every picture idea; your own ideas are kept), you see the price, then everything is drawn and the preview opens.")
+            Button("Make it all automatically (≈ \(OpenRouter.formatUSD(model.autoSongPrice)))") { model.autoDirect() }
+                .help("One click: a director plans the whole video (the story, the style, a reference picture if one helps, every picture idea; your own ideas are kept), then every picture is drawn and the preview opens.")
+            Button("Plan with the director (you approve the choices)…") { model.directorPlan() }
+                .help("The director plans the video, then you see its choices (brightness, style, weather, time of day, quality, the picture to base it on, the cast) and approve or change them before anything is drawn.")
             if let t = plan.treatment { Button("The director's plan…") { model.notice = t } }
             Divider()
             Button("Setting & description…") { showDescriptionSheet = true }
@@ -738,6 +740,20 @@ struct DropWell: View {
                 if c.looksLikeSubject {
                     Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, press “Try another picture”.", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 640, alignment: .leading)
+                }
+                if let problem = c.checkNote {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text("The picture check found: \(problem)").font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        if c.checkFix != nil {
+                            Button { model.fixPicture(section) } label: { Label("Fix it (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "wand.and.rays") }
+                                .buttonStyle(.borderedProminent).tint(.orange).disabled(model.busy)
+                                .help("Redraws this picture changing only that (\(c.checkFix ?? "")), keeping everything else. The picture you have now stays as an earlier version.")
+                        }
+                    }
+                    .padding(10).frame(maxWidth: 640, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
                 }
                 if c.looksLikePrevious(model.previousPictureFile(section: section)) {
                     HStack(alignment: .top, spacing: 8) {
