@@ -25,7 +25,9 @@ say "Checking this Mac"
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || die "macOS 14 or newer is required."
 command -v xcodebuild >/dev/null || die "Xcode isn't installed. Install it from the App Store, open it once, then run this again."
 xcodebuild -version >/dev/null 2>&1 || die "Xcode needs its first-run setup: open Xcode once (or run: sudo xcodebuild -license accept)."
-FREE_GB=$(df -g / | awk 'NR==2{print $4}'); [ "$FREE_GB" -ge 12 ] || die "Need ~12 GB free for the build and models (you have ${FREE_GB} GB)."
+# a first build with the models needs ~12 GB; a rebuild without them (release.sh) reuses .build-native and needs far less
+NEED_GB=12; { [ "$MODELS" = 0 ] && [ -d .build-native ]; } && NEED_GB=2
+FREE_GB=$(df -g / | awk 'NR==2{print $4}'); [ "$FREE_GB" -ge "$NEED_GB" ] || die "Need ~${NEED_GB} GB free for the build$( [ "$NEED_GB" = 12 ] && echo " and models") (you have ${FREE_GB} GB)."
 echo "  Apple Silicon ✓   macOS $(sw_vers -productVersion) ✓   $(xcodebuild -version | head -1) ✓   ${FREE_GB} GB free ✓"
 
 say "Metal toolchain (needed to compile MLX's GPU kernels)"
