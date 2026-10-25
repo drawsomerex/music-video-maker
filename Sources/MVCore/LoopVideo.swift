@@ -17,10 +17,10 @@ public enum NextFocus: String, Codable, CaseIterable, Sendable {
     case place, building, subject
     public var name: String { switch self { case .place: "The place"; case .building: "The building"; case .subject: "The subject" } }
     /// What to keep when you haven't chosen: the subject photo decides (a creature → the subject, a building or landscape → the building), otherwise the place.
-    public static func resolve(_ chosen: NextFocus?, subjectFile: URL?, subjectKind: SubjectKind) -> NextFocus {
+    /// What to keep: your choice, or what the reference picture shows (a creature → the subject, a building → the building, a landscape → the place).
+    public static func resolve(_ chosen: NextFocus?, reference: URL?) -> NextFocus {
         if let c = chosen { return c }
-        guard let f = subjectFile else { return .place }
-        return SubjectPicture.kind(subjectKind, file: f) == .place ? .building : .subject
+        return reference.map(SubjectPicture.focus) ?? .place
     }
     /// What the button does, in words.
     public var action: String { switch self { case .place: "Next scene: same place, new moment"; case .building: "Next scene: same building, new view"; case .subject: "Next scene: same subject, new place" } }
@@ -87,7 +87,7 @@ public struct LoopProject: Codable, Equatable {
     public var clip: String?                    // the one in use
     public var sharpClip = false                // 2K instead of 768p (sharper, about three times the price)
     public var sceneClips: [String] = []        // the clips the long video changes between (empty or one = only the clip in use)
-    public var sceneChange: LoopSceneChange = .never     // when the scene changes
+    public var sceneChange: LoopSceneChange = .both      // when the scene changes
     public var sceneMinutes = 10.0              // for a change by time: every this many minutes
     public var subjectClose: [String: Double] = [:]   // pictures drawn from the subject photo that came out too much like it (picture → distance), for a warning
     public var subjectKind: SubjectKind = .auto
@@ -143,8 +143,10 @@ public struct LoopProject: Codable, Equatable {
         sceneDrawn = try c.decodeIfPresent(String.self, forKey: .sceneDrawn)
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any
         source = try c.decodeIfPresent(String.self, forKey: .source)
+        if source == nil, let s = subject { source = s }            // one reference picture now: an older subject photo becomes it
+        subject = nil
         timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
-        sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .never
+        sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .both
         sceneMinutes = try c.decodeIfPresent(Double.self, forKey: .sceneMinutes) ?? 10
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
         imagesUSD = try c.decodeIfPresent(Double.self, forKey: .imagesUSD) ?? 0; videoUSD = try c.decodeIfPresent(Double.self, forKey: .videoUSD) ?? 0
@@ -301,15 +303,16 @@ public enum LoopVideo {
         let cloudless = p.clearSky && !mentionsSky(scene) && (p.weather == .any || p.weather == .clear)
         let prompt = "\(scene)\(conditions(p))\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition, " +
             "elements that can move gently and endlessly (water, light, weather, smoke, leaves)." + (cloudless ? " A clear, cloudless sky." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
-        let subject = p.subject.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
-        let kind = p.subject.map { SubjectPicture.kind(p.subjectKind, file: dir.appendingPathComponent($0)) } ?? .creature
-        let gen = try await OpenRouter.generateImage(prompt: prompt + (subject != nil ? " The attached reference picture is the SUBJECT: \(SubjectPicture.instruction(kind))." : ""),
-                                                     apiKey: config.openRouterKey, referenceJPEGs: subject.map { [$0] } ?? [], scene: scene)
+        // the reference picture (if any): what to keep from it, never a copy of it
+        let reference = p.source.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
+        let focus = nextFocus(p, dir: dir)
+        let gen = try await OpenRouter.generateImage(prompt: prompt + (reference != nil ? " The attached picture is \(SubjectPicture.referenceRole(focus))." : ""),
+                                                     apiKey: config.openRouterKey, referenceJPEGs: reference.map { [$0] } ?? [], scene: scene)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1; p.sceneDrawn = scene
-        if subject != nil, let s = p.subject, let d = SubjectPicture.distance(dir.appendingPathComponent(s), dir.appendingPathComponent(name)), d < SubjectPicture.tooClose(kind) { p.subjectClose[name] = Double(d) }
+        if reference != nil, let s = p.source, let d = SubjectPicture.distance(dir.appendingPathComponent(s), dir.appendingPathComponent(name)), d < SubjectPicture.tooClose(focus) { p.subjectClose[name] = Double(d) }
         save(p, dir)
         return gen.costUSD
     }
@@ -318,7 +321,7 @@ public enum LoopVideo {
     /// element) that makes it clearly a different scene in the SAME place, plus a slightly different camera angle. Returns the new scene in words, the change, and the cost.
     /// What "Next scene" keeps when you haven't chosen: the subject photo decides (a creature → the subject, a building or landscape → the building), otherwise the place.
     public static func nextFocus(_ p: LoopProject, dir: URL) -> NextFocus {
-        NextFocus.resolve(p.nextFocus, subjectFile: p.subject.map { dir.appendingPathComponent($0) }, subjectKind: p.subjectKind)
+        NextFocus.resolve(p.nextFocus, reference: p.source.map { dir.appendingPathComponent($0) })
     }
 
     public static func nextSceneIdea(picture: URL, scene: String, focus: NextFocus = .place, avoid: [String] = [], keep: String = "", config: Config = .load()) async throws -> (scene: String, change: String, cost: Double) {
@@ -377,10 +380,9 @@ public enum LoopVideo {
         case .building: keep = "Keep the SAME main building exactly as it is (its true architecture: shape, proportions, towers, windows, rooflines, materials) and the same art style. Show it from a noticeably different but natural camera angle, and make this major change so it is clearly a different scene: \(change)."
         case .subject: keep = "Keep the SAME main subject (the main creature, person or object in the reference: exactly the same look, colours, markings and features) and the same art style, but put it in a completely DIFFERENT place: \(change). Show it from a different angle, in a calm, natural pose. Do not reuse the reference's background or composition."
         }
-        let subject = p.subject.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
-        let refs = focus != .place ? [prev] + (subject.map { [$0] } ?? []) : [prev]
+        let refs = [prev]
         let prompt = "\(idea.scene)\(conditions(p))\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition. " +
-            (refs.count > 1 ? "Two reference pictures are attached: the FIRST is the SOURCE scene of this video; the SECOND is a photo of the real \(focus == .building ? "building" : "subject"), only to keep it accurate (never copy it). " : "The attached reference picture is the SOURCE scene of this video. ") +
+            "The attached reference picture is the picture this video is based on (never copy it). " +
             keep + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs, scene: idea.scene)
         let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"

@@ -124,6 +124,26 @@ public enum SubjectPicture {
         if conf(["structure", "building", "architecture", "castle", "church", "tower", "bridge", "house", "land", "hill", "mountain", "cliff", "lake", "water_body", "forest", "valley", "shore", "beach", "waterfall"]) >= 0.3 { return .place }
         return .creature
     }
+    /// What to keep from a reference picture, from what it shows: a creature → the subject, a building → the building, a landscape → the place.
+    public static func focus(_ url: URL) -> NextFocus {
+        let r = VNClassifyImageRequest()
+        guard (try? VNImageRequestHandler(url: url).perform([r])) != nil, let res = r.results else { return .place }
+        func conf(_ ids: [String]) -> Float { res.filter { ids.contains($0.identifier) }.map(\.confidence).max() ?? 0 }
+        if conf(["animal", "people", "adult", "child", "baby", "bird", "insect", "fish", "reptile", "mammal", "canine", "feline"]) >= 0.3 { return .subject }
+        if conf(["structure", "building", "architecture", "castle", "church", "tower", "bridge", "house", "lighthouse", "windmill", "barn", "temple", "palace"]) >= 0.5 { return .building }
+        return .place
+    }
+    /// What the picture maker is told about a reference picture, for what to keep from it (it is never copied).
+    public static func referenceRole(_ focus: NextFocus) -> String {
+        switch focus {
+        case .subject: return "the REFERENCE for the subject: " + instruction
+        case .building: return "the REFERENCE for the building: " + placeInstruction
+        case .place: return "the REFERENCE for the place: keep the same location recognisable (its landmarks, landforms, water and layout), shown from a slightly different angle, with the moment, weather and light described above, redrawn entirely in the art style described; do not copy the reference's exact framing, crop, light or photographic look"
+        }
+    }
+    /// Below this a picture is too much like its reference (a near copy). A place or a building is meant to stay close, so only a near copy counts.
+    public static func tooClose(_ focus: NextFocus) -> Float { focus == .subject ? tooClose : 0.45 }
+
     /// The kind to use: your choice, or what the photo shows.
     public static func kind(_ chosen: SubjectKind, file: URL) -> SubjectKind { chosen == .auto ? detect(file) : chosen }
 

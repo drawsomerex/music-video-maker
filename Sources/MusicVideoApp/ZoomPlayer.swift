@@ -8,6 +8,8 @@ import AppKit
 /// The video, zoomable and movable inside the screen.
 final class ZoomVideoView: NSView {
     let playerLayer = AVPlayerLayer()
+    private var picture: CALayer?                          // a still picture instead of a video
+    private var pictureSize: CGSize?
     static let maxScale: CGFloat = 8
     private(set) var scale: CGFloat = 1
     private var centre = CGPoint(x: 0.5, y: 0.5)          // the point of the video in the middle of the screen (0…1 from the top left)
@@ -24,12 +26,21 @@ final class ZoomVideoView: NSView {
         layer?.addSublayer(playerLayer)
         setAccessibilityElement(true); setAccessibilityRole(.image); setAccessibilityLabel("The video, zoomable")
     }
+    /// A still picture, zoomable the same way.
+    init(image: NSImage) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer = CALayer(); layer?.backgroundColor = NSColor.black.cgColor; layer?.masksToBounds = true
+        let l = CALayer(); l.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil); l.contentsGravity = .resize; l.magnificationFilter = .trilinear
+        layer?.addSublayer(l); picture = l; pictureSize = image.size
+        setAccessibilityElement(true); setAccessibilityRole(.image); setAccessibilityLabel("The picture, zoomable")
+    }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
     private var aspect: CGFloat {
-        let s = playerLayer.player?.currentItem?.presentationSize ?? .zero
+        let s = pictureSize ?? playerLayer.player?.currentItem?.presentationSize ?? .zero
         return s.width > 0 && s.height > 0 ? s.width / s.height : 16.0 / 9
     }
     /// The whole video fitted to the screen.
@@ -50,7 +61,7 @@ final class ZoomVideoView: NSView {
     private func place() {
         let r = shown
         centre = CGPoint(x: (bounds.midX - r.minX) / r.width, y: (bounds.midY - r.minY) / r.height)
-        CATransaction.begin(); CATransaction.setDisableActions(true); playerLayer.frame = r; CATransaction.commit()
+        CATransaction.begin(); CATransaction.setDisableActions(true); playerLayer.frame = r; picture?.frame = r; CATransaction.commit()
         onChange?(scale)
         window?.invalidateCursorRects(for: self)
     }
@@ -110,6 +121,7 @@ final class ZoomModel: ObservableObject {
     @Published var playing = true
     @Published var showControls = true
     let player: AVPlayer
+    var image: NSImage?                                    // a still picture instead of a video
     var looper: AVPlayerLooper?
     weak var view: ZoomVideoView?
     init(player: AVPlayer, looper: AVPlayerLooper?) { self.player = player; self.looper = looper }
@@ -120,7 +132,7 @@ struct ZoomVideo: NSViewRepresentable {
     let model: ZoomModel
     let close: () -> Void
     func makeNSView(context: Context) -> ZoomVideoView {
-        let v = ZoomVideoView(player: model.player)
+        let v = model.image.map { ZoomVideoView(image: $0) } ?? ZoomVideoView(player: model.player)
         v.onChange = { s in DispatchQueue.main.async { if model.scale != s { model.scale = s } } }
         v.onClose = close
         v.onPlayPause = { model.playPause() }
@@ -159,7 +171,7 @@ struct ZoomPlayerScreen: View {
                         .accessibilityLabel("Zoom \(Int((model.scale * 100).rounded())) percent")
                     big("plus.magnifyingglass", "Zoom in") { model.view?.zoom(by: 1.5) }.disabled(model.scale >= ZoomVideoView.maxScale - 0.001)
                     big("arrow.down.right.and.arrow.up.left", "Fit") { model.view?.fit() }.disabled(model.scale <= 1.001)
-                    big(model.playing ? "pause.fill" : "play.fill", model.playing ? "Pause" : "Play") { model.playPause() }
+                    if model.image == nil { big(model.playing ? "pause.fill" : "play.fill", model.playing ? "Pause" : "Play") { model.playPause() } }
                     big("eye.slash", "Hide controls") { model.showControls = false }
                     Spacer(minLength: 12)
                     big("xmark", "Close") { close() }.keyboardShortcut(.cancelAction)
@@ -210,6 +222,21 @@ struct ZoomPlayerScreen: View {
         w.makeKeyAndOrderFront(nil)
         w.toggleFullScreen(nil)
         player.play()
+    }
+
+    /// Opens a still picture full screen, zoomable.
+    static func showImage(_ url: URL, title: String) {
+        guard let img = NSImage(contentsOf: url) else { return }
+        close()
+        let m = ZoomModel(player: AVPlayer(), looper: nil); m.image = img; m.playing = false
+        let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let w = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.title = title; w.titlebarAppearsTransparent = true; w.titleVisibility = .hidden; w.isReleasedWhenClosed = false
+        w.backgroundColor = .black; w.collectionBehavior = [.fullScreenPrimary]
+        w.contentView = NSHostingView(rootView: ZoomPlayerScreen(model: m, title: title, close: { FullScreenPlayer.close() }))
+        observers = [NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: w, queue: .main) { _ in MainActor.assumeIsolated { FullScreenPlayer.close() } }]
+        window = w; model = m
+        w.makeKeyAndOrderFront(nil); w.toggleFullScreen(nil)
     }
 
     static func close() {

@@ -34,6 +34,7 @@ struct LoopView: View {
     @State private var clipTargeted = false
     @State private var showTrim = false
     @State private var showSubject = false
+    @State private var confirmAddScene = false
 
     var p: LoopProject { model.loopProject ?? LoopProject() }
     func bind<T>(_ k: WritableKeyPath<LoopProject, T>) -> Binding<T> { Binding(get: { p[keyPath: k] }, set: { v in model.editLoop { $0[keyPath: k] = v } }) }
@@ -58,8 +59,7 @@ struct LoopView: View {
         .task { model.refreshVideoPrice() }
         .alert("Notice", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) { Button("OK", role: .cancel) {} } message: { Text(model.notice ?? "") }
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
-        .sheet(isPresented: $showSubject) { SubjectSheet(current: model.loopFile(p.subject), set: { model.setLoopSubject($0) }, remove: { model.editLoop { $0.subject = nil } },
-                                                       kind: p.subjectKind, setKind: { k in model.editLoop { $0.subjectKind = k } }) }
+        .sheet(isPresented: $showSubject) { FindPictureSheet(set: { model.loopSetReference($0) }) }
         .sheet(isPresented: Binding(get: { model.loopSample != nil }, set: { if !$0 { model.loopSample = nil } })) {
             VStack(spacing: 12) {
                 HStack {
@@ -242,7 +242,7 @@ struct LoopView: View {
                     TextField("optional, e.g. soft watercolor", text: bind(\.style)).textFieldStyle(.roundedBorder)
                     Menu("Styles") { ForEach(StylePreset.all) { s in Button(s.name) { model.editLoop { $0.style = s.prompt } } } }.fixedSize()
                 }
-                SubjectRow(file: model.loopFile(p.subject), open: { showSubject = true }, remove: { model.editLoop { $0.subject = nil } }, disabled: working)
+                referenceRows
                 Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky)).font(.callout)
                     .help("New pictures are drawn with a clear, cloudless sky. Clouds that move can't come back to where they started, so a clear sky gives the cleanest loop. Clouds still work: they just blend slowly at the join.")
                 if let pic = p.picture, p.subjectClose[pic] != nil {
@@ -254,10 +254,10 @@ struct LoopView: View {
                     Button { model.loopMakePicture() } label: { Label(p.picture == nil ? "Draw the picture from the scene (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))" : "Draw another picture (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles") }
                         .buttonStyle(.borderedProminent).disabled(working || p.scene.trimmingCharacters(in: .whitespaces).isEmpty)
                         .help("Draws a widescreen picture of the scene above with the picture maker (a few cents).")
-                    Button { model.loopChoosePicture() } label: { Label("Use my own picture…", systemImage: "photo") }.disabled(working)
-                        .help("Choose a picture from your Mac (or drag it onto the box). The loop clip starts from it.")
+                    Button { model.loopChoosePicture() } label: { Label("Use my own picture as it is…", systemImage: "photo") }.disabled(working)
+                        .help("Uses a picture from your Mac exactly as it is (or drag it onto the box). The loop clip starts from it.")
                 }
-                if p.picture != nil { nextSceneRow }
+                if p.picture != nil { nextSceneButton }
                 if p.pictures.count > 1 { thumbs(p.pictures, selected: p.picture) { n in model.editLoop { $0.picture = n }; model.loopDescribeMotion() } }
                 if p.picture != nil {
                     HStack {
@@ -276,7 +276,15 @@ struct LoopView: View {
     var pictureWell: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10).fill(pictureTargeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
-            if let u = model.loopFile(p.picture) { Thumb(file: u).clipShape(RoundedRectangle(cornerRadius: 10)) }
+            if let u = model.loopFile(p.picture) {
+                Thumb(file: u).clipShape(RoundedRectangle(cornerRadius: 10))
+                    .contentShape(Rectangle()).onTapGesture { FullScreenPlayer.showImage(u, title: "Picture") }
+                    .help("Click to see the picture full screen and zoom in.")
+                Button { FullScreenPlayer.showImage(u, title: "Picture") } label: {
+                    Label("View larger", systemImage: "plus.magnifyingglass").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.white)
+                }.buttonStyle(.plain).padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
             else {
                 VStack(spacing: 6) {
                     Image(systemName: "photo.badge.plus").font(.system(size: 30)).foregroundStyle(.secondary)
@@ -336,15 +344,7 @@ struct LoopView: View {
                     } label: { Label("Choose the part that loops", systemImage: "scissors").font(.callout.weight(.semibold)) }
                         .onAppear { if p.clipWarning != nil { showTrim = true } }
                 }
-                if p.clips.count > 1 {
-                    HStack(spacing: 6) {
-                        Text("Earlier clips:").font(.callout).foregroundStyle(.secondary)
-                        ForEach(Array(p.clips.enumerated()), id: \.offset) { i, c in
-                            Button("Clip \(i + 1)") { model.editLoop { $0.clip = c }; if let u = model.loopPreviewURL(for: c), !FileManager.default.fileExists(atPath: u.path) { model.loopMakePreview(c) } }
-                                .buttonStyle(.bordered).tint(c == p.clip ? .accentColor : nil).disabled(working)
-                        }
-                    }
-                }
+                if !p.clips.isEmpty { clipStrip }
             }
         }
         .confirmationDialog("Make the 15-second loop clip?", isPresented: $confirmClip, titleVisibility: .visible) {
@@ -354,53 +354,102 @@ struct LoopView: View {
             Text("\(p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"), for a 1080p video, at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
         }
     }
-    /// The next picture of a series, from the one in use: what it keeps (the place, the building, or the subject) in one switch, and a button that says what will happen.
-    var nextSceneRow: some View {
+    /// The picture to base the pictures on (optional), what to keep from it, the weather and time of day: the same rows as a music video's.
+    var referenceRows: some View {
         let focus = model.loopDir.map { LoopVideo.nextFocus(p, dir: $0) } ?? .place
-        return SeriesRows(source: model.loopFile(p.source ?? p.picture),
-                          sourceNote: p.source == nil ? "the picture above; it stays the source once you draw a next scene" : "every next scene starts from this picture, however many you draw",
-                          useCurrent: p.source != nil && p.source != p.picture ? { model.editLoop { $0.source = $0.picture } } : nil,
-                          choose: { model.loopChooseSource() },
-                          focus: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } }), weather: bind(\.weather), time: bind(\.timeOfDay),
-                          action: AnyView(Button { model.loopMakeNextPicture() } label: { Label(focus.action + " (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }.disabled(working)),
-                          disabled: working)
-            .help("Draws the next picture of a series from the source image, so the scenes of one video belong together. Make a clip from each one and use them under “Change the scene”.")
+        return ReferenceRows(reference: model.loopFile(p.source),
+                             note: p.source == nil ? "Optional: a picture or photo to base the pictures on. Without one, the picture is drawn from the scene words, and each next scene is based on the picture shown."
+                                                   : "The picture and every next scene are based on this picture (always redrawn, never copied).",
+                             useCurrent: p.picture != nil && p.source != p.picture ? { model.editLoop { $0.source = $0.picture; $0.nextFocus = nil } } : nil,
+                             choose: { model.loopChooseSource() }, find: { showSubject = true },
+                             remove: p.source != nil ? { model.editLoop { $0.source = nil } } : nil,
+                             focus: Binding(get: { focus }, set: { v in model.editLoop { $0.nextFocus = v } }), weather: bind(\.weather), time: bind(\.timeOfDay),
+                             disabled: working)
+    }
+    /// The next scene of a series: the same place, building or subject, something new.
+    var nextSceneButton: some View {
+        let focus = model.loopDir.map { LoopVideo.nextFocus(p, dir: $0) } ?? .place
+        return Button { model.loopMakeNextPicture() } label: { Label(focus.action + " (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.forward.square") }
+            .disabled(working || p.picture == nil)
+            .help("Draws the next picture of the series from the picture it is based on: the same " + (focus == .subject ? "subject in a new place" : (focus == .building ? "building from a new view" : "place at a new moment")) + ". Make a clip from it to use it as another scene.")
     }
 
     /// More than one scene: which clips, and when the picture changes (a slow cross-fade).
     var scenesRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let have = LoopVideo.sceneClips(p).count
+        let wanted = model.loopPlan.map { LoopVideo.scenesWanted(p, plan: $0) } ?? 1
+        let changes = model.loopPlan.map { LoopVideo.sceneChangeTimes(p, plan: $0).count } ?? 0
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Text("Change the scene").font(.callout.weight(.semibold))
-                Picker("", selection: bind(\.sceneChange)) { ForEach(LoopSceneChange.allCases, id: \.self) { Text($0.name).tag($0) } }
-                    .labelsHidden().fixedSize().disabled(p.clips.count < 2)
+                Picker("", selection: bind(\.sceneChange)) { ForEach(LoopSceneChange.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
                 if p.sceneChange == .time || p.sceneChange == .both {
                     Stepper("every \(Int(p.sceneMinutes)) min", value: bind(\.sceneMinutes), in: 1...60, step: 1).fixedSize()
                 }
                 Spacer()
             }
-            .help("Changes to another of your clips with a slow cross-fade: every few minutes, when one song ends and the next begins, or both (a timed change close to a song change is left out). The music never changes because of it.")
-            if p.clips.count < 2 {
-                Text("To change scenes, make or add a second clip (another picture, then “Make another clip”). Every clip you make can be a scene.").font(.caption).foregroundStyle(.secondary)
-            } else if p.sceneChange != .never {
-                HStack(spacing: 8) {
-                    Text("Scenes:").font(.callout)
-                    ForEach(Array(p.clips.enumerated()), id: \.offset) { i, c in
-                        let on = LoopVideo.sceneClips(p).contains(c)
-                        Toggle(c == p.clip ? "Clip \(i + 1) (in use, first)" : "Clip \(i + 1)", isOn: Binding(get: { on }, set: { v in model.editLoop { q in
-                            guard c != q.clip else { return }                   // the clip in use always starts the video
-                            var list = LoopVideo.sceneClips(q)
-                            if v { if !list.contains(c) { list.append(c) } } else if list.count > 1 { list.removeAll { $0 == c } }
-                            q.sceneClips = list
-                        } })).toggleStyle(.button)
-                            .help(c == p.clip ? "The clip in use always starts the video." : "Use this clip as one of the scenes.")
+            .help("The picture changes to another scene with a slow cross-fade: every few minutes, when one song ends and the next begins, or both. The music never changes because of it.")
+            if p.sceneChange != .never && p.clip != nil {
+                if have < wanted && changes > 0 {
+                    // the reminder: the video changes scene, but there are not enough scenes yet
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(have <= 1 ? "This video changes scene \(changes) time\(changes == 1 ? "" : "s"), but it has only one scene, so it stays the same picture. Add another scene."
+                                        : "This video changes scene \(changes) times and has \(have) scenes. \(wanted) would look best.", systemImage: "lightbulb.fill")
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Button { confirmAddScene = true } label: { Label("Add another scene (picture + clip, ≈ \(OpenRouter.formatUSD(model.loopAddScenePrice)))", systemImage: "plus.rectangle.on.rectangle").font(.headline) }
+                            .buttonStyle(.borderedProminent).disabled(working)
+                            .help("Draws the next picture (the same place, building or subject, something new), makes its clip, and adds it to the video. You see the price first.")
+                    }
+                    .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.yellow.opacity(0.14)))
+                } else {
+                    HStack(spacing: 10) {
+                        Text(changes == 0 ? "No scene changes at this length." : "The scene changes \(changes) time\(changes == 1 ? "" : "s"), taking turns between \(have) scene\(have == 1 ? "" : "s").")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button { confirmAddScene = true } label: { Label("Add another scene (≈ \(OpenRouter.formatUSD(model.loopAddScenePrice)))", systemImage: "plus.rectangle.on.rectangle") }.disabled(working)
                     }
                 }
-                if let plan = model.loopPlan {
-                    let n = LoopVideo.sceneStarts(p, plan: plan).count - 1
-                    Text(n == 0 ? "No scene changes at this length (they need at least 30 seconds between them)." : "The scene changes \(n) time\(n == 1 ? "" : "s"), taking turns between \(LoopVideo.sceneClips(p).count) clips.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+            }
+        }
+        .confirmationDialog("Add another scene?", isPresented: $confirmAddScene, titleVisibility: .visible) {
+            Button("Add it (≈ \(OpenRouter.formatUSD(model.loopAddScenePrice)))") { model.loopAddScene() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The app draws the next picture (about \(OpenRouter.formatUSD(model.perImageCostUSD))), then HeyGen makes its 15-second clip (about \(OpenRouter.formatUSD(model.loopClipPrice)) at list price). It takes a few minutes; you can keep working. The new scene joins the video automatically.")
+        }
+    }
+
+    /// The clips as pictures: click one to look at it (and use it to start the video); the tick says whether it is one of the scenes in the video.
+    var clipStrip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Your scenes (click one to look at it)").font(.callout.weight(.semibold))
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(spacing: 10) {
+                    ForEach(Array(p.clips.enumerated()), id: \.offset) { i, c in
+                        let shown = c == p.clip, inVideo = LoopVideo.sceneClips(p).contains(c)
+                        VStack(spacing: 4) {
+                            Button {
+                                model.editLoop { $0.clip = c }
+                                if let u = model.loopPreviewURL(for: c), !FileManager.default.fileExists(atPath: u.path) { model.loopMakePreview(c) }
+                            } label: {
+                                ZStack {
+                                    Color.black
+                                    if let d = model.loopDir, let t = LoopVideo.clipThumbnail(c, dir: d) { Thumb(file: t) }
+                                }
+                                .frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(shown ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: shown ? 3 : 1))
+                            }.buttonStyle(.plain).disabled(working)
+                                .help(shown ? "Showing now. The video starts with this scene." : "Look at this scene (the video then starts with it).")
+                            Toggle(isOn: Binding(get: { inVideo }, set: { v in model.editLoop { q in
+                                guard c != q.clip else { return }                 // the scene shown always starts the video
+                                var list = LoopVideo.sceneClips(q)
+                                if v { if !list.contains(c) { list.append(c) } } else if list.count > 1 { list.removeAll { $0 == c } }
+                                q.sceneClips = list
+                            } })) { Text("Scene \(i + 1)").font(.caption) }
+                                .toggleStyle(.checkbox).disabled(working || shown)
+                                .help(shown ? "The scene shown is always in the video." : "Tick to use this scene in the video.")
+                        }
+                    }
+                }.padding(.vertical, 2)
             }
         }
     }
@@ -512,6 +561,12 @@ struct LoopView: View {
                             .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(f == selected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: f == selected ? 3 : 1))
                     }.buttonStyle(.plain).help(f == selected ? "In use now." : "Use this picture again (free).")
+                    .overlay(alignment: .bottomTrailing) {
+                        if let u = model.loopFile(f) {
+                            Button { FullScreenPlayer.showImage(u, title: "Picture") } label: { Image(systemName: "plus.magnifyingglass").font(.caption.weight(.bold)).padding(4).background(Circle().fill(.black.opacity(0.6))).foregroundStyle(.white) }
+                                .buttonStyle(.plain).padding(3).help("See it larger")
+                        }
+                    }
                 }
             }
         }

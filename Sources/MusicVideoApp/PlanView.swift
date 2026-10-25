@@ -82,10 +82,7 @@ struct PlanView: View {
         .onChange(of: model.requestRegenAll) { _, v in if v { confirmRegenAll = true; model.requestRegenAll = false } }
         .sheet(isPresented: $showDescriptionSheet) { DescriptionSheet().environmentObject(model) }
         .sheet(isPresented: $showStyleSheet) { StyleSheet(inProject: true).environmentObject(model) }
-        .sheet(isPresented: $showSubjectSheet) {
-            SubjectSheet(current: plan.subjectPicture.flatMap { n in model.workDir?.appendingPathComponent(n) }, set: { model.setSongSubject($0) }, remove: { model.removeSongSubject() },
-                         kind: plan.subjectKind, setKind: { model.setSongSubjectKind($0) })
-        }
+        .sheet(isPresented: $showSubjectSheet) { FindPictureSheet(set: { model.setSongReference($0) }) }
         .sheet(isPresented: $model.showOpenRouterKeySheet) {
             OpenRouterKeySheet()
                 .environmentObject(model)
@@ -322,16 +319,16 @@ struct PlanView: View {
         let current = section.selectedCandidate?.fullFile
         return VStack(alignment: .leading, spacing: 8) {
             Label("Picture options (for every picture drawn)", systemImage: "slider.horizontal.3").font(.headline)
-            SubjectRow(file: plan.subjectPicture.flatMap { w?.appendingPathComponent($0) }, open: { showSubjectSheet = true }, remove: { model.removeSongSubject() }, disabled: model.busy)
-            SeriesRows(source: plan.source.flatMap { w?.appendingPathComponent($0) },
-                       sourceNote: plan.source == nil ? "none: each picture starts from the picture before it" : "every picture drawn starts from this picture",
-                       useCurrent: current != nil && current != plan.source ? { model.useSectionAsSource(selection) } : nil,
-                       choose: { model.chooseSongSource() },
-                       clear: plan.source != nil ? { model.clearSongSource() } : nil,
-                       read: plan.source != nil ? plan.sourceNote.map { "Every picture idea uses: " + $0 } : nil,
-                       focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v }; if plan.source != nil, plan.sourceNoteFocus != v { model.readSourceIntoIdeas() } }),
-                       weather: Binding(get: { plan.weather }, set: { v in model.editSong { $0.weather = v } }),
-                       time: Binding(get: { plan.timeOfDay }, set: { v in model.editSong { $0.timeOfDay = v } }),
+            ReferenceRows(reference: plan.source.flatMap { w?.appendingPathComponent($0) },
+                          note: plan.source == nil ? "Optional: a picture or photo to base every picture on. Without one, each picture is based on the picture before it."
+                                                   : "Every picture is based on this picture (always redrawn, never copied), and every picture idea uses it.",
+                          read: plan.source != nil ? plan.sourceNote.map { "Every picture idea uses: " + $0 } : nil,
+                          useCurrent: current != nil && current != plan.source ? { model.useSectionAsSource(selection) } : nil,
+                          choose: { model.chooseSongReference() }, find: { showSubjectSheet = true },
+                          remove: plan.source != nil ? { model.clearSongSource() } : nil,
+                          focus: Binding(get: { model.songFocus }, set: { v in model.editSong { $0.nextFocus = v }; if plan.source != nil, plan.sourceNoteFocus != v { model.readSourceIntoIdeas() } }),
+                          weather: Binding(get: { plan.weather }, set: { v in model.editSong { $0.weather = v } }),
+                          time: Binding(get: { plan.timeOfDay }, set: { v in model.editSong { $0.timeOfDay = v } }),
                        disabled: model.busy)
         }
         .padding(12).frame(maxWidth: 1000, alignment: .leading)
@@ -626,6 +623,10 @@ struct DropWell: View {
             HStack {
                 Text("Picture for this part").font(.headline)
                 Spacer()
+                if let f = sec.selectedCandidate?.fullFile, let w = model.workDir {
+                    Button { FullScreenPlayer.showImage(w.appendingPathComponent(f), title: "Picture") } label: { Label("View larger", systemImage: "plus.magnifyingglass") }
+                        .help("See this picture full screen and zoom in on any part (Esc closes).")
+                }
                 if sec.selectedCandidate != nil {
                     Button {
                         model.generateImage(section: section)

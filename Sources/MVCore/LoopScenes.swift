@@ -3,6 +3,7 @@
 // pieces where something changes (the opening, title cards, the cross-fades between scenes, the ending).
 import Foundation
 import CoreGraphics
+import AVFoundation
 
 /// When the scene of a looping video changes.
 public enum LoopSceneChange: String, Codable, CaseIterable {
@@ -28,6 +29,14 @@ extension LoopVideo {
         let clips = sceneClips(p)
         guard let first = clips.first else { return [] }
         guard p.sceneChange != .never, clips.count > 1 else { return [(0, first)] }
+        let times = sceneChangeTimes(p, plan: plan)
+        return [(0, first)] + times.enumerated().map { ($0.element, clips[($0.offset + 1) % clips.count]) }
+    }
+
+    /// When the scene changes (seconds), whatever the number of clips: song changes and/or every few minutes, never during the title or the ending,
+    /// never closer than 30 seconds.
+    public static func sceneChangeTimes(_ p: LoopProject, plan: LoopAudio.Plan) -> [Double] {
+        guard p.sceneChange != .never else { return [] }
         let earliest = titleScreenEnd + 5, latest = plan.songsEnd - 20
         var songs: [Double] = []
         if p.sceneChange == .songs || p.sceneChange == .both {
@@ -40,11 +49,22 @@ extension LoopVideo {
             while t < latest { times.append(t); t += step }
             if p.sceneChange == .both { times = times.filter { t in !songs.contains { abs($0 - t) < 60 } } }      // a song change is close: that change is enough
         }
-        var all = (songs + times).filter { $0 >= earliest && $0 <= latest }.sorted()
+        let all = (songs + times).filter { $0 >= earliest && $0 <= latest }.sorted()
         var kept: [Double] = []
         for t in all where kept.last.map({ t - $0 >= sceneMinGap }) ?? true { kept.append(t) }
-        all = kept
-        return [(0, first)] + all.enumerated().map { ($0.element, clips[($0.offset + 1) % clips.count]) }
+        return kept
+    }
+
+    /// How many different scenes the video can use well: one for each change, up to four (after that the clips simply take turns).
+    public static func scenesWanted(_ p: LoopProject, plan: LoopAudio.Plan) -> Int { min(4, sceneChangeTimes(p, plan: plan).count + 1) }
+
+    /// A small picture of a clip (its first moment), made once and kept beside it.
+    public static func clipThumbnail(_ clip: String, dir: URL) -> URL? {
+        let out = dir.appendingPathComponent("thumb-" + (clip as NSString).deletingPathExtension + ".jpg")
+        if FileManager.default.fileExists(atPath: out.path) { return out }
+        let g = AVAssetImageGenerator(asset: AVURLAsset(url: dir.appendingPathComponent(clip))); g.appliesPreferredTrackTransform = true; g.maximumSize = CGSize(width: 480, height: 480)
+        guard let img = try? g.copyCGImage(at: CMTime(seconds: 0.5, preferredTimescale: 600), actualTime: nil), let d = PictureFit.jpegData(img, quality: 0.8) else { return nil }
+        try? d.write(to: out); return out
     }
 
     /// The scenes of one long video, ready to draw frame by frame.

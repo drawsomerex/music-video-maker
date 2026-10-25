@@ -266,6 +266,8 @@ public struct Plan: Codable {
         subjectPicture = try c.decodeIfPresent(String.self, forKey: .subjectPicture)
         subjectKind = try c.decodeIfPresent(SubjectKind.self, forKey: .subjectKind) ?? .auto
         source = try c.decodeIfPresent(String.self, forKey: .source); nextFocus = try c.decodeIfPresent(NextFocus.self, forKey: .nextFocus)
+        if source == nil, let s = subjectPicture { source = s }      // one reference picture now: an older subject photo becomes it
+        subjectPicture = nil
         sourceNote = try c.decodeIfPresent(String.self, forKey: .sourceNote); sourceNoteFocus = try c.decodeIfPresent(NextFocus.self, forKey: .sourceNoteFocus)
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any; timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
         totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0

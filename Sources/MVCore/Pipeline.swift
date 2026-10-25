@@ -627,21 +627,20 @@ public enum Pipeline {
         let fromSource = plan.source.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
         let base = fromSource ?? previousPictureJPEG(plan: plan, for: index, work: work)
         let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: base != nil)
-        let subject = plan.subjectPicture.flatMap { SubjectPicture.referenceJPEG(work.appendingPathComponent($0)) }
-        let refs = [subject, base, guide].compactMap { $0 }
+        let refs = [base, guide].compactMap { $0 }
         let view = base != nil ? chooseCameraView(plan: plan, for: index) : nil
         if let t = view?.text { prompt += " Camera for this picture: \(t)." }
         prompt += LoopVideo.conditions(weather: plan.weather, time: plan.timeOfDay)
-        let subjectKind = plan.subjectPicture.map { SubjectPicture.kind(plan.subjectKind, file: work.appendingPathComponent($0)) } ?? .creature
-        let focus = NextFocus.resolve(plan.nextFocus, subjectFile: plan.subjectPicture.map { work.appendingPathComponent($0) }, subjectKind: plan.subjectKind)
-        let which = fromSource != nil ? "the SOURCE picture of this video" : "the previous picture of the same video"
+        let focus = NextFocus.resolve(plan.nextFocus, reference: plan.source.map { work.appendingPathComponent($0) })
         var roles: [String] = []
-        if subject != nil { roles.append("the SUBJECT: \(SubjectPicture.instruction(subjectKind))") }
         if base != nil {
-            switch focus {
-            case .place: roles.append("\(which): keep the same world (location, landmarks, people, objects, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition)")
-            case .building: roles.append("\(which): keep the SAME main building exactly as it is (its true architecture: shape, proportions, towers, windows, rooflines, materials) and the art style, seen from another natural viewpoint")
-            case .subject: roles.append("\(which): keep the SAME main subject (exactly the same look, colours, markings and features) and the art style, but put it in the place described above, seen from another angle; do not reuse that picture's background or composition")
+            if fromSource != nil { roles.append(SubjectPicture.referenceRole(focus) + "; show it in the scene described above") }
+            else {
+                switch focus {
+                case .place: roles.append("the previous picture of the same video: keep the same world (location, landmarks, people, objects, art style) but show it from a DRAMATICALLY DIFFERENT camera perspective (a different angle, distance and framing, not a copy of that composition)")
+                case .building: roles.append("the previous picture of the same video: keep the SAME main building exactly as it is (its true architecture) and the art style, seen from another natural viewpoint")
+                case .subject: roles.append("the previous picture of the same video: keep the SAME main subject (exactly the same look) and the art style, but put it in the place described above, seen from another angle, in another pose; do not reuse that picture's background or composition")
+                }
             }
         }
         if guide != nil { roles.append("only sets the overall art style (technique, brushwork, rendering); do not copy its subject or composition") }
@@ -656,10 +655,10 @@ public enum Pipeline {
         defer { try? FileManager.default.removeItem(at: tmpURL) }
         try gen.data.write(to: tmpURL)
         _ = try attach(imageAt: tmpURL, section: index, plan: &plan, work: work)
-        // drawn from a subject photo: is it too close to the photo (same pose and angle)? Only a warning.
-        if let s = plan.subjectPicture, subject != nil, let file = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.fullFile,
+        // drawn from the reference picture: is it too close to it (a near copy)? Only a warning.
+        if let s = plan.source, fromSource != nil, let file = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.fullFile,
            let d = SubjectPicture.distance(work.appendingPathComponent(s), work.appendingPathComponent(file)) {
-            let limit = Double(SubjectPicture.tooClose(subjectKind))
+            let limit = Double(SubjectPicture.tooClose(focus))
             if index < 0 { if plan.intro.candidates.indices.contains(plan.intro.selected) { plan.intro.candidates[plan.intro.selected].subjectDistance = Double(d); plan.intro.candidates[plan.intro.selected].subjectLimit = limit } }
             else if plan.sections[index].candidates.indices.contains(plan.sections[index].selected) { plan.sections[index].candidates[plan.sections[index].selected].subjectDistance = Double(d); plan.sections[index].candidates[plan.sections[index].selected].subjectLimit = limit }
         }

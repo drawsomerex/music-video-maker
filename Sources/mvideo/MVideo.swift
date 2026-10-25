@@ -399,13 +399,13 @@ struct MVideo: AsyncParsableCommand {
             if let m = sceneMinutes { p.sceneMinutes = m }
             if let q = findSubject {
                 guard let h = await SubjectPicture.search(q).first else { throw MVError("No subject found for \(q).") }
-                let f = try await SubjectPicture.download(h, to: dir); p.subject = f.lastPathComponent; print("subject: \(h.title) (\(h.source)) -> \(f.lastPathComponent)")
+                let f = try await SubjectPicture.download(h, to: dir); p.source = f.lastPathComponent; print("subject: \(h.title) (\(h.source)) -> \(f.lastPathComponent)")
             }
-            if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: sj), to: dir.appendingPathComponent(n)); p.subject = n }
+            if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? fm.removeItem(at: dir.appendingPathComponent(n)); try fm.copyItem(at: URL(fileURLWithPath: sj), to: dir.appendingPathComponent(n)); p.source = n }
             if draw { let c = try await LoopVideo.makePicture(&p, dir: dir); print("✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
             if suggest {
                 let ideas: [String]
-                if let pic = p.source ?? p.picture ?? p.subject { ideas = try await LoopVideo.suggestScenes(picture: dir.appendingPathComponent(pic), focus: LoopVideo.nextFocus(p, dir: dir), about: p.about) }
+                if let pic = p.source ?? p.picture { ideas = try await LoopVideo.suggestScenes(picture: dir.appendingPathComponent(pic), focus: LoopVideo.nextFocus(p, dir: dir), about: p.about) }
                 else { ideas = try await LoopVideo.suggestScenes(title: p.title, style: p.style, about: p.about) }
                 LoopVideo.save(p, dir); print(ideas.joined(separator: "\n")); return
             }
@@ -464,14 +464,14 @@ struct MVideo: AsyncParsableCommand {
         func run() async throws {
             let w = URL(fileURLWithPath: (work as NSString).expandingTildeInPath)
             var plan = try Pipeline.loadPlan(w)
-            if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? FileManager.default.removeItem(at: w.appendingPathComponent(n)); try FileManager.default.copyItem(at: URL(fileURLWithPath: sj), to: w.appendingPathComponent(n)); plan.subjectPicture = n }
+            if let sj = subject { let n = "subject-cli." + URL(fileURLWithPath: sj).pathExtension; try? FileManager.default.removeItem(at: w.appendingPathComponent(n)); try FileManager.default.copyItem(at: URL(fileURLWithPath: sj), to: w.appendingPathComponent(n)); plan.source = n }
             if let sr = source { plan.source = sr }
             if let k = keep { plan.nextFocus = NextFocus(rawValue: k) }
             if let x = weather { plan.weather = LoopWeather(rawValue: x) ?? .any }
             if let x = timeOfDay { plan.timeOfDay = LoopTimeOfDay(rawValue: x) ?? .any }
             if readSource {
                 guard let src = plan.source else { throw MVError("Give --source.") }
-                let focus = NextFocus.resolve(plan.nextFocus, subjectFile: plan.subjectPicture.map { w.appendingPathComponent($0) }, subjectKind: plan.subjectKind)
+                let focus = NextFocus.resolve(plan.nextFocus, reference: plan.source.map { w.appendingPathComponent($0) })
                 let r = try await Pipeline.describeSource(w.appendingPathComponent(src), focus: focus)
                 plan.sourceNote = r.text; plan.sourceNoteFocus = focus
                 print("read (\(focus.rawValue)): \(r.text)")

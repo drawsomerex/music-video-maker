@@ -121,6 +121,8 @@ extension AppModel {
                     if done.scene != p0.scene && cur.scene == p0.scene { cur.scene = done.scene }   // the next scene's description, unless you typed meanwhile
                     cur.sceneDrawn = done.sceneDrawn
                     cur.sceneChanges = done.sceneChanges; cur.subjectClose = done.subjectClose
+                    if done.sceneClips != p0.sceneClips { cur.sceneClips = done.sceneClips; cur.sceneChange = done.sceneChange }
+                    cur.motion = done.motion != p0.motion ? done.motion : cur.motion
                     if cur.source == p0.source { cur.source = done.source }
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
@@ -171,12 +173,42 @@ extension AppModel {
         }
     }
     /// A picture of your own as the source image for next scenes (shaped to widescreen first if needed).
+    /// One click for another scene: the next picture (based on the picture the video is based on), what moves in it, its loop clip, and it joins
+    /// the scenes the video changes between. The scene the video starts with stays the same.
+    var loopAddScenePrice: Double { perImageCostUSD + loopClipPrice }
+    func loopAddScene() {
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        config = Config.load()
+        let cfg = config
+        runLoop("Adding another scene: drawing its picture…", estimate: 300) { [weak self] p, d in
+            var q = p
+            let first = q.clip
+            try await LoopVideo.makeNextPicture(&q, dir: d, config: cfg)
+            await MainActor.run { self?.loopJob?.phase = "Adding another scene: looking at what should move…" }
+            await LoopVideo.refreshMotion(&q, dir: d, config: cfg)
+            await MainActor.run { self?.loopJob?.phase = "Adding another scene: HeyGen is making its clip (a few minutes)…" }
+            try await LoopVideo.makeClip(&q, dir: d, config: cfg) { ph in Task { @MainActor in self?.loopJob?.phase = "Adding another scene: " + ph } }
+            if let new = q.clip {
+                var list = LoopVideo.sceneClips(p)
+                if !list.contains(new) { list.append(new) }
+                q.sceneClips = list
+                if q.sceneChange == .never { q.sceneChange = .both }
+                if let f = first { q.clip = f }                      // the video still starts with the first scene
+                LoopVideo.save(q, d)
+                try await LoopVideo.makePreview(clip: d.appendingPathComponent(new), output: d.appendingPathComponent("preview-" + (new as NSString).deletingPathExtension + ".mp4"), trim: q.trims[new] ?? ClipTrim())
+            }
+            return q
+        }
+    }
     func loopChooseSource() {
-        let o = NSOpenPanel(); o.allowedContentTypes = [.image]; o.message = "Choose the source image every next scene starts from"
-        guard o.runModal() == .OK, let u = o.url else { return }
+        let o = NSOpenPanel(); o.allowedContentTypes = [.image]; o.message = "Choose the picture to base the pictures on"
+        if o.runModal() == .OK, let u = o.url { loopSetReference(u) }
+    }
+    /// A picture to base the looping video's pictures on (yours or found online), shaped to widescreen first if needed.
+    func loopSetReference(_ u: URL) {
         fitThen(u, scene: loopProject?.scene ?? "", addCost: { [weak self] c in self?.editLoop { $0.imagesUSD += c } }) { [weak self] f in
             guard let self, var p = self.loopProject, let d = self.loopDir else { return }
-            do { try LoopVideo.setSource(&p, dir: d, file: f); self.loopProject = p } catch { self.errorMessage = error.localizedDescription }
+            do { try LoopVideo.setSource(&p, dir: d, file: f); p.nextFocus = nil; LoopVideo.save(p, d); self.loopProject = p } catch { self.errorMessage = error.localizedDescription }
         }
     }
     func loopUsePicture(_ url: URL) {
