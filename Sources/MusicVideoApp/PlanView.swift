@@ -209,6 +209,10 @@ struct PlanView: View {
     }
     var moreMenu: some View {
         Menu {
+            Button("Plan and draw everything automatically…") { model.autoDirect() }
+                .help("Automatic mode: a director plans the whole video (the story, the style, a reference picture if one helps, every picture idea; your own ideas are kept), you see the price, then everything is drawn and the preview opens.")
+            if let t = plan.treatment { Button("The director's plan…") { model.notice = t } }
+            Divider()
             Button("Setting & description…") { showDescriptionSheet = true }
             Button("Art style…") { showStyleSheet = true }
             Button(model.hasOpenRouterKey ? "Picture maker key & credit…" : "Add picture maker key…") { model.showOpenRouterKeySheet = true }

@@ -72,6 +72,9 @@ final class AppModel: ObservableObject {
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
     var loopListenTask: Task<Void, Never>?
+    @Published var autoAsk: AutoAsk?                // Automatic mode: a price to agree to before it goes on
+    @Published var autoPending = false              // Automatic mode was chosen on the first screen: plan, draw and preview once the song is ready
+    @Published var loopAutoFinished = false         // a looping video's Automatic mode has finished: open its preview
     @Published var pictureFit: PictureFitRequest?   // an outside photo that isn't widescreen, waiting to be extended or cropped
     @Published var loopSample: URL?                // a short preview of the long video to play (with sound)
     @Published var loopListening: String?          // "Listening to the songs (3 of 17)…" while new songs are being measured
@@ -625,6 +628,7 @@ final class AppModel: ObservableObject {
                 draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
+                if autoPending { autoPending = false; autoDirect() }
             } catch is CancellationError {
                 stage = .setup
             } catch {
@@ -751,6 +755,10 @@ final class AppModel: ObservableObject {
         generateSectionsList(targets, work: w, titlePrefix: "Generating all \(targets.count) picture(s)")
     }
 
+    /// Draws these pictures, then runs `then` (Automatic mode opens the preview).
+    func drawSections(_ targets: [Int], work: URL, titlePrefix: String, then: @escaping @MainActor () -> Void) {
+        generateSectionsList(targets, work: work, titlePrefix: titlePrefix) { then() }
+    }
     private func generateSectionsList(_ targetsIn: [Int], work w: URL, titlePrefix: String, then: (@MainActor () async throws -> Void)? = nil) {
         // the style guide picture is made first, so every other picture can be drawn to match it
         var targets = targetsIn

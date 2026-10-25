@@ -65,7 +65,21 @@ final class SubjectKindTests: XCTestCase {
         }
         XCTAssertTrue(SubjectPicture.instruction(.place).contains("ACCURATE"))
         XCTAssertTrue(SubjectPicture.instruction(.creature).contains("DIFFERENT pose"))
-        XCTAssertLessThan(SubjectPicture.tooClose(.place), SubjectPicture.tooClose(.creature))
+        XCTAssertLessThan(SubjectPicture.tooClose(SubjectKind.place), SubjectPicture.tooClose(SubjectKind.creature))
+        XCTAssertLessThan(SubjectPicture.tooClose(NextFocus.building), SubjectPicture.tooClose(NextFocus.subject))
+    }
+
+    /// "Keep from it" is chosen from the picture: a building, a landscape, a creature.
+    func testWhatToKeepIsChosenFromThePicture() throws {
+        let cases: [(String, NextFocus)] = [("subject-castle.jpg", .building), ("subject-valley.jpg", .place), ("subject-cow.jpg", .subject), ("subject-fox.jpg", .subject)]
+        for (f, want) in cases {
+            let u = URL(fileURLWithPath: "/tmp/" + f)
+            try XCTSkipUnless(FileManager.default.fileExists(atPath: u.path))
+            XCTAssertEqual(SubjectPicture.focus(u), want, f)
+            XCTAssertEqual(NextFocus.resolve(nil, reference: u), want)
+            XCTAssertEqual(NextFocus.resolve(.place, reference: u), .place, "your own choice wins")
+        }
+        XCTAssertEqual(NextFocus.resolve(nil, reference: nil), .place)
     }
 }
 

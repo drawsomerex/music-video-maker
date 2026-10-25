@@ -20,13 +20,14 @@ struct LoopJob {
 extension AppModel {
     // MARK: projects
     /// A new looping project for a song (its own folder), then its screen.
-    func startLoopProject(songs: [URL], title: String) {
+    func startLoopProject(songs: [URL], title: String, automatic: Bool = false) {
         config = Config.load()
         Task {
             do {
                 let (p, dir) = try await LoopVideo.create(songs: songs, title: title, config: config)
                 loopProject = p; loopDir = dir; stage = .loop; remember(dir)
                 loopListen()
+                if automatic { loopAutoAsk() }
             } catch { errorMessage = "Couldn't start the looping video: \(error.localizedDescription)" }
         }
     }
@@ -109,7 +110,7 @@ extension AppModel {
 
     /// Runs one long step of the loop workflow in the top strip. `work` gets a copy of the project and returns it changed; only what it changed
     /// (pictures, clips, costs, pending job) is put back, so edits made meanwhile (title, scene, hours) are kept.
-    private func runLoop(_ title: String, estimate: Double? = nil, _ work: @escaping (LoopProject, URL) async throws -> LoopProject) {
+    func runLoop(_ title: String, estimate: Double? = nil, _ work: @escaping (LoopProject, URL) async throws -> LoopProject) {
         guard loopJob == nil, let p0 = loopProject, let d = loopDir else { return }
         loopJob = LoopJob(title: title, estimatedSeconds: estimate)
         let spentBefore = p0.imagesUSD + p0.videoUSD
@@ -123,6 +124,8 @@ extension AppModel {
                     cur.sceneChanges = done.sceneChanges; cur.subjectClose = done.subjectClose
                     if done.sceneClips != p0.sceneClips { cur.sceneClips = done.sceneClips; cur.sceneChange = done.sceneChange }
                     cur.motion = done.motion != p0.motion ? done.motion : cur.motion
+                    if done.style != p0.style && cur.style == p0.style { cur.style = done.style }
+                    if cur.nextFocus == p0.nextFocus { cur.nextFocus = done.nextFocus }
                     if cur.source == p0.source { cur.source = done.source }
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift

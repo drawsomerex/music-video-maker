@@ -57,6 +57,7 @@ struct LoopView: View {
             }
         }
         .task { model.refreshVideoPrice() }
+        .onChange(of: model.loopAutoFinished) { _, v in if v { model.loopAutoFinished = false; model.loopPreview(.start) } }
         .alert("Notice", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) { Button("OK", role: .cancel) {} } message: { Text(model.notice ?? "") }
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
         .sheet(isPresented: $showSubject) { FindPictureSheet(set: { model.loopSetReference($0) }) }
@@ -84,6 +85,9 @@ struct LoopView: View {
                 Text(p.title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            Button { model.loopAutoAsk() } label: { Label("Make it all automatically", systemImage: "wand.and.stars") }
+                .buttonStyle(.borderedProminent).disabled(working || p.tracks.isEmpty)
+                .help("Automatic mode: a director plans the scenes and the style (and finds a reference photo if it helps), you see the price, then the app draws the pictures, makes the loop clips and opens a preview.")
             Text("Spent: \(OpenRouter.formatUSD(p.imagesUSD + p.videoUSD))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 .help("Picture \(OpenRouter.formatUSD(p.imagesUSD)) and loop clip \(OpenRouter.formatUSD(p.videoUSD)) for this looping video (the cost OpenRouter reported).")
             Button { if let d = model.loopDir { NSWorkspace.shared.activateFileViewerSelecting([d]) } } label: { Label("Show folder", systemImage: "folder") }.labelStyle(.iconOnly)
@@ -615,6 +619,9 @@ struct LoopStartView: View {
             }
             HStack {
                 Spacer()
+                Button { if !songs.isEmpty { model.startLoopProject(songs: songs, title: title, automatic: true) } } label: { Label("Do it all automatically", systemImage: "wand.and.stars").font(.headline).padding(.horizontal, 6).padding(.vertical, 3) }
+                    .controlSize(.large).disabled(song == nil || !model.hasOpenRouterKey)
+                    .help("Automatic mode: a director plans the scenes and the style, you see the price, then the app draws the pictures, makes the loop clips and opens a preview.")
                 Button { if !songs.isEmpty { model.startLoopProject(songs: songs, title: title) } } label: { Label("Start the looping video", systemImage: "arrow.right.circle.fill").font(.headline).padding(.horizontal, 6).padding(.vertical, 3) }
                     .buttonStyle(.borderedProminent).controlSize(.large).disabled(song == nil)
                     .help("Creates a folder for this looping video and opens its screen: song, picture, loop clip, long video.")

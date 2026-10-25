@@ -15,6 +15,7 @@ struct RootView: View {
         }
         .background(WindowFitter())
         .sheet(isPresented: $model.showProjects) { ProjectsView().environmentObject(model) }
+        .modifier(AutoAskModifier())
         .sheet(item: $model.pictureFit) { PictureFitSheet(req: $0).environmentObject(model) }
         .animation(.smooth(duration: 0.3), value: updaterVisible)
         .animation(.smooth(duration: 0.25), value: model.busy)
@@ -298,7 +299,13 @@ struct SetupView: View {
             .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.return, modifiers: .command)
             .help("Nothing was changed, so there is nothing to plan again. Go back to this video's pictures.")
         } else {
-            Button { model.start() } label: {
+            Button { model.autoPending = true; model.start() } label: {
+                Label("Do it all automatically", systemImage: "wand.and.stars").font(.headline).padding(.horizontal, 8).padding(.vertical, 4)
+            }
+            .controlSize(.large).disabled(!model.canStart || model.isRecording || !model.hasOpenRouterKey)
+            .help(model.hasOpenRouterKey ? "Automatic mode: the app listens to the song, a director plans the whole video (the story, the style, every picture), you see the price, and then it draws everything and opens the preview."
+                                         : "Automatic mode needs your OpenRouter key (Settings).")
+            Button { model.autoPending = false; model.start() } label: {
                 Label(model.hasProject ? "Plan as a new video" : "Plan my video", systemImage: "arrow.right.circle.fill")
                     .font(.headline).padding(.horizontal, 8).padding(.vertical, 4)
             }

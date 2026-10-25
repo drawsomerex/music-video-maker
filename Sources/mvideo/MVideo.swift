@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, Direct.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -484,6 +484,25 @@ struct MVideo: AsyncParsableCommand {
             try Pipeline.savePlan(plan, w)
             let c = picture == 0 ? plan.intro.selectedCandidate : plan.sections[picture - 1].selectedCandidate
             print("✅ \(c?.fullFile ?? "?")  cost \(OpenRouter.formatUSD(gen.costUSD))" + (c?.subjectDistance.map { String(format: "  different from the subject photo: %.2f%@", $0, c!.looksLikeSubject ? " (TOO CLOSE: warning shown)" : "") } ?? ""))
+        }
+    }
+
+    struct Direct: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Print the Automatic-mode director's plan for a music video project or a looping project (about a cent; nothing is drawn).")
+        @Argument var folder: String
+        @Option(help: "For a looping project: how many scenes") var scenes = 3
+        func run() async throws {
+            let d = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath)
+            if LoopVideo.isLoopProject(d) {
+                let (t, c) = try await Director.looping(try LoopVideo.load(d), scenes: scenes)
+                print("LOGLINE: \(t.logline)\nSTYLE: \(t.style)\nREFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\n"); for (i, s) in t.scenes.enumerated() { print("\(i + 1). \(s)") }
+                print(String(format: "\ncost $%.4f", c)); return
+            }
+            let plan = try Pipeline.loadPlan(d)
+            let (t, c) = try await Director.musicVideo(plan)
+            print(t.summary); print("REFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\n")
+            for i in ([-1] + Array(plan.sections.indices)) { if let idea = t.pictures[i] { print("\(i == -1 ? "title" : "\(i + 1)"). \(idea)") } }
+            print(String(format: "\ncost $%.4f", c))
         }
     }
 
