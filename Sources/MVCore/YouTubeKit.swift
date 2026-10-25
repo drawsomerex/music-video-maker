@@ -113,6 +113,26 @@ public enum YouTubeKit {
     }
 
     // MARK: description
+    /// Every listing ends here: no emojis anywhere, then your links.
+    static func finish(_ l: Listing, config: Config) -> Listing {
+        var out = l
+        out.title = withoutEmoji(l.title); out.description = withoutEmoji(l.description)
+        return withLinks(out, config: config)
+    }
+    /// Takes out emojis (and the invisible joiners and variation marks that build them), keeping letters, digits, # and punctuation.
+    public static func withoutEmoji(_ s: String) -> String {
+        let kept = s.unicodeScalars.filter { u in
+            if u.value == 0x200D || (0xFE00...0xFE0F).contains(u.value) || (0x1F3FB...0x1F3FF).contains(u.value) { return false }
+            let p = u.properties
+            if p.isEmojiPresentation { return false }
+            if p.isEmoji && u.value > 0xFF && !p.isAlphabetic { return false }        // ☕ ✨ ❤ ★ … (not digits, # or *)
+            return true
+        }
+        var out = String(String.UnicodeScalarView(kept))
+        out = out.replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
+        out = out.replacingOccurrences(of: #"[ \t]+\n"#, with: "\n", options: .regularExpression)
+        return out.trimmingCharacters(in: .whitespaces)
+    }
     /// Your website and tip jar (Settings), as a block for the description. Empty when neither is set.
     public static func linksBlock(website: String, tipJar: String) -> String {
         func link(_ s: String) -> String? {
@@ -120,16 +140,23 @@ public enum YouTubeKit {
             guard !t.isEmpty else { return nil }
             return t.lowercased().hasPrefix("http://") || t.lowercased().hasPrefix("https://") ? t : "https://" + t
         }
-        return [link(website).map { "🌐 Website: \($0)" }, link(tipJar).map { "☕ Tip jar (thank you!): \($0)" }].compactMap { $0 }.joined(separator: "\n")
+        // the address on its own after a plain label and a space (YouTube only links a bare address that starts with https://)
+        return [link(website).map { "Website: \($0)" }, link(tipJar).map { "Tip jar: \($0)" }].compactMap { $0 }.joined(separator: "\n")
     }
-    /// Puts the links after the description's first paragraph (near the top, where people see them), keeping it inside YouTube's 5,000 characters.
+    /// Puts the links right after the description's first sentence, so they show before YouTube's "…more" (only about the first 125–150
+    /// characters show). A long first sentence: the links go first. Kept inside YouTube's 5,000 characters.
     public static func withLinks(_ l: Listing, config: Config) -> Listing {
         let block = linksBlock(website: config.website, tipJar: config.tipJar)
         guard !block.isEmpty, !l.description.contains(block) else { return l }
         var out = l
-        let d = l.description
-        if let r = d.range(of: "\n\n") { out.description = String(d[..<r.lowerBound]) + "\n\n" + block + "\n\n" + String(d[r.upperBound...]) }
-        else { out.description = d + "\n\n" + block }
+        let d = l.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let para = d.range(of: "\n").map { d[..<$0.lowerBound] } ?? d[...]
+        if let r = para.range(of: #"[.!?](\s|$)"#, options: .regularExpression), d.distance(from: d.startIndex, to: r.lowerBound) < 120 {
+            let head = d[...r.lowerBound], rest = d[d.index(after: r.lowerBound)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            out.description = head + "\n\n" + block + (rest.isEmpty ? "" : "\n\n" + rest)
+        } else {
+            out.description = block + "\n\n" + d
+        }
         if out.description.count > 4990 { out.description = String(out.description.prefix(4990)) }
         return out
     }
@@ -196,7 +223,7 @@ public enum YouTubeKit {
 
     /// The listing for a looping long music video. One song: no chapters. Several: chapters for the first time through the playlist (and a tracklist).
     /// It never says that anything loops or repeats. The description stays inside YouTube's 5,000 characters.
-    public static func loopListing(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing { withLinks(await loopListingText(p, plan: plan, config: config), config: config) }
+    public static func loopListing(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing { finish(await loopListingText(p, plan: plan, config: config), config: config) }
     static func loopListingText(_ p: LoopProject, plan: LoopAudio.Plan? = nil, config: Config = .load()) async -> Listing {
         let hours = p.playOnce ? durationText(plan?.total ?? p.tracks.reduce(0) { $0 + $1.seconds }) : hoursText(p.hours), scene = p.scene.isEmpty ? p.motion : p.scene
         let names = p.tracks.map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) }.map { $0.isEmpty ? "Untitled" : $0 }
@@ -208,7 +235,7 @@ public enum YouTubeKit {
         Rules: the title is under 70 characters, starts with the strongest search words people use (for example "\(hours) of Study Music" or "Relaxing ... Ambience") and includes "\(p.title)" and the length;
         the description's first two lines (what shows before "more") hold the main keywords naturally; the description has 3 short paragraphs (about 90–150 words in all) on what you see and hear and what it is good for
         (studying, focus, reading, sleep, relaxing, working). Never say that the music or the video loops, repeats or is played again. No false claims and no health or medical claims (say "calm", not "reduces anxiety"),
-        never "no lyrics" or "instrumental" (the songs may have words), at most 2 emojis, no links, no timestamps.
+        never "no lyrics" or "instrumental" (the songs may have words), no emojis, no links, no timestamps.
         Tags: 15 to 25 search phrases people really type, specific to this scene, this music and its uses. Every tag must be TRUE for this video: no rain, white noise, lofi, \
         piano, nature sounds or other sounds unless the scene or music above says so (the sound is the music only); never "loop" or "looping". Hashtags: exactly 3, no spaces, true for this video.
         Reply with ONLY JSON: {"title":"...","description":"...","tags":["..."],"hashtags":["..."]}
@@ -249,7 +276,7 @@ public enum YouTubeKit {
     }
 
     /// The listing for a lyric music video (the full lyrics go at the end of the description: search engines read them).
-    public static func lyricListing(_ plan: Plan, config: Config = .load()) async -> Listing { withLinks(await lyricListingText(plan, config: config), config: config) }
+    public static func lyricListing(_ plan: Plan, config: Config = .load()) async -> Listing { finish(await lyricListingText(plan, config: config), config: config) }
     static func lyricListingText(_ plan: Plan, config: Config = .load()) async -> Listing {
         let lyrics = plan.lines.map(\.text).joined(separator: "\n")
         let prompt = """
@@ -257,7 +284,7 @@ public enum YouTubeKit {
         \(plan.songNotes.isEmpty ? "" : "The songwriter describes it like this (follow it): \(plan.songNotes)\n")What the song is about: \(plan.description.isEmpty ? plan.subject : plan.description)\(plan.setting.isEmpty ? "" : "\nSetting of the pictures: \(plan.setting)")
         First lines of the lyrics: \(plan.lines.prefix(6).map(\.text).joined(separator: " / "))
         Rules: the title is under 70 characters and is "\(plan.title) (Lyric Video)" or close to it, optionally with a short hook after a dash; the description's first two lines (shown before "more")
-        hold the song title and the main keywords of its story naturally; then one short paragraph about the story and the pictures. No false claims, at most 2 emojis, no links.         Every tag must be true for this song: only people, places, events and eras named in the information above (never others from history), no genre or artist you cannot see there. Do not call it \"official\".
+        hold the song title and the main keywords of its story naturally; then one short paragraph about the story and the pictures. No false claims, no emojis, no links.         Every tag must be true for this song: only people, places, events and eras named in the information above (never others from history), no genre or artist you cannot see there. Do not call it \"official\".
         Tags: 15 to 25 search phrases (song title, "lyrics", the story's people, places and era, the genre if obvious). Hashtags: exactly 3, no spaces.
         Reply with ONLY JSON: {"title":"...","description":"...","tags":["..."],"hashtags":["..."]}
         """
@@ -272,7 +299,7 @@ public enum YouTubeKit {
     }
 
     /// The listing for a YouTube Short: a short title with the strongest words first, the Short's own lines, and #Shorts.
-    public static func shortListing(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing { withLinks(await shortListingText(plan, clip: c, config: config), config: config) }
+    public static func shortListing(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing { finish(await shortListingText(plan, clip: c, config: config), config: config) }
     static func shortListingText(_ plan: Plan, clip c: ShortClip, config: Config = .load()) async -> Listing {
         let lyr = plan.lines.filter { $0.end > c.start && $0.start < c.end }.map(\.text)
         let hook = c.hook.isEmpty ? plan.title : c.hook
@@ -282,7 +309,7 @@ public enum YouTubeKit {
         The lines sung in this Short: \(lyr.joined(separator: " / "))
         Its opening title on screen: \(hook)
         Rules: the title is under 60 characters, curiosity-driven, uses the strongest search words first and names the song; no clickbait lies; no hashtags in the title.
-        The description is 2 short sentences: the first holds the song title and the main keywords naturally, the second invites people to hear the full song\(c.cta.isEmpty ? "" : " (end with: \(c.cta))"). No false claims, at most 1 emoji, no links.
+        The description is 2 short sentences: the first holds the song title and the main keywords naturally, the second invites people to hear the full song\(c.cta.isEmpty ? "" : " (end with: \(c.cta))"). No false claims, no emojis, no links.
         Tags: 10 to 15 search phrases that are true for this song (its title, "lyrics", the people, places and events it names). Do not call it "official". Hashtags: exactly 2 besides #Shorts, no spaces.
         Reply with ONLY JSON: {"title":"...","description":"...","tags":["..."],"hashtags":["..."]}
         """

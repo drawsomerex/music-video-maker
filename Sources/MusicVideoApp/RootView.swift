@@ -631,7 +631,7 @@ struct SettingsView: View {
                         }.help("Put small and slightly see-through in the top corner of every YouTube thumbnail, away from the title.")
                     }
                 }
-                Text("Each one is off until you fill it in, and then it is used everywhere: the links in every YouTube description and the logo on every thumbnail made from now on. To add them to a video already made, press “YouTube thumbnail & description” again.").font(.callout).foregroundStyle(.secondary)
+                Text("Each one is off until you fill it in, and then it is used everywhere: the links in every YouTube description and the logo on every thumbnail made from now on. YouTube only makes the links clickable once your channel has Advanced features (YouTube Studio ▸ Settings ▸ Channel ▸ Feature eligibility; a quick ID or video check, or some channel history), and never in Shorts. To add them to a video already made, press “YouTube thumbnail & description” again.").font(.callout).foregroundStyle(.secondary)
             }
             UpdatesSettingsSection()
             Section("Shortcuts & help") {
