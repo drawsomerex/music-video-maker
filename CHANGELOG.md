@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [2.0.3] - 2026-10-26
 - A clear warning when the lyrics hardly match the song (under 50% of the words heard; a right song is over 90%): "Is it the right MP3?", right after planning and above every picture.
 - "Fix it" and "Make highest quality" now check the new picture too (in both kinds of video).
 - A plain message when OpenRouter wants more credit before drawing or making a clip, instead of its raw "Insufficient credits".
