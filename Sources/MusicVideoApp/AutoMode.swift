@@ -189,6 +189,37 @@ extension AppModel {
         }
     }
 
+    /// "Make highest quality": redraws these pictures at High from themselves (more detail, sharper), one after another. Each earlier picture stays as a choice.
+    func makeHighestQuality(_ sections: [Int]) {
+        guard let w = workDir, !sections.isEmpty else { return }
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        let cfg = config
+        runBackground(initialPhase: "Making \(sections.count == 1 ? "the picture" : "\(sections.count) pictures") highest quality…") { [weak self] in
+            guard let self else { return }
+            for (k, sec) in sections.enumerated() {
+                try Task.checkCancellation()
+                guard var p = self.plan else { break }
+                let before = p
+                self.workingSection = sec
+                self.busyHandler("\(k + 1)/\(sections.count): \(sec < 0 ? "Title card" : "Picture \(sec + 1)") — redrawing at the highest quality, then sharpening…", Double(k) / Double(sections.count))
+                _ = try await Pipeline.highestQualitySectionImage(section: sec, plan: &p, work: w, config: cfg)
+                self.mergeTaskResult(p, startedFrom: before, section: sec, artwork: true)
+                self.live.invalidate()
+            }
+            self.workingSection = nil
+            self.refreshOpenRouterCredits(silent: true)
+            self.notice = (sections.count == 1 ? "Done: the picture is redrawn" : "Done: \(sections.count) pictures are redrawn") + " at the highest quality. The earlier version is still there if you prefer it (under the picture)."
+        }
+    }
+    /// The parts whose picture can be made highest quality (a drawn or chosen picture, not a video clip, not done already).
+    var highestQualityTargets: [Int] {
+        guard let p = plan else { return [] }
+        return (-1..<p.sections.count).filter { i in
+            guard let c = (i < 0 ? p.intro : p.sections[i]).selectedCandidate else { return false }
+            return c.videoFile == nil && c.fullFile != nil && !c.credit.hasPrefix("Highest quality")
+        }
+    }
+
     /// The director writes the picture ideas (the default for a new video when the OpenRouter key is set; about a cent). Nothing is drawn.
     /// Ideas you wrote yourself are kept; the style changes only when you left it on automatic.
     func directorIdeas(silent: Bool = false) {

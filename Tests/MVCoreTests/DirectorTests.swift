@@ -55,4 +55,9 @@ final class DirectorTests: XCTestCase {
         XCTAssertEqual(r?.mainly, .place); XCTAssertTrue(r?.sentence.hasPrefix("A sunny") == true)
         XCTAssertNil(Pipeline.readSourceReply("not json"))
     }
+
+    func testHighestQualityPromptKeepsThePicture() {
+        let p = Pipeline.highestQualityPrompt(idea: "A red barn on the plains", style: "Impasto oil painting.")
+        XCTAssertTrue(p.contains("Keep EXACTLY the same picture")); XCTAssertTrue(p.contains("A red barn on the plains")); XCTAssertTrue(p.contains("Impasto oil painting"))
+    }
 }

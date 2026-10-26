@@ -22,6 +22,7 @@ struct PlanView: View {
     @AppStorage("picturesTimeline") private var timelineChoice = "auto"     // "auto" (follows the window height), "open" or "closed": your last choice
     @State private var windowHeight: CGFloat = 900
     @State private var confirmAllPictures = false
+    @State private var confirmHighest = false
     @State private var confirmAllClips = false
     var timelineOpen: Bool { timelineChoice == "open" || (timelineChoice == "auto" && windowHeight >= 900) }
     var timelinePanel: some View {
@@ -182,6 +183,13 @@ struct PlanView: View {
         } message: {
             Text("\(model.missing.count) picture\(model.missing.count == 1 ? "" : "s") at about \(OpenRouter.formatUSD(model.missingImagesCostUSD)) in total." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " Video clips are separate and only made when you ask.")
         }
+        .confirmationDialog("Make every picture highest quality?", isPresented: $confirmHighest, titleVisibility: .visible) {
+            let n = model.highestQualityTargets.count
+            Button("Redraw \(n) picture\(n == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(Double(n) * PictureQuality.high.estimate)))") { model.makeHighestQuality(model.highestQualityTargets) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Each picture is redrawn from itself at the highest quality (finer detail, crisper edges, the same composition), then sharpened on your Mac. The earlier versions stay, so you can go back to any of them." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? ""))
+        }
         .confirmationDialog("Make a video clip for every picture?", isPresented: $confirmAllClips, titleVisibility: .visible) {
             Button("Make \(model.clipTargets.count) clip\(model.clipTargets.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.allClipsPriceUSD)))") { model.startAllClips() }
             Button("Cancel", role: .cancel) {}
@@ -214,6 +222,10 @@ struct PlanView: View {
             Button("Plan with the director (you approve the choices)…") { model.directorPlan() }
                 .help("The director plans the video, then you see its choices (brightness, style, weather, time of day, quality, the picture to base it on, the cast) and approve or change them before anything is drawn.")
             if let t = plan.treatment { Button("The director's plan…") { model.notice = t } }
+            if !model.highestQualityTargets.isEmpty {
+                Button("Make every picture highest quality (\(model.highestQualityTargets.count), ≈ \(OpenRouter.formatUSD(Double(model.highestQualityTargets.count) * PictureQuality.high.estimate)))…") { confirmHighest = true }
+                    .help("Redraws every picture at the highest quality (finer detail, sharper), keeping each one's composition. The earlier versions stay.")
+            }
             Divider()
             Button("Setting & description…") { showDescriptionSheet = true }
             Button("Art style…") { showStyleSheet = true }
@@ -635,6 +647,16 @@ struct DropWell: View {
                 if let f = sec.selectedCandidate?.fullFile, let w = model.workDir {
                     Button { FullScreenPlayer.showImage(w.appendingPathComponent(f), title: "Picture") } label: { Label("View larger", systemImage: "plus.magnifyingglass") }
                         .help("See this picture full screen and zoom in on any part (Esc closes).")
+                }
+                if let c = sec.selectedCandidate, c.videoFile == nil, c.fullFile != nil {
+                    if c.credit.hasPrefix("Highest quality") {
+                        Label("Highest quality", systemImage: "sparkles").font(.callout).foregroundStyle(.green)
+                            .help("This picture was redrawn at the highest quality and sharpened. The earlier version is still under the picture.")
+                    } else {
+                        Button { model.makeHighestQuality([section]) } label: { Label("Make highest quality", systemImage: "sparkles") }
+                            .disabled(model.busy)
+                            .help("Redraws this same picture at the highest quality (about \(OpenRouter.formatUSD(PictureQuality.high.estimate))): finer detail, crisper edges and sharper textures, keeping the composition, the people and the colours. Then it is sharpened 4× on your Mac. The picture you have now stays as an earlier version.")
+                    }
                 }
                 if sec.selectedCandidate != nil {
                     Button {

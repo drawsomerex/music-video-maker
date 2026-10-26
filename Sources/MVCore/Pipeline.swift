@@ -782,10 +782,29 @@ public enum Pipeline {
     @discardableResult
     public static func fixSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
         let s = index < 0 ? plan.intro : plan.sections[index]
-        guard let c = s.selectedCandidate, let file = c.fullFile, let fix = c.checkFix,
-              let img = loadImage(work.appendingPathComponent(file), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.9) else { throw MVError("There is nothing to fix in this picture.") }
-        let gen = try await OpenRouter.generateImage(prompt: PictureCheck.fixPrompt(fix), apiKey: config.openRouterKey, fallbackCostEstimate: plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage,
-                                                     referenceJPEGs: [jpeg], quality: plan.pictureQuality)
+        guard let fix = s.selectedCandidate?.checkFix else { throw MVError("There is nothing to fix in this picture.") }
+        return try await redrawFromPicture(section: index, plan: &plan, work: work, prompt: PictureCheck.fixPrompt(fix), quality: plan.pictureQuality, label: "Fixed: \(fix)", config: config)
+    }
+
+    /// The prompt for "Make highest quality": the same picture, redrawn at the best quality with finer detail and sharper edges.
+    public static func highestQualityPrompt(idea: String, style: String) -> String {
+        "Redraw the attached picture at the highest possible quality. Keep EXACTLY the same picture: the same composition and framing, the same people, animals and objects in the same places and poses, the same faces and clothing, the same colours, light and art style. Only make it better: much finer detail, crisp clean edges, sharp textures, refined faces and hands, no blur, no noise, no smudges. The picture shows: \(idea)\(StylePreset.styleClause(style)) Widescreen 16:9, no text, no lettering, no watermark."
+    }
+    /// "Make highest quality": redraws the picture at High quality from itself (more detail and sharpness, the same picture), then the free 4× sharpening.
+    /// It becomes a new choice for that part; the earlier one stays.
+    @discardableResult
+    public static func highestQualitySectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
+        let s = index < 0 ? plan.intro : plan.sections[index]
+        return try await redrawFromPicture(section: index, plan: &plan, work: work, prompt: highestQualityPrompt(idea: s.prompt, style: plan.style), quality: .high, label: "Highest quality", config: config)
+    }
+
+    /// Redraws a part's picture with the picture itself attached as the guide; the camera move and focal points carry over.
+    static func redrawFromPicture(section index: Int, plan: inout Plan, work: URL, prompt: String, quality: PictureQuality, label: String, config: Config) async throws -> OpenRouter.GeneratedImage {
+        let s = index < 0 ? plan.intro : plan.sections[index]
+        guard let c = s.selectedCandidate, c.videoFile == nil, let file = c.fullFile,
+              let img = loadImage(work.appendingPathComponent(file), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.92) else { throw MVError("This part has no picture to redraw.") }
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: quality.estimate,
+                                                     referenceJPEGs: [jpeg], quality: quality)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_fix.\(gen.fileExtension)")
         let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
         defer { try? FileManager.default.removeItem(at: tmp); try? FileManager.default.removeItem(at: sharp) }
@@ -796,7 +815,7 @@ public enum Pipeline {
             var n = x.candidates[x.selected]
             n.focalAX = c.focalAX; n.focalAY = c.focalAY; n.focalBX = c.focalBX; n.focalBY = c.focalBY; n.focalNames = c.focalNames
             n.camStartX = c.camStartX; n.camStartY = c.camStartY; n.camEndX = c.camEndX; n.camEndY = c.camEndY; n.camZoom = c.camZoom
-            n.provider = "OpenRouter"; n.credit = "Fixed: \(fix) (\(OpenRouter.formatUSD(gen.costUSD)))"
+            n.provider = "OpenRouter"; n.credit = "\(label) (\(OpenRouter.formatUSD(gen.costUSD)))"
             x.candidates[x.selected] = n
         }
         if index < 0 { carry(&plan.intro) } else { carry(&plan.sections[index]) }
