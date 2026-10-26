@@ -275,7 +275,7 @@ extension AppModel {
             let (t, cost) = try await Director.looping(q, scenes: scenes, config: cfg)
             q.imagesUSD += cost
             let c = DirectorChoices(style: t.style.isEmpty ? q.style : t.style, brightness: p0.brightness, suggested: t.mood, weather: t.weather, time: t.timeOfDay, shot: t.shot,
-                                    quality: p0.pictureQuality, reference: q.source == nil ? (t.reference ?? "") : "", keep: t.keep, scenes: max(1, min(t.scenes.count, scenes)), sceneTexts: t.scenes)
+                                    quality: p0.pictureQuality, reference: q.source == nil ? (t.reference ?? "") : "", keep: t.keep, cast: t.cast, scenes: max(1, min(t.scenes.count, scenes)), sceneTexts: t.scenes)
             await MainActor.run {
                 self?.directorRun = nil
                 self?.directorReview = DirectorReview(logline: t.logline, summary: t.logline, loop: t, choices: c, hasOwnSource: q.source != nil)
@@ -315,6 +315,12 @@ extension AppModel {
             if q.source == nil, !words.trimmingCharacters(in: .whitespaces).isEmpty {
                 await phase("Automatic: finding a picture of \(words)…")
                 if let r = await Director.findReference(words, keep: treatment == nil ? t.keep : c.keep, into: d, config: cfg) { q.source = r.file; q.nextFocus = r.keep; q.imagesUSD += r.cost }
+            }
+            // the cast: the recurring animals, objects and landmarks, drawn once on a sheet every picture matches
+            q.cast = (treatment == nil ? t.cast : c.cast).trimmingCharacters(in: .whitespacesAndNewlines); q.castSheet = nil
+            if !q.cast.isEmpty {
+                await phase("Automatic: drawing the cast sheet…")
+                _ = try? await LoopVideo.makeCastSheet(&q, dir: d, config: cfg)
             }
             var made: [String] = []
             for k in scenesToMake.indices {
@@ -363,7 +369,7 @@ struct DirectorSheet: View {
     private var c: Binding<DirectorChoices> { $review.choices }
     private var isLoop: Bool { review.loop != nil }
     private var price: Double {
-        isLoop ? Double(review.choices.scenes) * model.loopScenePrice
+        isLoop ? Double(review.choices.scenes) * model.loopScenePrice + (review.choices.cast.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : review.choices.quality.estimate)
                : Double((model.plan?.sections.count ?? 0) + 1 + (review.choices.cast.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1)) * (review.choices.quality.estimate)
     }
 
@@ -405,9 +411,8 @@ struct DirectorSheet: View {
                                 Picker("Keep from that picture", selection: c.keep) { ForEach(NextFocus.allCases, id: \.self) { Text($0.name).tag($0) } }
                             }
                         }
-                        if !isLoop {
-                            TextField("The people and things that stay the same (empty = none)", text: c.cast, axis: .vertical).lineLimit(2...5)
-                        } else if let t = review.loop, t.scenes.count > 1 {
+                        TextField(isLoop ? "The animals, objects and landmarks that stay the same (empty = none)" : "The people and things that stay the same (empty = none)", text: c.cast, axis: .vertical).lineLimit(2...5)
+                        if let t = review.loop, t.scenes.count > 1 {
                             Picker("Scenes", selection: c.scenes) { ForEach(1...t.scenes.count, id: \.self) { Text("\($0)").tag($0) } }
                         }
                     }.formStyle(.grouped)

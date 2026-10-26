@@ -126,6 +126,10 @@ public struct LoopProject: Codable, Equatable {
     public var weather: LoopWeather = .any      // a landscape's weather for the pictures drawn (any = what the scene says)
     public var timeOfDay: LoopTimeOfDay = .any  // and its time of day
     public var shot: ShotType = .any            // the type of shot (camera position and framing) of the pictures drawn
+    public var checks: [String: [String]] = [:] // the automatic picture check found a fault: picture → [what is wrong, the one change that fixes it]
+    public var enhanced: [String] = []          // pictures made highest quality
+    public var cast = ""                        // the recurring animals, objects and places with the traits that never change (every picture restates them)
+    public var castSheet: String? = nil         // a picture of that cast, made once; every picture is drawn to match it
     public var sceneDrawn: String?              // the scene words the picture in use was drawn from (words typed since then are your next scene)      // the major changes used for "next scene" pictures so far (not repeated)
     public var subject: String?                 // a photo of the subject the drawn picture shows (redrawn in the style), in the project folder
     public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
@@ -143,7 +147,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -179,6 +183,8 @@ public struct LoopProject: Codable, Equatable {
         subject = nil
         timeOfDay = try c.decodeIfPresent(LoopTimeOfDay.self, forKey: .timeOfDay) ?? .any
         shot = try c.decodeIfPresent(ShotType.self, forKey: .shot) ?? .any
+        checks = try c.decodeIfPresent([String: [String]].self, forKey: .checks) ?? [:]; enhanced = try c.decodeIfPresent([String].self, forKey: .enhanced) ?? []
+        cast = try c.decodeIfPresent(String.self, forKey: .cast) ?? ""; castSheet = try c.decodeIfPresent(String.self, forKey: .castSheet)
         sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .both
         sceneMinutes = try c.decodeIfPresent(Double.self, forKey: .sceneMinutes) ?? 10
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
@@ -339,13 +345,16 @@ public enum LoopVideo {
         // the reference picture (if any): what to keep from it, never a copy of it
         let reference = p.source.flatMap { SubjectPicture.referenceJPEG(dir.appendingPathComponent($0)) }
         let focus = nextFocus(p, dir: dir)
-        let gen = try await OpenRouter.generateImage(prompt: prompt + (reference != nil ? " The attached picture is \(SubjectPicture.referenceRole(focus))." : ""),
-                                                     apiKey: config.openRouterKey, referenceJPEGs: reference.map { [$0] } ?? [], scene: scene,
+        var roles: [String] = [], refs: [Data] = []
+        if let r = reference { refs.append(r); roles.append(SubjectPicture.referenceRole(focus)) }
+        if let c = castSheetJPEG(p, dir: dir) { refs.append(c); roles.append(castSheetRole) }
+        let gen = try await OpenRouter.generateImage(prompt: prompt + castWords(p) + rolesText(roles),
+                                                     apiKey: config.openRouterKey, referenceJPEGs: refs, scene: scene,
                                                      quality: p.pictureQuality, rule: p.brightness.words)
-        let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
-        try gen.data.write(to: dir.appendingPathComponent(name))
+        let name = try await storePicture(gen, dir: dir)
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1; p.sceneDrawn = scene
+        await checkPicture(&p, dir: dir, picture: name, idea: scene, config: config)
         if reference != nil, let s = p.source, let d = SubjectPicture.distance(dir.appendingPathComponent(s), dir.appendingPathComponent(name)), d < SubjectPicture.tooClose(focus) { p.subjectClose[name] = Double(d) }
         save(p, dir)
         return gen.costUSD
@@ -414,19 +423,90 @@ public enum LoopVideo {
         case .building: keep = "Keep the SAME main building exactly as it is (its true architecture: shape, proportions, towers, windows, rooflines, materials) and the same art style. Show it from a noticeably different but natural camera angle, and make this major change so it is clearly a different scene: \(change)."
         case .subject: keep = "Keep the SAME main subject (the main creature, person or object in the reference: exactly the same look, colours, markings and features) and the same art style, but put it in a completely DIFFERENT place: \(change). Show it from a different angle, in a calm, natural pose. Do not reuse the reference's background or composition."
         }
-        let refs = [prev]
+        var refs = [prev]
+        if let c = castSheetJPEG(p, dir: dir) { refs.append(c) }
         let prompt = "\(idea.scene)\(conditions(p)) \(p.brightness.words)\(StylePreset.styleClause(p.style)) A calm, beautiful scene for a long looping background video: a fixed viewpoint, balanced composition. " +
             "The attached reference picture is the picture this video is based on (never copy it). " +
-            keep + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
+            keep + castWords(p) + (refs.count > 1 ? " The second attached picture is \(castSheetRole)." : "") + " Widescreen 16:9 landscape composition, no text, no lettering, no watermark."
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs, scene: idea.scene, quality: p.pictureQuality, rule: p.brightness.words)
-        let name = "picture-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
-        try gen.data.write(to: dir.appendingPathComponent(name))
+        let name = try await storePicture(gen, dir: dir)
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD + idea.cost; p.pictureCount += 1
         p.scene = idea.scene; p.sceneDrawn = idea.scene
+        await checkPicture(&p, dir: dir, picture: name, idea: idea.scene, config: config)
         if !idea.change.isEmpty { p.sceneChanges.append(idea.change) }
         save(p, dir)
         return gen.costUSD + idea.cost
+    }
+
+    // MARK: the same picture features as a music video (see "Feature parity" in CLAUDE.md)
+    /// Saves a drawn picture in the folder: made 4× sharper on this Mac when it can (3840 wide), otherwise as drawn. Returns its file name.
+    static func storePicture(_ gen: OpenRouter.GeneratedImage, dir: URL, prefix: String = "picture") async throws -> String {
+        var stamp = Int(Date().timeIntervalSince1970)
+        while FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(prefix)-\(stamp).jpg").path) || FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(prefix)-\(stamp).\(gen.fileExtension)").path) { stamp += 1 }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString).\(gen.fileExtension)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try gen.data.write(to: tmp)
+        let sharp = "\(prefix)-\(stamp).jpg"
+        if await SuperRes.enlarge(tmp, to: dir.appendingPathComponent(sharp)) { return sharp }
+        let name = "\(prefix)-\(stamp).\(gen.fileExtension)"
+        try gen.data.write(to: dir.appendingPathComponent(name))
+        return name
+    }
+    /// The automatic picture check (about a tenth of a cent): a fault is kept with the picture, with its one-change fix.
+    static func checkPicture(_ p: inout LoopProject, dir: URL, picture: String, idea: String, config: Config) async {
+        guard let r = await PictureCheck.check(dir.appendingPathComponent(picture), idea: idea, focal: [], cast: p.cast, config: config) else { return }
+        p.imagesUSD += r.cost
+        if let problem = r.problem, let fix = r.fix { p.checks[picture] = [problem, fix] } else { p.checks[picture] = nil }
+    }
+    static let castSheetRole = "the cast sheet of this video: draw every recurring animal, object and place feature exactly as it looks on it (the same shapes, colours and markings); do not redesign them; do not copy the sheet's layout or plain background"
+    static func castSheetJPEG(_ p: LoopProject, dir: URL) -> Data? {
+        p.castSheet.flatMap { loadImage(dir.appendingPathComponent($0), maxPixel: 1024) }.flatMap { PictureFit.jpegData($0, quality: 0.85) }
+    }
+    static func castWords(_ p: LoopProject) -> String {
+        let c = p.cast.trimmingCharacters(in: .whitespacesAndNewlines)
+        return c.isEmpty ? "" : " Recurring cast (wherever they appear, draw them exactly like this; do not redesign them): \(c)"
+    }
+    static func rolesText(_ roles: [String]) -> String {
+        roles.isEmpty ? "" : roles.count == 1 ? " The attached picture is \(roles[0])." : " Reference pictures are attached, in this order: " + roles.enumerated().map { "(\($0.offset + 1)) \($0.element)" }.joined(separator: "; ") + "."
+    }
+
+    /// "Fix it": redraws the picture changing only the fault the check found. The new picture is used; the old one stays in the list.
+    @discardableResult
+    public static func fixPicture(_ p: inout LoopProject, dir: URL, picture: String, config: Config = .load()) async throws -> Double {
+        guard let fix = p.checks[picture]?.last else { throw MVError("There is nothing to fix in this picture.") }
+        return try await redraw(&p, dir: dir, picture: picture, prompt: PictureCheck.fixPrompt(fix), enhance: false, config: config)
+    }
+    /// "Make highest quality": redraws the picture from itself at the picture maker's very highest level (more detail, sharper), then sharpens it.
+    @discardableResult
+    public static func highestQuality(_ p: inout LoopProject, dir: URL, picture: String, config: Config = .load()) async throws -> Double {
+        let idea = p.picture == picture ? (p.sceneDrawn ?? p.scene) : p.scene
+        return try await redraw(&p, dir: dir, picture: picture, prompt: Pipeline.highestQualityPrompt(idea: idea, style: p.style), enhance: true, config: config)
+    }
+    static func redraw(_ p: inout LoopProject, dir: URL, picture: String, prompt: String, enhance: Bool, config: Config) async throws -> Double {
+        guard let img = loadImage(dir.appendingPathComponent(picture), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.92) else { throw MVError("The picture couldn't be read.") }
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: enhance ? PictureQuality.enhanceEstimate : p.pictureQuality.estimate,
+                                                     referenceJPEGs: [jpeg], quality: p.pictureQuality, enhance: enhance)
+        let name = try await storePicture(gen, dir: dir)
+        _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
+        if let k = p.pictures.firstIndex(of: picture) { p.pictures.insert(name, at: k + 1) } else { p.pictures.append(name) }
+        p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1
+        if enhance { p.enhanced.append(name) }
+        if p.source == picture { p.source = name }            // the picture next scenes are based on follows its better version
+        save(p, dir)
+        return gen.costUSD
+    }
+    /// The cast sheet: one picture of the recurring animals, objects and places, made once; every picture is drawn to match it.
+    @discardableResult
+    public static func makeCastSheet(_ p: inout LoopProject, dir: URL, config: Config = .load()) async throws -> Double {
+        let cast = p.cast.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cast.isEmpty else { return 0 }
+        let prompt = "A clean reference sheet for an illustrator: each recurring animal, object and landmark of this video shown once, side by side, on a plain light background, evenly and brightly lit, clearly separated. \(cast)\(StylePreset.styleClause(p.style)) No text, no labels, no lettering, no watermark."
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, quality: p.pictureQuality)
+        let name = "castsheet-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
+        try gen.data.write(to: dir.appendingPathComponent(name))
+        p.castSheet = name; p.imagesUSD += gen.costUSD; save(p, dir)
+        return gen.costUSD
     }
 
     /// The chosen weather and time of day, in words for the picture maker ("" when both are left to the scene).

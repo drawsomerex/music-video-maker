@@ -60,4 +60,11 @@ final class DirectorTests: XCTestCase {
         let p = Pipeline.highestQualityPrompt(idea: "A red barn on the plains", style: "Impasto oil painting.")
         XCTAssertTrue(p.contains("Keep EXACTLY the same picture")); XCTAssertTrue(p.contains("A red barn on the plains")); XCTAssertTrue(p.contains("Impasto oil painting"))
     }
+
+    func testLoopProjectKeepsThePictureFeatures() throws {
+        var p = LoopProject(); p.checks = ["picture-1.jpg": ["Letters on the sign", "Remove the letters"]]; p.enhanced = ["picture-2.jpg"]; p.cast = "A red lighthouse"; p.castSheet = "castsheet-1.png"
+        let b = try JSONDecoder().decode(LoopProject.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(b.checks["picture-1.jpg"]?.last, "Remove the letters"); XCTAssertEqual(b.enhanced, ["picture-2.jpg"]); XCTAssertEqual(b.cast, "A red lighthouse"); XCTAssertEqual(b.castSheet, "castsheet-1.png")
+        XCTAssertTrue(LoopVideo.castWords(b).contains("A red lighthouse"))
+    }
 }

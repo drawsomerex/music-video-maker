@@ -346,6 +346,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Search for a subject photo with these words and use the first result") var findSubject: String?
         @Flag(help: "Draw the picture now (costs a few cents), then stop") var draw = false
         @Flag(help: "Draw the next scene from the picture in use (same place, one major change, slightly different angle), then stop") var nextScene = false
+        @Flag(help: "Make the picture in use highest quality (about 7¢), then stop") var highestQuality = false
         @Option(help: "Weather for the pictures: any, clear, softClouds, overcast, rain, storm, snow, mist, clearingStorm") var weather: String?
         @Option(help: "Time of day for the pictures: any, dawn, morning, midday, goldenEvening, dusk, night") var timeOfDay: String?
         @Option(help: "What next scenes keep: place, building or subject") var keep: String?
@@ -409,6 +410,7 @@ struct MVideo: AsyncParsableCommand {
                 else { ideas = try await LoopVideo.suggestScenes(title: p.title, style: p.style, about: p.about) }
                 LoopVideo.save(p, dir); print(ideas.joined(separator: "\n")); return
             }
+            if highestQuality, let pic = p.picture { let c = try await LoopVideo.highestQuality(&p, dir: dir, picture: pic); print("✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))  check: \(p.checks[p.picture ?? ""]?.first ?? "none")"); return }
             if nextScene { let c = try await LoopVideo.makeNextPicture(&p, dir: dir); print("scene: \(p.scene)\nchange: \(p.sceneChanges.last ?? "")\n✅ \(p.picture ?? "")  cost \(OpenRouter.formatUSD(c))"); return }
             LoopVideo.save(p, dir)
             if youtube {

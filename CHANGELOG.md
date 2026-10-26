@@ -4,6 +4,7 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Looping videos now have every picture feature music videos have: pictures are made 4× sharper on your Mac, every new picture is checked (with "Fix it"), "Make highest quality" sits on the picture, and the director's cast and cast sheet keep recurring animals, objects and landmarks the same.
 
 ## [2.0.1] - 2026-10-25
 - "Make highest quality" above every picture (about 7¢): improves a picture you already have by redrawing it at the picture maker's very highest level (above the High used for new pictures) (finer detail, crisper edges, the same composition), then sharpens it 4× on your Mac; the earlier version stays. More ▸ "Make every picture highest quality" does them all, with the price first.

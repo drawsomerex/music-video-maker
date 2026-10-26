@@ -9,6 +9,7 @@ Read this before changing anything. The owner is not a programmer: prefer simple
 3. **Never commit media, projects or keys** (`*.mp3 *.wav *.mp4 *.mvproj`, `Output/`). `.gitignore` covers them; check `git status` before every commit. The repo is public.
 4. Don't delete or overwrite the user's projects (`~/Movies/Music Videos/…`). Test on copies or use `/tmp`.
 5. Keep `CHANGELOG.md` current: every user-visible change goes under `## [Unreleased]` in the same commit.
+6. **Permanent feature parity (the owner's rule): every picture feature works in BOTH the music video and the looping video.** When you add or change anything about pictures (drawing, quality, brightness, weather, time of day, type of shot, the picture to base it on, the cast and cast sheet, the picture check and "Fix it", "Make highest quality", the 4× sharpening, the director's choices and progress, view larger, earlier versions), do it in both workflows in the same change, with the same names in the UI, and add both to the Help guide. Shared logic lives in MVCore (`Pipeline`, `LoopVideo`, `PictureCheck`, `SuperRes`, `Director`) and is called from both. The only allowed differences are features that make no sense in the other: the moving camera's focal points, camera path, framing check and style-guide picture exist only for music videos (a loop clip has a still camera); "Cloudless sky" and "What moves" exist only for loops (they serve the seamless loop). Before a release, check the list in "Feature parity checklist" below.
 
 ## Two build flavors (same code, different engine)
 | | `./build_app.sh` (oMLX flavor) | `./install_native.sh` (native flavor) |
@@ -68,3 +69,16 @@ The app finds releases via the GitHub API and installs `*native*.zip` after chec
 - `ImageRenderer` snapshots (`MV_SNAPSHOT_DIR`) can't draw AppKit-backed controls (text fields, lists show as yellow "no" boxes) but are good for checking layout of everything else.
 - Caption timing has one knob: `Plan.captionShift` (seconds, negative = earlier). Don't add offsets elsewhere.
 - **Keep the help guide true.** `Sources/MusicVideoApp/HelpGuide.swift` is both the user's guide and the ONLY source the Help assistant may answer from. When you add, rename or remove a feature or button, update it in the same change, and re-run the assistant check (`MV_HELP_TEST=<file of questions> MV_DEMO_PLAN=<project> open -n …app --stderr out.txt`).
+
+## Feature parity checklist (music video ↔ looping video)
+| Picture feature | Music video | Looping video |
+|---|---|---|
+| Picture quality (High / Medium), Brightness, Weather, Time of day, Type of shot | Picture options (`ReferenceRows`) | the same `ReferenceRows` |
+| Picture to base it on (choose, find online, keep place/building/subject, read into the ideas) | ✓ | ✓ |
+| Director: one click, approve the choices, progress strip with Pause/Continue/Stop | `AutoMode.swift` | `AutoMode.swift` |
+| Cast and cast sheet | `Pipeline.makeCastSheet` | `LoopVideo.makeCastSheet` |
+| Automatic picture check + "Fix it" | `Pipeline.fixSectionImage` | `LoopVideo.fixPicture` |
+| "Make highest quality" (xhigh, ~7¢, existing pictures only) | `Pipeline.highestQualitySectionImage` | `LoopVideo.highestQuality` |
+| 4× on-device sharpening of every drawn picture | `SuperRes` in `generateSectionImage` | `SuperRes` in `LoopVideo.storePicture` |
+| View larger, earlier versions kept | ✓ | ✓ |
+| Extend a photo to 16:9 | ✓ | ✓ |

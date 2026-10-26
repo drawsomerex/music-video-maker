@@ -128,6 +128,9 @@ extension AppModel {
                     if cur.nextFocus == p0.nextFocus { cur.nextFocus = done.nextFocus }
                     if cur.source == p0.source { cur.source = done.source }
                     if cur.brightness == p0.brightness { cur.brightness = done.brightness }
+                    if cur.shot == p0.shot { cur.shot = done.shot }
+                    cur.checks = done.checks; cur.enhanced = done.enhanced; cur.castSheet = done.castSheet
+                    if cur.cast == p0.cast { cur.cast = done.cast }
                     if cur.pictureQuality == p0.pictureQuality { cur.pictureQuality = done.pictureQuality }
                     if cur.weather == p0.weather { cur.weather = done.weather }
                     if cur.timeOfDay == p0.timeOfDay { cur.timeOfDay = done.timeOfDay }
@@ -167,6 +170,28 @@ extension AppModel {
             var q = p; try await LoopVideo.makePicture(&q, dir: d, config: cfg)
             await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
             await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q
+        }
+    }
+    /// "Fix it": the picture in use, redrawn with only the fault the check found changed.
+    func loopFixPicture() {
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        guard let pic = loopProject?.picture else { return }
+        config = Config.load()
+        let cfg = config
+        runLoop("Fixing the picture…", estimate: 50) { [weak self] p, d in
+            var q = p; try await LoopVideo.fixPicture(&q, dir: d, picture: pic, config: cfg)
+            await MainActor.run { self?.loopJob?.phase = "Looking at what should move…" }
+            await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q
+        }
+    }
+    /// "Make highest quality": the picture in use, redrawn from itself at the very highest level, then sharpened. The old one stays in the list.
+    func loopHighestQuality() {
+        guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        guard let pic = loopProject?.picture else { return }
+        config = Config.load()
+        let cfg = config
+        runLoop("Making the picture highest quality…", estimate: 55) { p, d in
+            var q = p; try await LoopVideo.highestQuality(&q, dir: d, picture: pic, config: cfg); return q
         }
     }
     /// The next scene: the same place, one major change, a slightly different angle (from the picture in use).

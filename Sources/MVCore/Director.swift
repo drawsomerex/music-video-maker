@@ -35,6 +35,7 @@ public struct LoopTreatment: Codable, Sendable {
     public var reference: String? = nil
     public var keep: NextFocus = .place
     public var scenes: [String] = []              // the first scene, then the next ones (same place, building or subject; something new)
+    public var cast = ""                          // recurring animals, objects and landmarks with the traits that never change
     public var mood: Brightness = .bright
     public var weather: LoopWeather = .any
     public var timeOfDay: LoopTimeOfDay = .any
@@ -163,7 +164,8 @@ public enum Director {
 
         Bright and luminous by default; suggest the mood: "bright" (the default), "natural", "moody" or "dark".
         \(conditionsAsk)
-        Reply with ONLY this JSON: {"logline":"...","style":"...","mood":"bright","weather":"any","time":"any","shot":"any","reference":"search words" or null,"keep":"place|building|subject","scenes":["first scene","next scene", ...]} with exactly \(scenes) scene\(scenes == 1 ? "" : "s").
+        Also list the CAST: any animals, objects or landmarks that return in several scenes, each with the traits that must never change (shape, colours, markings), in one or two sentences. Empty if nothing recurs.
+        Reply with ONLY this JSON: {"logline":"...","style":"...","mood":"bright","cast":"...","weather":"any","time":"any","shot":"any","reference":"search words" or null,"keep":"place|building|subject","scenes":["first scene","next scene", ...]} with exactly \(scenes) scene\(scenes == 1 ? "" : "s").
         """
         let (j, cost) = try await ask(prompt, config: config)
         var t = LoopTreatment()
@@ -173,6 +175,7 @@ public enum Director {
         t.mood = Brightness(rawValue: (j["mood"] as? String ?? "").lowercased()) ?? .bright
         t.weather = LoopWeather(rawValue: j["weather"] as? String ?? "") ?? .any; t.timeOfDay = LoopTimeOfDay(rawValue: j["time"] as? String ?? "") ?? .any
         t.shot = ShotType(rawValue: j["shot"] as? String ?? "") ?? .any
+        t.cast = (j["cast"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         t.scenes = (j["scenes"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.count > 10 }
         guard !t.scenes.isEmpty else { throw MVError("The director's plan had no scenes. Try again.") }
         return (t, cost)

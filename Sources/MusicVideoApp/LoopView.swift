@@ -257,6 +257,18 @@ struct LoopView: View {
                         .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 pictureWell
+                if let pic = p.picture, let check = p.checks[pic], check.count == 2 {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text("The picture check found: \(check[0])").font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button { model.loopFixPicture() } label: { Label("Fix it (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "wand.and.rays") }
+                            .buttonStyle(.borderedProminent).tint(.orange).disabled(working)
+                            .help("Redraws this picture changing only that (\(check[1])), keeping everything else. The picture you have now stays in the list below.")
+                    }
+                    .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+                }
                 HStack(spacing: 8) {
                     Button { model.loopMakePicture() } label: { Label(p.picture == nil ? "Draw the picture from the scene (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))" : "Draw another picture (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "sparkles") }
                         .buttonStyle(.borderedProminent).disabled(working || p.scene.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -287,10 +299,23 @@ struct LoopView: View {
                 Thumb(file: u).clipShape(RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle()).onTapGesture { FullScreenPlayer.showImage(u, title: "Picture") }
                     .help("Click to see the picture full screen and zoom in.")
-                Button { FullScreenPlayer.showImage(u, title: "Picture") } label: {
-                    Label("View larger", systemImage: "plus.magnifyingglass").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.white)
-                }.buttonStyle(.plain).padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                HStack(spacing: 8) {
+                    if let pic = p.picture, p.enhanced.contains(pic) {
+                        Label("Highest quality", systemImage: "sparkles").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.green)
+                            .help("This picture was redrawn at the highest quality and sharpened. The earlier version is in the list below.")
+                    } else {
+                        Button { model.loopHighestQuality() } label: {
+                            Label("Make highest quality", systemImage: "sparkles").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.white)
+                        }.buttonStyle(.plain).disabled(working)
+                        .help("Redraws this same picture at the picture maker's very highest level (about \(OpenRouter.formatUSD(PictureQuality.enhanceEstimate)), under a minute): finer detail, crisper edges and sharper textures, keeping the composition and colours. Then it is sharpened 4× on your Mac. The picture you have now stays in the list below.")
+                    }
+                    Button { FullScreenPlayer.showImage(u, title: "Picture") } label: {
+                        Label("View larger", systemImage: "plus.magnifyingglass").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.white)
+                    }.buttonStyle(.plain)
+                }.padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
             else {
                 VStack(spacing: 6) {
