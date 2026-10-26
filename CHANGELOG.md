@@ -5,6 +5,11 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+- Added checked looping-project saves, visible save failures, looping-video Undo/Redo and complete version backups for both project types, including references, cast sheets and paid media.
+
+- Protected project/task ownership across cancellation, project switches and delayed results; failed highest-quality redraws release their editing lock.
+- History and app-version changes now respect active clip and looping jobs. Removing generated clips keeps their files for Undo; recovery and history retain title-card clips too.
+
 ## [2.0.3] - 2026-10-26
 - A clear warning when the lyrics hardly match the song (under 50% of the words heard; a right song is over 90%): "Is it the right MP3?", right after planning and above every picture.
 - "Fix it" and "Make highest quality" now check the new picture too (in both kinds of video).

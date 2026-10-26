@@ -21,11 +21,12 @@ extension AppModel {
     // MARK: projects
     /// A new looping project for a song (its own folder), then its screen.
     func startLoopProject(songs: [URL], title: String, automatic: Bool = false) {
+        guard mayLeaveProject() else { return }
         config = Config.load()
         Task {
             do {
                 let (p, dir) = try await LoopVideo.create(songs: songs, title: title, config: config)
-                loopProject = p; loopDir = dir; stage = .loop; remember(dir)
+                editUndo = []; editRedo = []; loopProject = p; loopDir = dir; stage = .loop; remember(dir)
                 loopListen()
                 if automatic { loopAutoAsk() }
             } catch { errorMessage = "Couldn't start the looping video: \(error.localizedDescription)" }
@@ -73,6 +74,8 @@ extension AppModel {
     }
 
     func openLoop(_ dir: URL) {
+        guard mayLeaveProject() else { return }
+        editUndo = []; editRedo = []
         do {
             let p = try LoopVideo.load(dir)
             loopProject = p; loopDir = dir; stage = .loop; remember(dir)
@@ -97,12 +100,18 @@ extension AppModel {
         } catch { errorMessage = "Couldn't open that looping video: \(error.localizedDescription)" }
     }
 
-    func closeLoop() { cancelLoopJob(); loopProject = nil; loopDir = nil; stage = .setup }
+    func closeLoop() { guard mayLeaveProject() else { return }; cancelLoopJob(); loopProject = nil; loopDir = nil; stage = .setup }
 
     /// Changes the open loop project (and saves it).
     func editLoop(_ f: (inout LoopProject) -> Void) {
-        guard var p = loopProject, let d = loopDir else { return }
-        f(&p); loopProject = p; LoopVideo.save(p, d)
+        guard var p = loopProject, loopDir != nil else { return }
+        checkpoint("Edit looping video", coalesce: true)
+        f(&p); loopProject = p; planRevision += 1; checkpointRevision = nil; persistLoop()
+    }
+    func persistLoop() {
+        guard let p = loopProject, let d = loopDir else { return }
+        do { try LoopVideo.saveChecked(p, d); saveStatus = "Saved" }
+        catch { saveStatus = "Not saved — try again"; errorMessage = "Your looping-video changes could not be saved. Keep this project open and try again. " + error.localizedDescription }
     }
 
     func loopFile(_ name: String?) -> URL? { name.flatMap { n in loopDir?.appendingPathComponent(n) } }
@@ -112,11 +121,14 @@ extension AppModel {
     /// (pictures, clips, costs, pending job) is put back, so edits made meanwhile (title, scene, hours) are kept.
     func runLoop(_ title: String, estimate: Double? = nil, _ work: @escaping (LoopProject, URL) async throws -> LoopProject) {
         guard loopJob == nil, let p0 = loopProject, let d = loopDir else { return }
+        checkpoint(title)
+        let owner = UUID(); loopJobID = owner
         loopJob = LoopJob(title: title, estimatedSeconds: estimate)
         let spentBefore = p0.imagesUSD + p0.videoUSD
         loopTask = Task {
             do {
                 let done = try await work(p0, d)
+                guard loopJobID == owner, loopDir == d, !Task.isCancelled else { return }
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
                     if done.scene != p0.scene && cur.scene == p0.scene { cur.scene = done.scene }   // the next scene's description, unless you typed meanwhile
@@ -139,18 +151,21 @@ extension AppModel {
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
                     cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
-                    loopProject = cur; LoopVideo.save(cur, d)
+                    loopProject = cur; planRevision += 1; checkpointRevision = nil
+                    try LoopVideo.saveChecked(cur, d); saveStatus = "Saved"
                 }
                 let spent = done.imagesUSD + done.videoUSD - spentBefore
                 if done.output == p0.output { doneNote = DoneNote(text: "Done — " + title.replacingOccurrences(of: "…", with: "") + (spent > 0.0001 ? " · cost \(OpenRouter.formatUSD(spent))" : "")) }   // a finished long video has its own note
                 refreshOpenRouterCredits(silent: true)
             } catch is CancellationError {
-            } catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
-            loopJob = nil; loopTask = nil
-            if directorRun?.loop == true { directorRun = nil }
+            } catch { if !Task.isCancelled, loopJobID == owner { errorMessage = error.localizedDescription } }
+            if loopJobID == owner {
+                loopJob = nil; loopTask = nil
+                if directorRun?.loop == true { directorRun = nil }
+            }
         }
     }
-    func cancelLoopJob() { loopTask?.cancel(); loopTask = nil; loopJob = nil; if directorRun?.loop == true { directorRun = nil } }
+    func cancelLoopJob() { loopJobID = UUID(); loopTask?.cancel(); loopTask = nil; loopJob = nil; if directorRun?.loop == true { directorRun = nil } }
 
     // MARK: the picture
     func loopSuggestScenes(avoid: [String]) async throws -> [String] {

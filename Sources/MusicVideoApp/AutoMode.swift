@@ -183,13 +183,13 @@ extension AppModel {
             defer { self.workingSection = nil }
             self.busyHandler("Fixing only that, keeping everything else…", 0.3)
             _ = try await Pipeline.fixSectionImage(section: section, plan: &p, work: w, config: cfg)
-            self.mergeTaskResult(p, startedFrom: before, section: section, artwork: true)
+            self.mergeTaskResult(p, startedFrom: before, work: w, section: section, artwork: true)
             self.live.invalidate()
             self.notice = "Fixed. The earlier version is still there if you prefer it (the arrows under the picture)."
         }
     }
 
-    /// "Make highest quality": redraws these pictures at High from themselves (more detail, sharper), one after another. Each earlier picture stays as a choice.
+    /// "Make highest quality": redraws these pictures at xhigh from themselves (more detail, sharper), one after another. Each earlier picture stays as a choice.
     func makeHighestQuality(_ sections: [Int]) {
         guard let w = workDir, !sections.isEmpty else { return }
         guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
@@ -201,9 +201,10 @@ extension AppModel {
                 guard var p = self.plan else { break }
                 let before = p
                 self.workingSection = sec
+                defer { self.workingSection = nil }
                 self.busyHandler("\(k + 1)/\(sections.count): \(sec < 0 ? "Title card" : "Picture \(sec + 1)") — redrawing at the highest quality, then sharpening…", Double(k) / Double(sections.count))
                 _ = try await Pipeline.highestQualitySectionImage(section: sec, plan: &p, work: w, config: cfg)
-                self.mergeTaskResult(p, startedFrom: before, section: sec, artwork: true)
+                self.mergeTaskResult(p, startedFrom: before, work: w, section: sec, artwork: true)
                 self.live.invalidate()
             }
             self.workingSection = nil

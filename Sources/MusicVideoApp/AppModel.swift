@@ -87,6 +87,8 @@ final class AppModel: ObservableObject {
     @Published var busyProgress = 0.0
     var busyStarted = Date()
     var mainTask: Task<Void, Never>?
+    var backgroundID = UUID()
+    var loopJobID = UUID()
     var backgroundTask: Task<Void, Never>?
     var shortRenderTask: Task<Void, Never>?
 
@@ -435,6 +437,7 @@ final class AppModel: ObservableObject {
 
     /// Forgets the open project (it stays saved on disk) so the Song screen starts empty.
     func detachProject() {
+        guard mayLeaveProject() else { return }
         clearTimelineSession(); stopPlayback(); plan = nil; workDir = nil; outputURL = nil; renderedShorts = []; waveform = []; projectBaseline = nil
         title = ""; subject = ""; songNotes = ""; settingTheme = ""; lyrics = ""; audioURL = nil; audioDuration = 0; autoTitle = nil
     }
@@ -444,31 +447,40 @@ final class AppModel: ObservableObject {
     }
 
     var busyHandler: ProgressHandler {
-        { [weak self] phase, p in Task { @MainActor in self?.busyPhase = phase; self?.busyProgress = p } }
+        let owner = backgroundID
+        return { [weak self] phase, p in Task { @MainActor in
+            guard let self, self.backgroundID == owner else { return }
+            self.busyPhase = phase; self.busyProgress = p
+        } }
     }
 
+    /// Each task owns its progress and cleanup. An old canceled task cannot clear its replacement's state.
     func runBackground(initialPhase: String, work: @escaping () async throws -> Void) {
         backgroundTask?.cancel()
+        let owner = UUID(); backgroundID = owner
         busy = true; busyStarted = Date(); busyPhase = initialPhase; busyProgress = 0.05
         let spentBefore = (plan?.totalGenerationCostUSD ?? 0) + (plan?.totalVideoCostUSD ?? 0), title = initialPhase
         backgroundTask = Task {
             do {
                 try await work()
-                if !Task.isCancelled {
+                if !Task.isCancelled, backgroundID == owner {
                     let spent = (plan?.totalGenerationCostUSD ?? 0) + (plan?.totalVideoCostUSD ?? 0) - spentBefore
                     doneNote = DoneNote(text: "Done — " + title.replacingOccurrences(of: "…", with: "") + (spent > 0.0001 ? " · cost \(OpenRouter.formatUSD(spent))" : ""))
                 }
             } catch is CancellationError {
                 // User cancelled
             } catch {
-                if !Task.isCancelled { errorMessage = error.localizedDescription }
+                if !Task.isCancelled, backgroundID == owner { errorMessage = error.localizedDescription }
             }
-            busy = false; busyProgress = 0; backgroundTask = nil
-            if directorRun?.loop == false { directorRun = nil }
+            if backgroundID == owner {
+                busy = false; busyProgress = 0; backgroundTask = nil; workingSection = nil
+                if directorRun?.loop == false { directorRun = nil }
+            }
         }
     }
 
     func cancelBackgroundTask() {
+        backgroundID = UUID(); workingSection = nil
         backgroundTask?.cancel()
         backgroundTask = nil
         busy = false
@@ -704,7 +716,7 @@ final class AppModel: ObservableObject {
             self.workingSection = section; defer { self.workingSection = nil }
             self.busyHandler("\(actionWord) \(label) (16:9 Medium)…", 0.25)
             let gen = try await Pipeline.generateSectionImage(section: section, plan: &p, work: w, config: self.config)
-            self.mergeTaskResult(p, startedFrom: before, section: section, artwork: true)
+            self.mergeTaskResult(p, startedFrom: before, work: w, section: section, artwork: true)
             if let rem = gen.creditsRemaining {
                 self.openRouterCredits = rem
             } else {
@@ -806,7 +818,7 @@ final class AppModel: ObservableObject {
                 sessionSpent += gen.costUSD
                 completed += 1
                 if p.sections.indices.contains(sec) || sec < 0, (sec < 0 ? p.intro : p.sections[sec]).selectedCandidate?.looksLikePrevious(Pipeline.previousPictureFile(plan: p, for: sec)) == true { similar.append(label) }
-                self.mergeTaskResult(p, startedFrom: before, section: sec, artwork: true)        // keeps any edits you made meanwhile; the selection is left alone
+                self.mergeTaskResult(p, startedFrom: before, work: w, section: sec, artwork: true)        // keeps any edits you made meanwhile; the selection is left alone
                 if let rem = gen.creditsRemaining {
                     self.openRouterCredits = rem
                 }
@@ -1017,20 +1029,21 @@ final class AppModel: ObservableObject {
     }
 
     func rewritePrompt(section: Int) {
-        guard var p = plan else { return }
+        guard var p = plan, let w = workDir else { return }
         let before = p
         runBackground(initialPhase: "Writing another picture idea…") { [weak self] in
             guard let self else { return }
             self.workingSection = section; defer { self.workingSection = nil }
             try await Pipeline.rewritePrompt(plan: &p, section: section, config: self.config, progress: self.busyHandler)
-            self.mergeTaskResult(p, startedFrom: before, section: section, idea: true)
+            self.mergeTaskResult(p, startedFrom: before, work: w, section: section, idea: true)
         }
     }
 
     /// Long tasks work on a copy of the plan. This puts back only what the task changed (one picture's artwork, idea or clips, and the costs),
     /// so anything you edited meanwhile is kept.
-    func mergeTaskResult(_ done: Plan, startedFrom before: Plan, section: Int, artwork: Bool = false, idea: Bool = false, clips: Bool = false) {
-        guard var cur = plan else { return }
+    func mergeTaskResult(_ done: Plan, startedFrom before: Plan, work origin: URL, section: Int, artwork: Bool = false, idea: Bool = false, clips: Bool = false) {
+        // Paid outputs are persisted by the core into origin. A closed project's result must never enter another open project.
+        guard var cur = plan, workDir?.standardizedFileURL == origin.standardizedFileURL, cur.projectID == before.projectID else { return }
         let d: PhotoSection? = section < 0 ? done.intro : (done.sections.indices.contains(section) ? done.sections[section] : nil)
         func apply(_ s: inout PhotoSection) {
             guard let d else { return }
@@ -1199,7 +1212,7 @@ final class AppModel: ObservableObject {
         generateSectionsList(targets, work: w, titlePrefix: "Drawing \(targets.count) missing picture\(targets.count == 1 ? "" : "s"), then making the video") { [weak self] in self?.render() }
     }
 
-    func reset() { clearTimelineSession(); stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = []; projectBaseline = nil }
+    func reset() { guard mayLeaveProject() else { return }; clearTimelineSession(); stopPlayback(); cancelBackgroundTask(); stage = .setup; plan = nil; outputURL = nil; renderedShorts = []; progress = 0; waveform = []; projectBaseline = nil }
 
     // MARK: Projects
     func remember(_ folder: URL) {
@@ -1208,6 +1221,7 @@ final class AppModel: ObservableObject {
     }
 
     func openProject(_ folder: URL) {
+        guard mayLeaveProject() else { return }
         if LoopVideo.isLoopProject(folder) { openLoop(folder); return }
         clearTimelineSession()
         do {

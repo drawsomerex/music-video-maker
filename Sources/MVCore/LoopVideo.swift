@@ -212,10 +212,16 @@ public enum LoopVideo {
     // MARK: project folder
     public static func isLoopProject(_ dir: URL) -> Bool { FileManager.default.fileExists(atPath: dir.appendingPathComponent(fileName).path) }
     public static func load(_ dir: URL) throws -> LoopProject { try JSONDecoder().decode(LoopProject.self, from: Data(contentsOf: dir.appendingPathComponent(fileName))) }
-    public static func save(_ p: LoopProject, _ dir: URL) {
+    /// Checked boundary for UI changes, paid jobs and backups: callers can keep the project open and retry a failed write.
+    public static func saveChecked(_ p: LoopProject, _ dir: URL) throws {
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? enc.encode(p).write(to: dir.appendingPathComponent(fileName), options: .atomic)
+        try enc.encode(p).write(to: dir.appendingPathComponent(fileName), options: .atomic)
         SpendLedger.record(p.id, SpendLedger.Entry(title: p.title + " (looping video)", path: dir.path, imagesUSD: p.imagesUSD, videoUSD: p.videoUSD, pictures: p.pictureCount))
+    }
+    /// Compatibility for optional derived analysis. User edits and accepted paid jobs must use saveChecked.
+    @discardableResult
+    public static func save(_ p: LoopProject, _ dir: URL) -> Bool {
+        do { try saveChecked(p, dir); return true } catch { return false }
     }
 
     /// A new looping project: its own folder "<title> – looping video" (never overwriting another), with the songs copied in.

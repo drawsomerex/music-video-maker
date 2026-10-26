@@ -8,6 +8,8 @@ struct TimelineSnapshot {
     var shorts: [ShortClip]
     var key: String
     var selected: UUID?
+    var loop: LoopProject? = nil
+    var loopFolder: URL? = nil
 }
 
 @MainActor
@@ -36,20 +38,34 @@ extension AppModel {
         draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
         timelineCursor = 0; listenTask?.cancel(); listening = false; previewTask?.cancel(); live.invalidate(); live.pause()
     }
-    func snapshot(_ name: String) -> TimelineSnapshot { TimelineSnapshot(name: name, plan: plan, sections: draftSections, shorts: draftShorts, key: draftKey, selected: selectedShort) }
+    func snapshot(_ name: String) -> TimelineSnapshot { TimelineSnapshot(name: name, plan: plan, sections: draftSections, shorts: draftShorts, key: draftKey, selected: selectedShort, loop: stage == .loop ? loopProject : nil, loopFolder: stage == .loop ? loopDir : nil) }
     func checkpoint(_ name: String, coalesce: Bool = false) {
         guard !timelineDragging else { return }
-        ensureDraftKey()
+        if stage != .loop { ensureDraftKey() }
         if checkpointRevision == planRevision { return }
         checkpointRevision = planRevision
         if coalesce && lastEditName == name && Date().timeIntervalSince(lastEditAt) < 0.7 { lastEditAt = Date(); return }
         editUndo.append(snapshot(name)); if editUndo.count > 60 { editUndo.removeFirst() }; editRedo = []
         lastEditName = name; lastEditAt = Date()
     }
-    var historyAvailable: Bool { !busy && !listening && stage != .working && stage != .rendering && shortProgress == nil && !timelineDragging }
+    /// Shared activity gate for history, project switches and app-version changes, including both workflows and accepted paid jobs.
+    var hasActiveWork: Bool { busy || listening || stage == .working || stage == .rendering || videoJob != nil || shortProgress != nil || clipJob != nil || loopJob != nil || loopListening != nil || timelineDragging || isRecording || downloadingModel }
+    var historyAvailable: Bool { !hasActiveWork }
+    func mayLeaveProject() -> Bool {
+        guard !hasActiveWork else { notice = "Finish or stop the current task before opening or closing a project. Anything already made is kept."; return false }
+        return true
+    }
     func restore(_ state: TimelineSnapshot) {
         restoringHistory = true
         defer { restoringHistory = false; checkpointRevision = nil }
+        if var restored = state.loop, state.loopFolder == loopDir, let current = loopProject {
+            restored.imagesUSD = max(restored.imagesUSD, current.imagesUSD); restored.videoUSD = max(restored.videoUSD, current.videoUSD)
+            restored.pictureCount = max(restored.pictureCount, current.pictureCount)
+            for file in current.pictures where !restored.pictures.contains(file) { restored.pictures.append(file) }
+            for file in current.clips where !restored.clips.contains(file) { restored.clips.append(file) }
+            restored.pendingJob = current.pendingJob // Undo cannot cancel a paid provider job.
+            loopProject = restored; persistLoop(); return
+        }
         var restored = state.plan
         if var target = restored, let current = plan {
             // Undo can change the chosen artwork; it cannot refund a paid generation or discard its saved media.
@@ -61,6 +77,7 @@ extension AppModel {
                 for c in source where !section.candidates.contains(where: { $0.id == c.id }) { section.candidates.append(c) }
             }
             keep(current.intro.candidates, in: &target.intro)
+            for c in current.intro.clips where !target.intro.clips.contains(where: { $0.id == c.id }) { target.intro.clips.append(c) }
             for i in target.sections.indices {
                 let assets = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.candidates)
                 keep(assets, in: &target.sections[i])
@@ -260,33 +277,13 @@ extension AppModel {
         plan = p; draftSections = nil; live.invalidate(); persist()
     }
     func backupForVersionChange() async throws {
-        guard let p = plan, let w = workDir else { return }
-        try await Task.detached(priority: .userInitiated) {
-            let fm = FileManager.default
-            try Pipeline.savePlan(p, w)
-            let folder = w.appendingPathComponent("Version Backups/\(UUID().uuidString)")
-            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            var backup = p
-            var files = Set(([p.intro] + p.sections).flatMap(\.candidates).flatMap { [$0.fullFile, $0.thumbFile, $0.videoFile].compactMap { $0 } })
-            for sec in [p.intro] + p.sections { for c in sec.clips { files.insert(c.file); files.insert(c.lastFrame) } }      // generated video clips are paid for: back them up too
-            if !p.audioFile.isEmpty { files.insert(p.audioFile) }
-            for file in files {
-                guard !file.hasPrefix("/"), !file.split(separator: "/").contains("..") else { throw MVError("A project media path is unsafe to back up.") }
-                let source = w.appendingPathComponent(file), target = folder.appendingPathComponent(file)
-                guard fm.fileExists(atPath: source.path) else { continue }
-                try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fm.copyItem(at: source, to: target)
-            }
-            if p.audioFile.isEmpty {
-                let source = Pipeline.audioURL(p, work: w)
-                if fm.fileExists(atPath: source.path) {
-                    let name = "audio." + (source.pathExtension.isEmpty ? "wav" : source.pathExtension)
-                    try fm.copyItem(at: source, to: folder.appendingPathComponent(name)); backup.audioFile = name
-                }
-            }
-            try Pipeline.savePlan(backup, folder)
-        }.value
+        if stage == .loop, let p = loopProject, let w = loopDir {
+            _ = try await Task.detached(priority: .userInitiated) { try ProjectBackup.create(loop: p, work: w) }.value
+        } else if let p = plan, let w = workDir {
+            _ = try await Task.detached(priority: .userInitiated) { try ProjectBackup.create(plan: p, work: w) }.value
+        }
     }
+
 }
 
 func preciseClock(_ time: Double) -> String { let t = max(0, time); return String(format: "%d:%04.1f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60)) }

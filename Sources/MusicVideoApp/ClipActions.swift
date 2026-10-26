@@ -71,9 +71,9 @@ extension AppModel {
     func setClipMode(section: Int, use: Bool) { checkpoint("Change motion"); edit(section) { $0.useClips = use && !$0.clips.isEmpty } }
 
     func deleteClips(section: Int) {
-        guard let w = workDir, let s = sectionRef(section) else { return }
+        guard workDir != nil, sectionRef(section) != nil else { return }
         checkpoint("Delete video clips")
-        for c in s.clips { try? FileManager.default.removeItem(at: w.appendingPathComponent(c.file)); try? FileManager.default.removeItem(at: w.appendingPathComponent(c.lastFrame)) }
+        // Remove the assignment, not the paid media. Undo/history and other sections may still reference these files.
         edit(section) { $0.clips = []; $0.useClips = false }
     }
 
@@ -144,7 +144,7 @@ extension AppModel {
             // keep the new clip with the section (not yet used until you accept it)
             let shown = base + made + [clip]
             if section < 0 { p.intro.clips = shown; p.intro.useClips = true } else { p.sections[section].clips = shown; p.sections[section].useClips = true }      // a new clip is in use straight away
-            mergeTaskResult(p, startedFrom: before, section: section, clips: true)          // edits you made while it was being made are kept
+            mergeTaskResult(p, startedFrom: before, work: w, section: section, clips: true)          // edits you made while it was being made are kept
             refreshOpenRouterCredits(silent: true)
             let last = k == job.secondsList.count - 1
             if clipJob?.noWait == true { made.append(clip); edit(section) { $0.useClips = true }; k += 1; continue }
@@ -181,6 +181,7 @@ extension AppModel {
             let before = p.totalVideoCostUSD
             let notes = await Pipeline.recoverPendingClips(plan: &p, work: w, config: config)
             guard !notes.isEmpty, var cur = plan, workDir == w else { return }
+            for c in p.intro.clips where !cur.intro.clips.contains(where: { $0.id == c.id }) { cur.intro.clips.append(c) }
             for i in p.sections.indices where cur.sections.indices.contains(i) { for c in p.sections[i].clips where !cur.sections[i].clips.contains(where: { $0.id == c.id }) { cur.sections[i].clips.append(c) } }
             cur.totalVideoCostUSD += p.totalVideoCostUSD - before
             plan = cur; persist(); live.invalidate(); notice = notes.joined(separator: "\n")
