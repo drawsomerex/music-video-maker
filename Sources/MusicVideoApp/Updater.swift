@@ -212,7 +212,7 @@ final class Updater: ObservableObject {
               let total = (h.value(forHTTPHeaderField: "Content-Range")?.split(separator: "/").last).flatMap({ Int($0) }), total > 0 else { throw MVUpdateError("No ranges") }
         let size = (total + parts - 1) / parts
         let ranges = (0..<parts).map { i in (i * size, min(total, (i + 1) * size) - 1) }.filter { $0.0 <= $0.1 }
-        // one session for all parts; it counts every byte as it arrives, so the progress bar moves smoothly
+        // counts every byte of every part as it arrives, so the progress bar moves smoothly
         final class Parts: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             let lock = NSLock(), total: Int, progress: @Sendable (Double) -> Void
             var data: [ObjectIdentifier: Data] = [:], received = 0, waiting: [ObjectIdentifier: CheckedContinuation<Data, Error>] = [:], lastShown = 0.0
@@ -224,9 +224,10 @@ final class Updater: ObservableObject {
             }
             func urlSession(_ s: URLSession, task t: URLSessionTask, didCompleteWithError e: Error?) {
                 lock.lock(); let c = waiting.removeValue(forKey: ObjectIdentifier(t)); let d = data.removeValue(forKey: ObjectIdentifier(t)) ?? Data()
-                if e != nil || (t.response as? HTTPURLResponse)?.statusCode != 206 { received -= d.count }; lock.unlock()
+                if e != nil || !sentExactly(t) { received -= d.count }
+                lock.unlock()
                 if let e { c?.resume(throwing: e) }
-                else if (t.response as? HTTPURLResponse)?.statusCode != 206 { c?.resume(throwing: MVUpdateError("A part of the download failed.")) }
+                else if !sentExactly(t) { c?.resume(throwing: MVUpdateError("A part of the download failed.")) }
                 else { c?.resume(returning: d) }
             }
             /// Each part gets its own session and so its own connection: in one session macOS sends every part down one shared
@@ -235,11 +236,20 @@ final class Updater: ObservableObject {
                 let cfg = URLSessionConfiguration.ephemeral; cfg.httpMaximumConnectionsPerHost = 1
                 let session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
                 defer { session.finishTasksAndInvalidate() }
-                return try await withCheckedThrowingContinuation { c in
-                    let t = session.dataTask(with: req)
-                    lock.lock(); waiting[ObjectIdentifier(t)] = c; lock.unlock()
-                    t.resume()
-                }
+                let t = session.dataTask(with: req)
+                // a cancelled update (or another part failing) stops this part's transfer at once instead of letting it finish
+                return try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { c in
+                        lock.lock(); waiting[ObjectIdentifier(t)] = c; lock.unlock()
+                        t.resume()
+                    }
+                } onCancel: { t.cancel() }
+            }
+            /// True when the server sent exactly the bytes asked for ("Range: bytes=100-199" → "Content-Range: bytes 100-199/27035773").
+            func sentExactly(_ t: URLSessionTask) -> Bool {
+                guard let h = t.response as? HTTPURLResponse, h.statusCode == 206, let cr = h.value(forHTTPHeaderField: "Content-Range"),
+                      let asked = (t.currentRequest ?? t.originalRequest)?.value(forHTTPHeaderField: "Range") else { return false }
+                return cr.replacingOccurrences(of: " ", with: "").lowercased() == asked.replacingOccurrences(of: "bytes=", with: "bytes") + "/\(total)"
             }
         }
         let partsDelegate = Parts(total: total, progress: progress)
@@ -247,7 +257,8 @@ final class Updater: ObservableObject {
             for (i, r) in ranges.enumerated() {
                 group.addTask {
                     var lastError: Error = MVUpdateError("The download failed.")
-                    for _ in 0..<3 {                         // a part that fails is tried again
+                    for attempt in 0..<3 {                   // a part that fails is tried again (after 1 s, then 3 s)
+                        if attempt > 0 { try await Task.sleep(nanoseconds: UInt64(attempt == 1 ? 1 : 3) * 1_000_000_000) }
                         do {
                             let d = try await partsDelegate.fetch(request("\(r.0)-\(r.1)"))
                             guard d.count == r.1 - r.0 + 1 else { throw MVUpdateError("A part of the download was incomplete.") }

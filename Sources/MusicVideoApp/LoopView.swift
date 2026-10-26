@@ -121,8 +121,8 @@ struct LoopView: View {
 
     // MARK: 1 song
     var songCard: some View {
-        card(1, "The music", p.tracks.count > 1 ? "\(p.tracks.count) songs, played whole in this order (drag to reorder). The video plays them until it reaches the length you choose; no song is ever cut off."
-                                                 : "One song, or add more for a playlist (up to 100). Songs are always played whole; no song is ever cut off.") {
+        card(1, "The music", p.tracks.count > 1 ? "\(p.tracks.count) songs, in this order (drag to reorder; click a name to rename it). The video plays them until it reaches the length you choose. “Repeat” plays a song several times, or for a set time, before the next."
+                                                 : "One song, or add more for a playlist (up to 100). Click the name to rename it; “Repeat” plays it several times, or for a set time, before the playlist goes on.") {
             VStack(alignment: .leading, spacing: 10) {
                 trackList
                 HStack(spacing: 8) {
@@ -147,27 +147,12 @@ struct LoopView: View {
     var trackList: some View {
         List {
             ForEach(Array(p.tracks.enumerated()), id: \.element.id) { i, t in
-                HStack(spacing: 8) {
-                    Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary).help("Drag to change the order.")
-                    TextField("Song name", text: Binding(get: { t.title }, set: { v in model.editLoop { if $0.tracks.indices.contains(i) { $0.tracks[i].title = v } } }))
-                        .textFieldStyle(.plain).help("The song's name: its title card, its chapter and the tracklist. It starts as the file name.")
-                    if p.cards == .everySong {
-                        Toggle("Card", isOn: Binding(get: { t.cardOn }, set: { v in model.editLoop { if $0.tracks.indices.contains(i) { $0.tracks[i].cardOn = v } } })).toggleStyle(.checkbox).font(.caption)
-                            .help("Show this song's title card when it starts.")
-                    }
-                    Text(timeString(t.seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    if let a = p.analysis[t.file], p.tracks.count > 1 {
-                        Image(systemName: a.fadesOut ? "chart.line.downtrend.xyaxis" : "stop.fill").font(.caption2).foregroundStyle(.tertiary)
-                            .help(a.fadesOut ? "Ends with a fade-out: in Automatic the next song starts during it." : "Ends on a clear stop: in Automatic a short pause follows.")
-                    }
-                    Button { model.loopRemoveSong(t.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
-                        .disabled(working || p.tracks.count <= 1).help(p.tracks.count <= 1 ? "A looping video needs at least one song." : "Remove this song from the video (its file stays in the project folder).")
-                }
+                TrackRow(index: i, track: t, project: p, working: working)
             }
             .onMove { from, to in model.editLoop { $0.tracks.move(fromOffsets: from, toOffset: to) } }
         }
         .listStyle(.bordered(alternatesRowBackgrounds: true))
-        .frame(height: min(320, CGFloat(max(1, p.tracks.count)) * 30 + 12))
+        .frame(height: min(360, CGFloat(max(1, p.tracks.count)) * 34 + 12))
     }
 
     var transitionControls: some View {
@@ -574,9 +559,11 @@ struct LoopView: View {
     var lengthLine: some View {
         Group {
             if let plan = model.loopPlan {
-                let rounds = plan.plays.count == 0 ? 0 : Double(plan.plays.count) / Double(max(1, p.tracks.count))
-                Label("Your video will be \(LoopVideo.clock(plan.total)) long: " + (p.playOnce ? (p.tracks.count > 1 ? "\(p.tracks.count) songs, each played once." : "the song played once.")
-                      : "\(plan.plays.count) song\(plan.plays.count == 1 ? "" : "s")" + (p.tracks.count > 1 && rounds > 1.05 ? String(format: ", the playlist plays %.1f times", rounds) : "") + "."), systemImage: "clock")
+                let turns = plan.turns.count
+                let rounds = turns == 0 ? 0 : Double(turns) / Double(max(1, p.tracks.count))
+                let repeating = p.tracks.contains { $0.repeatMode != .once }
+                Label("Your video will be \(LoopVideo.clock(plan.total)) long: " + (p.playOnce ? (p.tracks.count > 1 ? "\(p.tracks.count) songs, each \(repeating ? "with its repeats" : "played once")." : (repeating ? "the song with its repeats." : "the song played once."))
+                      : "\(turns) song\(turns == 1 ? "" : "s")" + (repeating ? " (with their repeats)" : "") + (p.tracks.count > 1 && rounds > 1.05 ? String(format: ", the playlist plays %.1f times", rounds) : "") + "."), systemImage: "clock")
                     .font(.callout.weight(.medium))
             } else if !p.tracks.isEmpty {
                 Label(model.loopListening ?? "Listening to the songs to work out the exact length…", systemImage: "ear").font(.callout).foregroundStyle(.secondary)
@@ -662,4 +649,91 @@ struct LoopStartView: View {
         guard !audio.isEmpty else { return }
         songs = Array(audio.prefix(LoopVideo.maxTracks)); if title.isEmpty { title = audio[0].deletingPathExtension().lastPathComponent }
     }
+}
+
+/// One song in the looping video's list: its name (click to rename), how it repeats, its title card, its length.
+struct TrackRow: View {
+    @EnvironmentObject var model: AppModel
+    let index: Int
+    let track: LoopTrack
+    let project: LoopProject
+    let working: Bool
+    @State private var renaming = false
+    @State private var newName = ""
+
+    func set(_ f: @escaping (inout LoopTrack) -> Void) {
+        let id = track.id
+        model.editLoop { p in if let k = p.tracks.firstIndex(where: { $0.id == id }) { f(&p.tracks[k]) } }
+    }
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary).help("Drag to change the order.")
+            Button { newName = track.title; renaming = true } label: {
+                HStack(spacing: 5) {
+                    Text(track.title.isEmpty ? "Untitled song" : track.title).lineLimit(1).truncationMode(.middle)
+                    Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary)
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("Click to rename this song (its title card, chapter and the tracklist).")
+            .popover(isPresented: $renaming, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Song name").font(.headline)
+                    TextField("Song name", text: $newName).textFieldStyle(.roundedBorder).frame(width: 340).onSubmit { save() }
+                    Text("Shown on its title card, in the chapters and the tracklist.").font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Use the file name") { newName = (track.file as NSString).deletingPathExtension.components(separatedBy: "/").last ?? newName }
+                        Spacer()
+                        Button("Cancel") { renaming = false }.keyboardShortcut(.cancelAction)
+                        Button("Save") { save() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    }
+                }.padding(16)
+            }
+            Spacer(minLength: 6)
+            repeatMenu
+            if project.cards == .everySong {
+                Toggle("Card", isOn: Binding(get: { track.cardOn }, set: { v in set { $0.cardOn = v } })).toggleStyle(.checkbox).font(.caption)
+                    .help("Show this song's title card when it starts.")
+            }
+            Text(LoopTrackTime.string(track.seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            if let a = project.analysis[track.file], project.tracks.count > 1 {
+                Image(systemName: a.fadesOut ? "chart.line.downtrend.xyaxis" : "stop.fill").font(.caption2).foregroundStyle(.tertiary)
+                    .help(a.fadesOut ? "Ends with a fade-out: in Automatic the next song starts during it." : "Ends on a clear stop: in Automatic a short pause follows.")
+            }
+            Button { model.loopRemoveSong(track.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
+                .disabled(working || project.tracks.count <= 1).help(project.tracks.count <= 1 ? "A looping video needs at least one song." : "Remove this song from the video (its file stays in the project folder).")
+        }
+        .padding(.vertical, 2)
+    }
+    func save() {
+        let v = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !v.isEmpty { set { $0.title = v } }
+        renaming = false
+    }
+
+    var repeatMenu: some View {
+        Menu {
+            Section("Play it") {
+                choice(.once, "Once (no repeat)")
+                ForEach([2, 3, 4, 5, 6, 8, 10], id: \.self) { n in choice(.times(n), "\(n) times in a row") }
+            }
+            Section("Repeat it for") {
+                ForEach([5.0, 10, 15, 20, 30, 45, 60, 90, 120], id: \.self) { m in choice(.minutes(m), TrackRepeat.minutes(m).label) }
+                choice(.scene, "As long as its scene (\(Int(project.sceneMinutes)) min)")
+            }
+            Divider()
+            Button("Use “\(track.repeatMode.label)” for every song") { model.editLoop { p in for k in p.tracks.indices { p.tracks[k].repeatMode = track.repeatMode } } }
+        } label: {
+            Label(track.repeatMode == .once ? "Repeat" : "Repeat: \(track.repeatMode == .scene ? "scene (\(Int(project.sceneMinutes)) min)" : track.repeatMode.label)",
+                  systemImage: track.repeatMode == .once ? "repeat" : "repeat.circle.fill")
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Play this song several times in a row, or for a set time, before the next song (or before the playlist starts again). Repeats join its end to its start smoothly; a set time that ends in the middle of the song fades it out at a quiet moment and blends straight into what comes next.")
+    }
+    func choice(_ r: TrackRepeat, _ text: String) -> some View {
+        Button { set { $0.repeatMode = r } } label: { if track.repeatMode == r { Label(text, systemImage: "checkmark") } else { Text(text) } }
+    }
+}
+
+enum LoopTrackTime {
+    static func string(_ s: Double) -> String { let t = Int(s.rounded()); return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60) }
 }

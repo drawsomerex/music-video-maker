@@ -277,7 +277,8 @@ public enum LoopVideo {
         let an = p.tracks.compactMap { p.analysis[$0.file] }
         guard !an.isEmpty, an.count == p.tracks.count else { return nil }
         return LoopAudio.plan(analyses: an, transition: p.effectiveTransition, crossfade: p.crossfade, gap: p.gap, evenVolume: p.effectiveEvenVolume,
-                              shuffle: p.shuffle, minimum: p.hours * 3600, seed: stableSeed(p.id), onePass: p.playOnce)
+                              shuffle: p.shuffle, minimum: p.hours * 3600, seed: stableSeed(p.id), onePass: p.playOnce,
+                              repeats: p.tracks.map { $0.repeatMode.resolved(sceneMinutes: p.sceneMinutes) })
     }
 
     /// Replaces the song of an open project.
@@ -1023,7 +1024,7 @@ public enum LoopVideo {
     public static func cardTimes(_ p: LoopProject, plan: LoopAudio.Plan) -> [(start: Double, text: String)] {
         guard p.cards == .everySong else { return [] }
         var out: [(Double, String)] = []
-        for play in plan.plays where p.tracks.indices.contains(play.track) && p.tracks[play.track].cardOn {
+        for play in plan.turns where p.tracks.indices.contains(play.track) && p.tracks[play.track].cardOn {      // once per turn, not on its repeats
             let s = max(play.start + play.fadeIn / 2, titleScreenEnd + 0.5)
             if s + cardSeconds > plan.songsEnd { continue }
             if let last = out.last, s < last.0 + cardSeconds + 0.5 { continue }          // a very short song: never two cards on top of each other

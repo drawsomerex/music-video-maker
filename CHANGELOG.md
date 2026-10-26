@@ -4,6 +4,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Looping videos: "Repeat" on each song: play it 2–10 times in a row (its end blends seamlessly into its start), or for 5 minutes to 2 hours, or as long as its scene. A set time that ends mid-song fades the song out at a quiet moment and blends the next song in over 6 seconds. Title cards, chapters and scene changes follow songs, not their repeats.
+- Looping videos: renaming a song is now a click on its name (a pencil and a small window with Save), instead of a text box that often wouldn't take the click.
+- Updates: the faster download stops at once when cancelled or when a part fails, checks that each part is exactly the bytes asked for, tries a failed part again, and otherwise falls back to the ordinary download.
 - Updates download about 7 times faster: GitHub's download server sends only about 100 KB/s per connection (a 27 MB update took 4–5 minutes), so the update now comes in 8 parts at once (about 35–40 seconds), with a smoothly moving progress bar. If the server can't send parts, it downloads the old way.
 
 ## [2.0.2] - 2026-10-25

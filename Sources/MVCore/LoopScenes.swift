@@ -40,7 +40,8 @@ extension LoopVideo {
         let earliest = titleScreenEnd + 5, latest = plan.songsEnd - 20
         var songs: [Double] = []
         if p.sceneChange == .songs || p.sceneChange == .both {
-            for (a, b) in zip(plan.plays, plan.plays.dropFirst()) { songs.append(b.start < a.end ? (a.end + b.start) / 2 : (a.end + b.start) / 2) }
+            // between songs' turns (a song repeating itself is not a song change)
+            for (a, b) in zip(plan.plays, plan.plays.dropFirst()) where b.rep == 0 { songs.append(b.start < a.end ? (a.end + b.start) / 2 : (a.end + b.start) / 2) }
         }
         var times: [Double] = []
         if p.sceneChange == .time || p.sceneChange == .both {
