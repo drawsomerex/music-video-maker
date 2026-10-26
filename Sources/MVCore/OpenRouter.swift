@@ -105,7 +105,7 @@ public enum OpenRouter {
     /// `scene`: the user's own words for this picture; the prompt is checked against it first (the scene wins over any contradiction). nil = no check.
     /// `quality`: High (the default) or Medium. `rule`: an approved rule (how bright) that wins over everything in the prompt check.
     public static func generateImage(prompt promptIn: String, apiKey: String, fallbackCostEstimate: Double = defaultEstimatedCostPerImage, referenceJPEGs: [Data] = [], scene: String? = nil,
-                                     quality pictureQuality: PictureQuality = .high, rule: String? = nil) async throws -> GeneratedImage {
+                                     quality pictureQuality: PictureQuality = .high, rule: String? = nil, enhance: Bool = false) async throws -> GeneratedImage {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first to generate images.") }
         var prompt = promptIn
@@ -125,7 +125,7 @@ public enum OpenRouter {
             "model": imageModel,
             "prompt": StylePreset.withDetail(prompt),
             "aspect_ratio": aspectRatio,
-            "quality": pictureQuality.rawValue
+            "quality": enhance ? PictureQuality.enhanceLevel : pictureQuality.rawValue
         ]
         // the style guide picture: sent as a reference so the new picture matches its look (adds about half a cent)
         if !referenceJPEGs.isEmpty { payload["input_references"] = referenceJPEGs.map { ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + $0.base64EncodedString()]] } }

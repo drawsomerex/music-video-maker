@@ -458,6 +458,10 @@ public enum PictureQuality: String, Codable, CaseIterable, Sendable {
     public var name: String { self == .high ? "High (best detail)" : "Medium (cheaper)" }
     /// About what one picture costs (a test in October 2026: 3.3¢ and 0.9¢, plus a little for reference pictures).
     public var estimate: Double { self == .high ? 0.04 : 0.012 }
+    /// "Make highest quality" only (never a choice for first drawings): the picture maker's level above High. Measured October 2026:
+    /// 5.8¢ on its own, 6.9¢ with the picture attached, about 45 seconds; the same 1536×864 with finer detail. ("max" was 12.9¢ for little more.)
+    public static let enhanceLevel = "xhigh"
+    public static let enhanceEstimate = 0.07
 }
 
 /// How bright the pictures are. Bright unless you choose otherwise: the scene decides the time of day and the weather, this decides how light it looks.

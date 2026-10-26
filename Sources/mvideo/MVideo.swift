@@ -37,7 +37,7 @@ struct MVideo: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mvideo",
         abstract: "Make a lyric music video in two steps: `plan` (sections + image prompts), then `render` (after you load your pictures).",
-        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, Direct.self, Check.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
+        subcommands: [Plan.self, SetupNative.self, AlignCheck.self, Resync.self, AddIntro.self, Ideas.self, Render.self, Short.self, Preview.self, Loop.self, Fit.self, Draw.self, Direct.self, Check.self, Enhance.self, YouTube.self, Models.self, Settings.self], defaultSubcommand: Plan.self)
 
     // MARK: Step 1
     struct Plan: AsyncParsableCommand {
@@ -503,6 +503,19 @@ struct MVideo: AsyncParsableCommand {
             print(t.summary); print("REFERENCE: \(t.reference ?? "none") (keep \(t.keep.rawValue))\nMOOD: \(t.mood.rawValue)  WEATHER: \(t.weather.rawValue)  TIME: \(t.timeOfDay.rawValue)  SHOT: \(t.shot.rawValue)\nCAST: \(t.cast)\n")
             for i in ([-1] + Array(plan.sections.indices)) { if let idea = t.pictures[i] { print("\(i == -1 ? "title" : "\(i + 1)").\(t.usesReference[i] == false ? " [own words, not the photo]" : "") \(idea)") } }
             print(String(format: "\ncost $%.4f", c))
+        }
+    }
+
+    struct Enhance: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Make highest quality: redraw a part's picture from itself at the very highest level, then sharpen it (about 7¢).")
+        @Argument var project: String
+        @Option(help: "The picture number (0 = title card)") var picture: Int
+        func run() async throws {
+            let w = URL(fileURLWithPath: (project as NSString).expandingTildeInPath)
+            var plan = try Pipeline.loadPlan(w)
+            let gen = try await Pipeline.highestQualitySectionImage(section: picture - 1, plan: &plan, work: w)
+            let s = picture == 0 ? plan.intro : plan.sections[picture - 1]
+            print("✅ \(s.selectedCandidate?.fullFile ?? "?")  \(s.selectedCandidate?.credit ?? "")  cost \(OpenRouter.formatUSD(gen.costUSD))")
         }
     }
 

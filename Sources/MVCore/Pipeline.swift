@@ -795,16 +795,16 @@ public enum Pipeline {
     @discardableResult
     public static func highestQualitySectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
         let s = index < 0 ? plan.intro : plan.sections[index]
-        return try await redrawFromPicture(section: index, plan: &plan, work: work, prompt: highestQualityPrompt(idea: s.prompt, style: plan.style), quality: .high, label: "Highest quality", config: config)
+        return try await redrawFromPicture(section: index, plan: &plan, work: work, prompt: highestQualityPrompt(idea: s.prompt, style: plan.style), quality: .high, enhance: true, label: "Highest quality", config: config)
     }
 
     /// Redraws a part's picture with the picture itself attached as the guide; the camera move and focal points carry over.
-    static func redrawFromPicture(section index: Int, plan: inout Plan, work: URL, prompt: String, quality: PictureQuality, label: String, config: Config) async throws -> OpenRouter.GeneratedImage {
+    static func redrawFromPicture(section index: Int, plan: inout Plan, work: URL, prompt: String, quality: PictureQuality, enhance: Bool = false, label: String, config: Config) async throws -> OpenRouter.GeneratedImage {
         let s = index < 0 ? plan.intro : plan.sections[index]
         guard let c = s.selectedCandidate, c.videoFile == nil, let file = c.fullFile,
               let img = loadImage(work.appendingPathComponent(file), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.92) else { throw MVError("This part has no picture to redraw.") }
-        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: quality.estimate,
-                                                     referenceJPEGs: [jpeg], quality: quality)
+        let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: enhance ? PictureQuality.enhanceEstimate : quality.estimate,
+                                                     referenceJPEGs: [jpeg], quality: quality, enhance: enhance)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_fix.\(gen.fileExtension)")
         let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
         defer { try? FileManager.default.removeItem(at: tmp); try? FileManager.default.removeItem(at: sharp) }
@@ -819,7 +819,8 @@ public enum Pipeline {
             x.candidates[x.selected] = n
         }
         if index < 0 { carry(&plan.intro) } else { carry(&plan.sections[index]) }
-        plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1; plan.lastImageCostUSD = gen.costUSD
+        plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1
+        if !enhance { plan.lastImageCostUSD = gen.costUSD }        // an enhancement's price is not what a new picture costs
         try savePlan(plan, work)
         return gen
     }
