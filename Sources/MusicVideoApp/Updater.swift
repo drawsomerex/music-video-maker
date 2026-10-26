@@ -51,6 +51,15 @@ final class Updater: ObservableObject {
     var dueForAutoCheck: Bool {
         Self.enabled && heldVersion.isEmpty && Date().timeIntervalSince1970 - Self.defaults.double(forKey: "lastUpdateCheck") > 20 * 3600
     }
+    /// Removes update downloads left behind (an update that was stopped, failed, or whose swap already finished) more than an hour old.
+    nonisolated static func cleanUpOldDownloads() {
+        let fm = FileManager.default, tmp = fm.temporaryDirectory
+        guard let items = try? fm.contentsOfDirectory(at: tmp, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        for u in items where u.lastPathComponent.hasPrefix("mv-update-") {
+            let d = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            if Date().timeIntervalSince(d) > 3600 { try? fm.removeItem(at: u) }
+        }
+    }
     func holdCurrent() {
         heldVersion = Self.current; available = nil; bannerDismissed = true
         // Also quiet versions released before the Versions screen existed after a rollback.

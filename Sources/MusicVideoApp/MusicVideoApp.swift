@@ -52,6 +52,7 @@ struct MusicVideoApp: App {
                     }
                     if Snapshots.directory != nil { FileHandle.standardError.write(Data("[snapshots] task start\n".utf8)); try? await Task.sleep(nanoseconds: 1_500_000_000); Snapshots.render(model: model); return }
                     Updater.log("task started; enabled=\(Updater.enabled) current=\(Updater.current)")
+                    Task.detached(priority: .background) { Updater.cleanUpOldDownloads() }
                     if Updater.env["MV_UPDATE_SELFTEST"] != nil {            // test hook: check, then install without asking
                         await updater.check(silent: false)
                         if let r = updater.available { FileHandle.standardError.write(Data("update found: \(r.version)\n".utf8)); await updater.install(r) }

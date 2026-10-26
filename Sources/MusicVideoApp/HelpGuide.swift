@@ -313,7 +313,8 @@ enum HelpGuide {
         - The "Plan my video" button is grey: you need a song, a title and lyrics.
         - Words appear too early or late: use "Show sooner" or "Show later" under the preview; if the top bar says the timing is rough press "Fix the timing".
         - Some parts of the video show a plain colour: those parts have no picture. Add pictures, or press "Make all missing pictures".
-        - "Lyrics only N% matched": the lyrics you pasted differ from what is sung. Check the words and plan again as a new video.
+        - "Only N% of the lyrics were heard in this song. Is it the right MP3?" (orange, above every picture, and a note right after planning): when the song is right, over 90% of the words are heard. A low match usually means the MP3 is a different song (an easy mix-up with similar songs), or the lyrics are another song's. Check the song and the words, then plan again as a new video.
+        - "OpenRouter needs more credit before it will do this": OpenRouter holds back the most a request could cost, so a little credit left (under about $1–2) is not enough even though some still shows. Add credit at openrouter.ai, then try again; nothing was charged.
         - An error about the language model: Settings ▸ On-device AI ▸ "Download again" next to the language model.
         - Recording is blocked: Settings ▸ "Fix recording permission…".
         - The picture maker says no key or no credit: add the key under "Picture maker key & credit" and check your OpenRouter credit.

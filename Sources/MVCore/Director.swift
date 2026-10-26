@@ -58,17 +58,25 @@ public enum Director {
     - Every picture idea is one vivid sentence of 20–45 words: what we see, where, the moment, the light and weather of that moment, and the shot. No text, signs or lettering in pictures.
     """
 
+    /// Asks the director, and once more by itself if the answer can't be read (about a cent each time).
     static func ask(_ prompt: String, config: Config) async throws -> (json: [String: Any], cost: Double) {
+        do { return try await askOnce(prompt, config: config) }
+        catch let e as MVError where e.localizedDescription.hasPrefix("The director's plan couldn't be read") || e.localizedDescription.hasPrefix("The director didn't answer") {
+            return try await askOnce(prompt, config: config)
+        }
+    }
+    static func askOnce(_ prompt: String, config: Config) async throws -> (json: [String: Any], cost: Double) {
         var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 180
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "temperature": 0.8, "response_format": ["type": "json_object"], "usage": ["include": true],
                                                                    "messages": [["role": "user", "content": prompt]]] as [String: Any])
         let (d, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+        if (resp as? HTTPURLResponse)?.statusCode == 402 { throw MVError(OpenRouter.creditMessage) }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
               var msg = (ch["message"] as? [String: Any])?["content"] as? String else { throw MVError("The director didn't answer. Check your OpenRouter key and credit, then try again.") }
         msg = msg.trimmingCharacters(in: .whitespacesAndNewlines)
         if msg.hasPrefix("```") { msg = msg.components(separatedBy: "\n").dropFirst().filter { !$0.hasPrefix("```") }.joined(separator: "\n") }
-        guard let data = msg.data(using: .utf8), let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MVError("The director's plan couldn't be read. Try again.") }
+        guard let data = msg.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MVError("The director's plan couldn't be read. Try again.") }
         return (obj, ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0)
     }
     /// What the director is told about the song: the description first (the main basis), then the lyrics (their story).

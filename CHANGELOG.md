@@ -4,6 +4,11 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- A clear warning when the lyrics hardly match the song (under 50% of the words heard; a right song is over 90%): "Is it the right MP3?", right after planning and above every picture.
+- "Fix it" and "Make highest quality" now check the new picture too (in both kinds of video).
+- A plain message when OpenRouter wants more credit before drawing or making a clip, instead of its raw "Insufficient credits".
+- The director tries once more by itself when its answer can't be read.
+- Release builds keep only the newest 3 release files on the Mac (all stay on GitHub), and update downloads left behind are cleaned up when the app starts.
 - Looping videos: "Repeat" on each song: play it 2–10 times in a row (its end blends seamlessly into its start), or for 5 minutes to 2 hours, or as long as its scene. A set time that ends mid-song fades the song out at a quiet moment and blends the next song in over 6 seconds. Title cards, chapters and scene changes follow songs, not their repeats.
 - Looping videos: renaming a song is now a click on its name (a pencil and a small window with Save), instead of a text box that often wouldn't take the click.
 - Updates: the faster download stops at once when cancelled or when a part fails, checks that each part is exactly the bytes asked for, tries a failed part again, and otherwise falls back to the ordinary download.

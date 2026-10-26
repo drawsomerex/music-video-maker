@@ -96,6 +96,8 @@ git tag "v$NEW"
 git push -q origin HEAD --tags
 gh release create "v$NEW" "$ZIP" "$ZIP.sha256" --repo "$REPO" --title "Music Video Maker $NEW" --notes "$NOTES"
 say "Released: https://github.com/$REPO/releases/tag/v$NEW"
+# keep only the newest 3 release zips on this Mac (every one is kept on GitHub); each is about 27 MB
+ls -t dist/MusicVideoMaker-*-native.zip 2>/dev/null | tail -n +4 | while IFS= read -r z; do rm -f "$z" "$z.sha256"; done
 echo "  Other Macs update themselves on next launch (or Music Video Maker ▸ Check for Updates…)."
 echo "  Brand-new Mac (no GitHub account needed):"
 echo "    curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash"

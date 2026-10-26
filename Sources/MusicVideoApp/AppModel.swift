@@ -245,6 +245,11 @@ final class AppModel: ObservableObject {
 
     var hasOpenRouterKey: Bool { !config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// About what one picture costs at the open project's quality (High ≈ 4¢, Medium ≈ 1¢).
+    /// The lyrics hardly match what was heard in the song: most likely the wrong MP3 or another song's lyrics.
+    var lyricsMismatch: Bool {
+        guard let p = plan, p.lines.count >= 4, p.timing == "exact" || p.alignmentCoverage > 0 else { return false }
+        return p.alignmentCoverage < 0.5
+    }
     var perImageCostUSD: Double { (stage == .loop ? loopProject?.pictureQuality : plan?.pictureQuality)?.estimate ?? PictureQuality.high.estimate }
     var missingImagesCostUSD: Double { Double(missing.count) * perImageCostUSD }
     var allImagesCostUSD: Double { Double(totalImages) * perImageCostUSD }
@@ -632,6 +637,9 @@ final class AppModel: ObservableObject {
                 draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)
+                if lyricsMismatch {
+                    notice = "Only \(Int(made.alignmentCoverage * 100))% of the lyrics were heard in this song (when the song is right, it is over 90%). Is this the right MP3, and are these its lyrics? Check before making pictures: they follow the lyrics and their timing."
+                }
                 if autoPending { autoPending = false; autoDirect() }
                 else if hasOpenRouterKey { directorIdeas(silent: true) }      // the director writes the picture ideas (the local ones stay if it can't)
             } catch is CancellationError {

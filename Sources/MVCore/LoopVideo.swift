@@ -494,6 +494,7 @@ public enum LoopVideo {
         p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1
         if enhance { p.enhanced.append(name) }
         if p.source == picture { p.source = name }            // the picture next scenes are based on follows its better version
+        await checkPicture(&p, dir: dir, picture: name, idea: p.sceneDrawn ?? p.scene, config: config)       // a fix can bring a new fault
         save(p, dir)
         return gen.costUSD
     }

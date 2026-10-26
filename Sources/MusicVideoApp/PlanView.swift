@@ -362,8 +362,10 @@ struct PlanView: View {
             Text(selection < 0 ? "opening slide" : "\(timeString(section.start))–\(timeString(section.end)) · \(Int(section.duration)) s")
                 .foregroundStyle(.secondary)
             Spacer()
-            if model.plan!.alignmentCoverage < 0.5 && selection <= 0 {
-                Label("Lyrics only \(Int(plan.alignmentCoverage * 100))% matched", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+            if model.lyricsMismatch {
+                Label("Only \(Int(plan.alignmentCoverage * 100))% of the lyrics were heard in this song. Is it the right MP3?", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout.weight(.semibold)).foregroundStyle(.orange)
+                    .help("When the song is right, almost all the words are heard (over 90%). This low a match usually means the MP3 is a different song, or the lyrics belong to another song. The pictures and timing follow the lyrics, so check the song first.")
             }
         }
 

@@ -104,6 +104,9 @@ public enum OpenRouter {
     /// Generates a single 16:9 Medium image using `openai/gpt-image-2.5-sunburst` via OpenRouter.
     /// `scene`: the user's own words for this picture; the prompt is checked against it first (the scene wins over any contradiction). nil = no check.
     /// `quality`: High (the default) or Medium. `rule`: an approved rule (how bright) that wins over everything in the prompt check.
+    /// OpenRouter refuses (402) when the credit left is below what a request might cost at most, even with some credit still showing.
+    public static let creditMessage = "OpenRouter needs more credit before it will do this. It holds back the most a request could cost, so a little credit left (under about $1–2) is not enough. Add credit at openrouter.ai (Credits), then try again. Nothing was charged."
+
     public static func generateImage(prompt promptIn: String, apiKey: String, fallbackCostEstimate: Double = defaultEstimatedCostPerImage, referenceJPEGs: [Data] = [], scene: String? = nil,
                                      quality pictureQuality: PictureQuality = .high, rule: String? = nil, enhance: Bool = false) async throws -> GeneratedImage {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -135,6 +138,7 @@ public enum OpenRouter {
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
 
         if !(200..<300).contains(status) {
+            if status == 402 { throw MVError(creditMessage) }
             let errBody = String(data: data, encoding: .utf8) ?? "HTTP \(status)"
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errObj = json["error"] as? [String: Any],

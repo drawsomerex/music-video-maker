@@ -819,6 +819,13 @@ public enum Pipeline {
             x.candidates[x.selected] = n
         }
         if index < 0 { carry(&plan.intro) } else { carry(&plan.sections[index]) }
+        // the redrawn picture is checked like any new one (a fix can bring a new fault)
+        let now = index < 0 ? plan.intro : plan.sections[index]
+        if let f = now.selectedCandidate?.fullFile, let r = await PictureCheck.check(work.appendingPathComponent(f), idea: now.prompt, focal: now.focal, cast: plan.cast, config: config) {
+            func note(_ x: inout PhotoSection) { guard x.candidates.indices.contains(x.selected) else { return }; x.candidates[x.selected].checkNote = r.problem; x.candidates[x.selected].checkFix = r.fix }
+            if index < 0 { note(&plan.intro) } else { note(&plan.sections[index]) }
+            plan.totalGenerationCostUSD += r.cost
+        }
         plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1
         if !enhance { plan.lastImageCostUSD = gen.costUSD }        // an enhancement's price is not what a new picture costs
         try savePlan(plan, work)

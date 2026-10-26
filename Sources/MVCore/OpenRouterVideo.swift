@@ -49,6 +49,7 @@ public enum OpenRouterVideo {
         onPhase?("Sending the picture to HeyGen…")
         let (st, d) = try await request("POST", "https://openrouter.ai/api/v1/videos", body: body)
         guard (200..<300).contains(st), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let id = j["id"] as? String else {
+            if st == 402 { throw MVError(OpenRouter.creditMessage) }
             throw MVError("HeyGen refused the clip (nothing was charged): \(message(d))")
         }
         onJob?(id)
