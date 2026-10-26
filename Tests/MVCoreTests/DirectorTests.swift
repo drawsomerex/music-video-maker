@@ -45,4 +45,14 @@ final class DirectorTests: XCTestCase {
         let back = try JSONDecoder().decode(PhotoSection.self, from: JSONEncoder().encode(s))
         XCTAssertEqual(back.usesSource, false); XCTAssertEqual(back.usesSourceFor, "A forest in rain")
     }
+
+    func testAStreetPhotoIsAPlaceNeverASubject() {
+        // the photo check says what the photo is mainly of; that is what gets kept, whatever the director wanted
+        let v = Director.parseJudgement("{\"shows\":true,\"is\":\"place\",\"note\":\"A wide road through a small town with shops on both sides.\"}", wanted: .subject)
+        XCTAssertEqual(v?.shows, true); XCTAssertEqual(v?.keep, .place)
+        XCTAssertEqual(Director.parseJudgement("{\"shows\":false,\"is\":\"subject\",\"note\":\"A logo.\"}", wanted: .subject)?.shows, false)
+        let r = Pipeline.readSourceReply("```json\n{\"mainly\":\"place\",\"sentence\":\"A sunny Route 66 town street with shops and a vintage sign.\"}\n```")
+        XCTAssertEqual(r?.mainly, .place); XCTAssertTrue(r?.sentence.hasPrefix("A sunny") == true)
+        XCTAssertNil(Pipeline.readSourceReply("not json"))
+    }
 }

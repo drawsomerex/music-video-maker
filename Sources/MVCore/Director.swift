@@ -115,7 +115,7 @@ public enum Director {
 
         \(craft)
 
-        Also decide whether the video is built around ONE real recurring place, building or subject that a photo would help to get right (for example a real landmark, a type of animal, a ship); if so give a short web image search for it (2–5 words) and say what to keep from it: "place", "building" or "subject". Otherwise "reference": null.
+        Also decide whether the video is built around ONE real recurring place, building or subject that appears in MOST of the pictures and that a photo would help to get right (for example one real landmark, a type of animal, a ship). If the song visits several different places or landmarks, or names a person only in passing, use "reference": null. If there is one, give a short, precise web image search for exactly that thing (2–5 words, its proper name) and say what it is: "place" (a landscape, town or road), "building" or "subject" (a person, animal or thing). For pictures that don't show it, set "ref": false.
 
         The parts (index | time | words):
         \(parts.joined(separator: "\n"))
@@ -178,14 +178,59 @@ public enum Director {
         return (t, cost)
     }
 
-    /// Finds a reference photo for the plan and shapes it to widescreen (the middle is kept). Returns its file name in `dir`, or nil.
-    public static func findReference(_ words: String, into dir: URL) async -> String? {
-        for h in await SubjectPicture.search(words).prefix(4) {
+    /// A reference photo the director found, checked: what it shows and what to keep from it.
+    public struct Reference: Sendable { public var file: String; public var keep: NextFocus; public var note: String; public var cost: Double }
+
+    /// Finds a reference photo for the plan and shapes it to widescreen (the middle is kept). Each photo found is looked at first: it is only
+    /// used when it really shows what was searched for, and what is kept from it (the place, the building or the subject) is what the photo
+    /// actually shows, so a street photo is never read as a "subject" (a small statue on the pavement becoming the star of every picture).
+    public static func findReference(_ words: String, keep wanted: NextFocus, into dir: URL, config: Config = .load()) async -> Reference? {
+        var cost = 0.0
+        for h in await SubjectPicture.search(words).prefix(5) {
             guard let f = try? await SubjectPicture.download(h, to: FileManager.default.temporaryDirectory) else { continue }
+            guard let v = await judgeReference(f, words: words, wanted: wanted, config: config) else { continue }
+            cost += v.cost
+            guard v.shows else { continue }
             let name = "reference-\(Int(Date().timeIntervalSince1970)).jpg"
             let a = PictureFit.aspect(f) ?? PictureFit.target
-            if (try? PictureFit.crop(f, rect: PictureFit.cropRect(aspect: a), output: dir.appendingPathComponent(name))) != nil { return name }
+            if (try? PictureFit.crop(f, rect: PictureFit.cropRect(aspect: a), output: dir.appendingPathComponent(name))) != nil {
+                return Reference(file: name, keep: v.keep, note: v.note, cost: cost)
+            }
         }
         return nil
+    }
+
+    /// Looks at a found photo (a hundredth of a cent): does it plainly show what was searched for, is that a place, a building or a subject,
+    /// and one sentence for the illustrator about it.
+    public static func judgeReference(_ file: URL, words: String, wanted: NextFocus, config: Config) async -> (shows: Bool, keep: NextFocus, note: String, cost: Double)? {
+        guard let img = loadImage(file, maxPixel: 768), let jpeg = PictureFit.jpegData(img, quality: 0.8) else { return nil }
+        let text = """
+        This photo was found by searching for "\(words)" to guide the pictures of a music video (wanted: \(wanted == .subject ? "a subject: a person, animal or thing" : (wanted == .building ? "a building" : "a place"))).
+        1. Does the photo plainly show that? A small detail, a different thing, a map, a logo, text or a collage does not count.
+        2. What is the photo mainly of: "place" (a landscape, street, town or scene), "building" (one main building or structure) or "subject" (one person, animal or thing that fills a good part of the photo)?
+        3. One sentence of 15–35 words for an illustrator describing THAT (the place, the building or the subject the search was for): only what is visible, no art style, no lighting, no camera words.
+        Reply with ONLY JSON: {"shows":true,"is":"place","note":"..."}
+        """
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
+        req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]
+        guard let body = try? JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.1, "response_format": ["type": "json_object"], "usage": ["include": true],
+                                                                      "messages": [["role": "user", "content": content]]] as [String: Any]) else { return nil }
+        req.httpBody = body
+        guard let (d, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+              let msg = (ch["message"] as? [String: Any])?["content"] as? String else { return nil }
+        let cost = ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0
+        guard let v = parseJudgement(msg, wanted: wanted) else { return nil }
+        return (v.shows, v.keep, v.note, cost)
+    }
+    /// Reads the photo check's answer. What is kept is what the photo is mainly of; a "subject" is only kept when the photo is plainly of one.
+    static func parseJudgement(_ msg: String, wanted: NextFocus) -> (shows: Bool, keep: NextFocus, note: String)? {
+        guard let a = msg.firstIndex(of: "{"), let b = msg.lastIndex(of: "}"), let data = String(msg[a...b]).data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let shows = (o["shows"] as? Bool) ?? ((o["shows"] as? String)?.lowercased() == "true")
+        let note = (o["note"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let keep = NextFocus(rawValue: (o["is"] as? String ?? "").lowercased()) ?? wanted
+        return (shows && note.count > 10, keep, note)
     }
 }

@@ -511,8 +511,16 @@ struct MVideo: AsyncParsableCommand {
         @Argument var picture: String
         @Option(help: "What the picture was meant to show") var idea = ""
         @Option(help: "Save the sharper picture here") var sharpen: String?
+        @Option(help: "Check it as a reference photo found for these search words") var words: String?
+        @Option(help: "With --words: what the director wanted (place, building, subject)") var keep = "place"
         func run() async throws {
             let u = URL(fileURLWithPath: (picture as NSString).expandingTildeInPath)
+            if let w = words {
+                let wanted = NextFocus(rawValue: keep) ?? .place
+                if let v = await Director.judgeReference(u, words: w, wanted: wanted, config: .load()) { print("SHOWS: \(v.shows)  KEEP: \(v.keep.rawValue)\nNOTE: \(v.note)") }
+                do { let r = try await Pipeline.describeSource(u, focus: wanted); print("READ AS \(wanted.rawValue): \(r.text)") } catch { print("READ AS \(wanted.rawValue): \(error.localizedDescription)") }
+                return
+            }
             if let r = await PictureCheck.check(u, idea: idea, focal: []) { print(r.problem.map { "FAULT: \($0)\nFIX: \(r.fix ?? "")" } ?? "OK: no faults found", String(format: "(cost $%.5f)", r.cost)) } else { print("The check didn't answer.") }
             if let o = sharpen {
                 let t0 = Date(), ok = await SuperRes.enlarge(u, to: URL(fileURLWithPath: (o as NSString).expandingTildeInPath))

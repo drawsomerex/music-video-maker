@@ -398,15 +398,37 @@ public enum Pipeline {
         case .building: what = "the main BUILDING or structure it shows (what it is, its shape, materials, towers, windows, roof, distinctive features, its surroundings)"
         case .subject: what = "the main SUBJECT it shows (the person, animal or object: what it is, its colours, markings, clothing or distinctive features)"
         }
-        let text = "Describe \(what) in one sentence of 15–35 words, for an illustrator who will draw it again in many pictures. Only what is visible, no art style, no lighting, no camera words. Reply with ONLY the sentence."
+        let text = """
+        First say what the photo is mainly of: "place" (a landscape, street, town or scene), "building" (one main building or structure filling much of the photo) or "subject" (one person, animal or thing that fills a good part of the photo; a small statue, sign or car in a street scene does NOT make it a subject).
+        Then describe \(what) in one sentence of 15–35 words, for an illustrator who will draw it again in many pictures. Only what is visible, no art style, no lighting, no camera words.
+        Reply with ONLY JSON: {"mainly":"place","sentence":"..."}
+        """
         var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.2, "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
-        let (d, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
-              let msg = (ch["message"] as? [String: Any])?["content"] as? String, msg.count > 10 else { throw MVError("The source picture couldn't be read. Try again.") }
-        return (msg.trimmingCharacters(in: CharacterSet(charactersIn: " \n\"“”")), ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0)
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.2, "response_format": ["type": "json_object"], "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
+        var got: (r: (mainly: NextFocus, sentence: String), j: [String: Any])? = nil
+        for _ in 0..<2 where got == nil {                    // one more try when the answer can't be read
+            let (d, resp) = try await URLSession.shared.data(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 200, let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
+               let msg = (ch["message"] as? [String: Any])?["content"] as? String, let r = readSourceReply(msg) { got = (r, j) }
+        }
+        guard let (r, j) = got else { throw MVError("The source picture couldn't be read. Try again.") }
+        // a street or landscape photo has no "subject" to keep (a small statue on the pavement must never become the star of every picture)
+        if focus == .subject && r.mainly != .subject {
+            throw MVError("This picture is mainly of a \(r.mainly == .building ? "building" : "place"), with no clear subject (a person, animal or thing it is plainly of), so nothing was changed. Choose “\(r.mainly.name)”, or a picture of the subject itself.")
+        }
+        if focus == .building && r.mainly == .place {
+            throw MVError("This picture is mainly of a place, with no one main building, so nothing was changed. Choose “The place”, or a picture of the building itself.")
+        }
+        return (r.sentence, ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue ?? 0)
+    }
+    /// Reads the photo description's answer: what the photo is mainly of, and the sentence.
+    static func readSourceReply(_ msg: String) -> (mainly: NextFocus, sentence: String)? {
+        guard let a = msg.firstIndex(of: "{"), let b = msg.lastIndex(of: "}"), let data = String(msg[a...b]).data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sentence = (o["sentence"] as? String)?.trimmingCharacters(in: CharacterSet(charactersIn: " \n\"“”")), sentence.count > 10 else { return nil }
+        return (NextFocus(rawValue: (o["mainly"] as? String ?? "").lowercased()) ?? .place, sentence)
     }
 
     /// Regenerates the style and every prompt from the (possibly edited) song description. Pictures already loaded are kept.

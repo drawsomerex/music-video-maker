@@ -110,7 +110,9 @@ extension AppModel {
         let focus = songFocus, cfg = config
         runBackground(initialPhase: "Looking at the picture…") { [weak self] in
             guard let self, var p = self.plan else { return }
-            let r = try await Pipeline.describeSource(w.appendingPathComponent(src), focus: focus, config: cfg)
+            let r: (text: String, cost: Double)
+            do { r = try await Pipeline.describeSource(w.appendingPathComponent(src), focus: focus, config: cfg) }
+            catch { self.editSong { $0.nextFocus = p.sourceNoteFocus }; throw error }      // e.g. "The subject" on a street photo: keep what it was
             p.sourceNote = r.text; p.sourceNoteFocus = focus; p.totalGenerationCostUSD += r.cost
             self.plan = p; self.persist()
             let bh = self.busyHandler

@@ -114,9 +114,11 @@ extension AppModel {
         guard var p = plan else { return }
         if p.source == nil, !words.isEmpty {
             bh("Finding a picture of \(words)…", 0.1)
-            if let name = await Director.findReference(words, into: w) {
-                p.source = name; p.nextFocus = c.keep
-                if let r = try? await Pipeline.describeSource(w.appendingPathComponent(name), focus: c.keep, config: cfg) { p.sourceNote = r.text; p.sourceNoteFocus = c.keep; p.totalGenerationCostUSD += r.cost }
+            if let r = await Director.findReference(words, keep: c.keep, into: w, config: cfg) {
+                // what is kept is what the photo really shows (a street photo is a place, never a "subject")
+                p.source = r.file; p.nextFocus = r.keep; p.sourceNote = r.note; p.sourceNoteFocus = r.keep; p.totalGenerationCostUSD += r.cost
+            } else {
+                directorRun?.detail = "No photo really showed “\(words)”; the pictures follow their own words"
             }
             plan = p; persist()
         }
@@ -281,7 +283,7 @@ extension AppModel {
             try await self?.directorStep(2, q.source != nil ? "Your own picture is kept" : (words.trimmingCharacters(in: .whitespaces).isEmpty ? "None needed" : "Searching for “\(words)”"))
             if q.source == nil, !words.trimmingCharacters(in: .whitespaces).isEmpty {
                 await phase("Automatic: finding a picture of \(words)…")
-                if let name = await Director.findReference(words, into: d) { q.source = name; q.nextFocus = treatment == nil ? t.keep : c.keep }
+                if let r = await Director.findReference(words, keep: treatment == nil ? t.keep : c.keep, into: d, config: cfg) { q.source = r.file; q.nextFocus = r.keep; q.imagesUSD += r.cost }
             }
             var made: [String] = []
             for k in scenesToMake.indices {

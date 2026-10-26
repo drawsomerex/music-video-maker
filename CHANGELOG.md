@@ -4,6 +4,10 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- The director looks at every photo it finds before using it: a photo is only used when it really shows what was searched for, and what is kept from it (the place, the building or the subject) is what the photo is actually of. A street photo is no longer read as a "subject" (a small statue on the pavement became the star of every picture idea).
+- The director only uses one reference photo when one place, building or subject appears in most of the pictures; a song that visits several landmarks gets none.
+- Choosing "The subject" or "The building" for a picture that is mainly of a place now says so and changes nothing, instead of rewriting every idea around a small detail.
+- The picture check no longer reports recurring people (the cast) as "missing" from pictures whose idea doesn't include them.
 
 ## [2.0.0] - 2026-10-25
 - Type of shot: Wide landscape, Drone shot, Epic wide, Dramatic low angle, Eye level, Close-up, Telephoto, Leading lines, Framed through the foreground, Centred and symmetrical (next to Weather and Time of day, in both kinds of video and in the director's choices).

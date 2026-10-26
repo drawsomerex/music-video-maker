@@ -15,12 +15,12 @@ public enum PictureCheck {
         You check a picture that was drawn for a music video. It was meant to show: \(idea)
         """
         if focal.count >= 2 { text += "\nThese must both be clearly visible: \(focal[0]) and \(focal[1])." }
-        if !cast.isEmpty { text += "\nThe recurring cast must look like this: \(cast)" }
+        if !cast.isEmpty { text += "\nIf any of these recurring people or things appear, they should look like this (they do NOT have to appear; never report one as missing): \(cast)" }
         text += """
 
         Look carefully for REAL faults only: any text, letters, numbers, signatures or watermarks; extra, missing or fused fingers or limbs; warped,
-        melted or doubled faces or eyes; the wrong number of people or animals; objects merging into each other; something the idea asks for that is
-        missing or clearly wrong. Small artistic liberties and style choices are NOT faults.
+        melted or doubled faces or eyes; the wrong number of people or animals; objects merging into each other; something the idea above asks for that is
+        missing or clearly wrong. Only the idea decides what must be in the picture. Small artistic liberties and style choices are NOT faults.
         Reply with ONLY this JSON: {"ok":true} or {"ok":false,"problem":"short plain description for the user (under 20 words)","fix":"one instruction for an editor that changes only that, e.g. 'Remove the scribbled letters on the wall'"}
         """
         var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
