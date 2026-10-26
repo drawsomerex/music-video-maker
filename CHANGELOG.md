@@ -4,6 +4,7 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Updates download about 7 times faster: GitHub's download server sends only about 100 KB/s per connection (a 27 MB update took 4–5 minutes), so the update now comes in 8 parts at once (about 35–40 seconds), with a smoothly moving progress bar. If the server can't send parts, it downloads the old way.
 
 ## [2.0.2] - 2026-10-25
 - Looping videos now have every picture feature music videos have: pictures are made 4× sharper on your Mac, every new picture is checked (with "Fix it"), "Make highest quality" sits on the picture, and the director's cast and cast sheet keep recurring animals, objects and landmarks the same.

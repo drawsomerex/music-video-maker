@@ -131,7 +131,12 @@ final class Updater: ObservableObject {
             let fm = FileManager.default, work = FileManager.default.temporaryDirectory.appendingPathComponent("mv-update-\(UUID().uuidString)")
             cleanup = work; try fm.createDirectory(at: work, withIntermediateDirectories: true)
             let zip = work.appendingPathComponent("update.zip")
-            try await download(r.zip, to: zip) { [weak self] f in Task { @MainActor in self?.progress = f * 0.85 } }
+            let report: @Sendable (Double) -> Void = { [weak self] f in Task { @MainActor in self?.progress = f * 0.85 } }
+            // GitHub's download server sends only about 100 KB/s per connection (27 MB took 4–5 minutes); 8 parts at once took 40 s.
+            if (try? await Self.downloadInParts(r.zip, to: zip, parts: 8, progress: report)) == nil {
+                try? fm.removeItem(at: zip)
+                try await download(r.zip, to: zip, progress: report)
+            }
             phase = "Checking the download…"
             let got = try await Task.detached { () throws -> String in
                 var h = SHA256(); let fh = try FileHandle(forReadingFrom: zip); defer { try? fh.close() }
@@ -193,6 +198,73 @@ final class Updater: ObservableObject {
         let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
         try p.run(); p.waitUntilExit()
         guard p.terminationStatus == 0 else { throw MVUpdateError("The download could not be unpacked or verified.") }
+    }
+    /// Downloads the file in several parts at the same time (HTTP ranges), then joins them. Throws when the server can't send parts,
+    /// so the caller falls back to one ordinary download.
+    nonisolated static func downloadInParts(_ url: URL, to dst: URL, parts: Int, progress: @escaping @Sendable (Double) -> Void) async throws {
+        func request(_ range: String) -> URLRequest {
+            var r = URLRequest(url: url); r.timeoutInterval = 120
+            r.setValue("bytes=\(range)", forHTTPHeaderField: "Range"); r.setValue("MusicVideoMaker", forHTTPHeaderField: "User-Agent"); return r
+        }
+        // the size, from a one-byte request ("Content-Range: bytes 0-0/27035773")
+        let (_, first) = try await URLSession.shared.data(for: request("0-0"))
+        guard let h = first as? HTTPURLResponse, h.statusCode == 206,
+              let total = (h.value(forHTTPHeaderField: "Content-Range")?.split(separator: "/").last).flatMap({ Int($0) }), total > 0 else { throw MVUpdateError("No ranges") }
+        let size = (total + parts - 1) / parts
+        let ranges = (0..<parts).map { i in (i * size, min(total, (i + 1) * size) - 1) }.filter { $0.0 <= $0.1 }
+        // one session for all parts; it counts every byte as it arrives, so the progress bar moves smoothly
+        final class Parts: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+            let lock = NSLock(), total: Int, progress: @Sendable (Double) -> Void
+            var data: [ObjectIdentifier: Data] = [:], received = 0, waiting: [ObjectIdentifier: CheckedContinuation<Data, Error>] = [:], lastShown = 0.0
+            init(total: Int, progress: @escaping @Sendable (Double) -> Void) { self.total = total; self.progress = progress }
+            func urlSession(_ s: URLSession, dataTask t: URLSessionDataTask, didReceive d: Data) {
+                lock.lock(); data[ObjectIdentifier(t), default: Data()].append(d); received += d.count
+                let f = Double(received) / Double(total), show = f - lastShown > 0.01; if show { lastShown = f }; lock.unlock()
+                if show { progress(min(1, f)) }
+            }
+            func urlSession(_ s: URLSession, task t: URLSessionTask, didCompleteWithError e: Error?) {
+                lock.lock(); let c = waiting.removeValue(forKey: ObjectIdentifier(t)); let d = data.removeValue(forKey: ObjectIdentifier(t)) ?? Data()
+                if e != nil || (t.response as? HTTPURLResponse)?.statusCode != 206 { received -= d.count }; lock.unlock()
+                if let e { c?.resume(throwing: e) }
+                else if (t.response as? HTTPURLResponse)?.statusCode != 206 { c?.resume(throwing: MVUpdateError("A part of the download failed.")) }
+                else { c?.resume(returning: d) }
+            }
+            /// Each part gets its own session and so its own connection: in one session macOS sends every part down one shared
+            /// (HTTP/2) connection, which the server throttles just like a single download.
+            func fetch(_ req: URLRequest) async throws -> Data {
+                let cfg = URLSessionConfiguration.ephemeral; cfg.httpMaximumConnectionsPerHost = 1
+                let session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
+                defer { session.finishTasksAndInvalidate() }
+                return try await withCheckedThrowingContinuation { c in
+                    let t = session.dataTask(with: req)
+                    lock.lock(); waiting[ObjectIdentifier(t)] = c; lock.unlock()
+                    t.resume()
+                }
+            }
+        }
+        let partsDelegate = Parts(total: total, progress: progress)
+        let pieces = try await withThrowingTaskGroup(of: (Int, Data).self) { group -> [Data] in
+            for (i, r) in ranges.enumerated() {
+                group.addTask {
+                    var lastError: Error = MVUpdateError("The download failed.")
+                    for _ in 0..<3 {                         // a part that fails is tried again
+                        do {
+                            let d = try await partsDelegate.fetch(request("\(r.0)-\(r.1)"))
+                            guard d.count == r.1 - r.0 + 1 else { throw MVUpdateError("A part of the download was incomplete.") }
+                            return (i, d)
+                        } catch { lastError = error; try Task.checkCancellation() }
+                    }
+                    throw lastError
+                }
+            }
+            var out = [Data](repeating: Data(), count: ranges.count)
+            for try await (i, d) in group { out[i] = d }
+            return out
+        }
+        FileManager.default.createFile(atPath: dst.path, contents: nil)
+        let fh = try FileHandle(forWritingTo: dst); defer { try? fh.close() }
+        for d in pieces { try fh.write(contentsOf: d) }
+        guard (try? fh.offset()) == UInt64(total) else { throw MVUpdateError("The joined download has the wrong size.") }
     }
     private func download(_ url: URL, to dst: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
         final class D: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
