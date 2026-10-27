@@ -16,7 +16,7 @@ A native macOS app (Apple Silicon) that turns a song into a YouTube-ready video.
 Native builds use the reviewed `Package.native.resolved` graph. `install_native.sh` temporarily selects it with automatic dependency resolution disabled and restores the lightweight `Package.resolved` afterwards. Update the native lock intentionally when upgrading dependencies.
 
 ## Requirements
-- A Mac with Apple Silicon (M1 or newer), macOS 14+; 16 GB RAM is plenty (8 GB works with the *small* model).
+- A Mac with Apple Silicon (M1 or newer), macOS 14+; 16 GB RAM is recommended; choose the Small model on a Mac with less memory.
 - About 5 GB of free disk for the on-device models (downloaded once, on first launch).
 - To build from source: Xcode (the install script checks everything and tells you what is missing).
 
@@ -54,13 +54,13 @@ Releases live on a **public GitHub repo** (Releases hold the app zip + checksum;
 **You (once):** `brew install gh && gh auth login`, then `./release.sh --create-repo music-video-maker` — creates the public repo, builds, tags `v1.0.1`, uploads the release.
 **You (every update):** change the code, then `./release.sh` (`--bump minor`, `--version 2.0.0`, `--notes "…"` if you like). `./release.sh --dry-run` builds the zip without publishing.
 
-**Any Mac, first time (no Xcode, no GitHub account, ~13 MB download):**
+**Any Mac, first time (no Xcode or GitHub account required):**
 ```
 curl -fsSL https://raw.githubusercontent.com/drawsomerex/music-video-maker/main/install.sh | bash
 ```
 The download is checksum-verified and `curl` doesn't tag files as downloaded from the internet, so macOS opens the app with no "unidentified developer" prompt. The first launch offers the one-time model download.
 
-**After that the app updates itself:** it checks GitHub once a day on launch (and via *Music Video Maker ▸ Check for Updates…*), shows the release notes, and on *Install & Restart* downloads the zip, **verifies its SHA-256**, swaps itself in and relaunches. Models are separate, so an update is only ~13 MB.
+**After that the app updates itself:** it checks GitHub once a day on launch (and via *Music Video Maker ▸ Check for Updates…*), shows the release notes, and on *Install & Restart* downloads the zip, **verifies its SHA-256**, swaps itself in and relaunches. Models are separate, so the update downloads the app without downloading the models again.
 
 Notes: this applies to the standalone (native) app. A copy built with `./build_app.sh` (the oMLX flavor) updates with `git pull && ./build_app.sh`. The app is ad-hoc signed (no paid certificate), so macOS may ask once more for access to your Movies folder after an update.
 
@@ -87,7 +87,7 @@ The finished video is saved next to the project folder.
 - **Light on a 16 GB fanless Mac.** Pictures are decoded only while their section is on screen (peak memory for a whole-song vertical render: 2.5 GB → 1.7 GB, ~40% faster); render threads back off when the Mac heats up or Low Power Mode is on; oMLX's memory guard is set to *safe* when it runs the engine on a 16 GB machine.
 
 ## Exact lyric timing
-Word times come from your own `parakeet-ultra-mlx` model, run with oMLX's bundled Python/MLX runtime (`scripts/word_timing.py`) — true word timestamps, no extra downloads (~6 s for a 4-minute song).
+Word times come from your own `parakeet-ultra-mlx` model, run with oMLX's bundled Python/MLX runtime (`scripts/word_timing.py`) — true word timestamps when that runtime is available. The standalone native build uses Swift MLX directly and requires neither oMLX nor Python.
 oMLX's HTTP transcription endpoint only returns text, so if its runtime can't be found the app falls back to inferring times from short overlapping windows (±0.3 s) and flags the project **“Lyric timing is approximate”** — click **Re-sync (exact)** (or `mvideo resync "<project>"`) to upgrade an older project without losing pictures or Shorts.
 
 ## YouTube Shorts (vertical 1080×1920)
@@ -106,19 +106,20 @@ Open a project → **YouTube Shorts** tab → **New Short** (30 s by default). P
 
 CLI: `mvideo short "<project>" --list` · `--lines 13-18 --snap --seed 4242 --variants 3 --cta "Full song on YouTube ▶" --hook "The day oil changed everything"` · `--plain` for the old simple look.
 
-## The two steps
+## Music-video workflow
 1. **Plan** — enter title, subject, lyrics and the MP3. Parakeet (via oMLX) syncs your lyrics, the song is split into verse and music sections,
    and a local LLM writes **one shared style line + a prompt per picture** (title card = `00`). Repeated choruses are flagged so you can reuse a picture.
    Everything is saved to `prompts.md` in the work folder, and shown in the app with Copy buttons.
-2. **Load your pictures** — generate them anywhere (16:9, 1920×1080+), then drag each onto its section (or load a folder of `00.png`, `01.png`, …) and press **Render**.
+2. **Pictures** — generate them anywhere (16:9, 1920×1080+), then drag each onto its section (or load a folder of `00.png`, `01.png`, …) or use the built-in picture maker.
+3. **Video** — preview, then press **Make my video**.
    Ken Burns zooms toward each picture's focal point, with feathered wipes / iris / blinds / push transitions, karaoke lyrics, title card and fade-out.
 
 | Stage | Tech |
 |---|---|
-| Transcription | `parakeet-ultra-mlx` via oMLX `/v1/audio/transcriptions` (text only, so 4 s windows every 0.75 s) |
-| Lyric sync | A cursor walks your lyrics; each word's time comes from which windows contain it. On-screen text is always your pasted lyrics |
+| Transcription | Native build: Parakeet through Swift MLX. oMLX build: word timing through its bundled runtime, with an approximate HTTP fallback when needed |
+| Lyric sync | Match your pasted lyrics to word timestamps. Approximate timing is flagged so it can be re-synced; captions always use your pasted words |
 | Prompts | A local language model (Gemma 4 E2B by default) — one style + per-section prompts |
-| Render | Core Graphics frames in parallel → hardware H.264 via AVAssetWriter, AAC 256k, faststart MP4 (~5× real time on M1 Pro) |
+| Render | Core Graphics frames in parallel → hardware H.264 via AVAssetWriter, AAC 256k, MP4; rendering time depends on source media, resolution and this Mac |
 
 ## CLI / headless
 ```
