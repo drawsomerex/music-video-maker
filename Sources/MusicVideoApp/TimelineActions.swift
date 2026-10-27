@@ -46,7 +46,7 @@ extension AppModel {
         checkpointRevision = planRevision
         if coalesce && lastEditName == name && Date().timeIntervalSince(lastEditAt) < 0.7 { lastEditAt = Date(); return }
         editUndo.append(snapshot(name)); if editUndo.count > 60 { editUndo.removeFirst() }; editRedo = []
-        lastEditName = name; lastEditAt = Date()
+        lastEditName = name; lastEditAt = Date(); retainHistoryMedia()
     }
     /// Shared activity gate for history, project switches and app-version changes, including both workflows and accepted paid jobs.
     var hasActiveWork: Bool { busy || listening || stage == .working || stage == .rendering || videoJob != nil || shortProgress != nil || clipJob != nil || loopJob != nil || loopListening != nil || timelineDragging || isRecording || downloadingModel }
@@ -77,11 +77,13 @@ extension AppModel {
                 for c in source where !section.candidates.contains(where: { $0.id == c.id }) { section.candidates.append(c) }
             }
             keep(current.intro.candidates, in: &target.intro)
+            target.intro.retainedClips = TimelineEditor.uniqueClips(target.intro.retainedClips + current.intro.retainedClips + current.intro.clips)
             for c in current.intro.clips where !target.intro.clips.contains(where: { $0.id == c.id }) { target.intro.clips.append(c) }
             for i in target.sections.indices {
                 let assets = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.candidates)
                 keep(assets, in: &target.sections[i])
                 // generated video clips are paid for too: Undo may switch back to Ken Burns, but never loses a clip
+                target.sections[i].retainedClips = TimelineEditor.uniqueClips(target.sections[i].retainedClips + current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap { $0.retainedClips + $0.clips })
                 let clipsHere = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.clips)
                 for c in clipsHere where !target.sections[i].clips.contains(where: { $0.id == c.id }) { target.sections[i].clips.append(c) }
             }
@@ -89,6 +91,7 @@ extension AppModel {
         }
         plan = restored; draftSections = state.sections; draftShorts = state.shorts; draftKey = state.key; selectedShort = state.selected
         lastEditAt = .distantPast; stopPlayback(); previewTask?.cancel(); live.pause(); live.invalidate(); persist()
+        retainHistoryMedia()
         selectedSection = min(selectedSection, (plan?.sections.count ?? 0) - 1)
         if showFullPreview { openFullPreview() }
         else if stage == .plan, currentShort != nil { refreshPreview(at: 0) }
@@ -248,7 +251,8 @@ extension AppModel {
         if section == -1 { guard p.intro.candidates.indices.contains(index) else { return } }
         else { guard p.sections.indices.contains(section), p.sections[section].candidates.indices.contains(index) else { return } }
         checkpoint("Choose saved artwork")
-        if section == -1 { p.intro.selected = index } else { p.sections[section].selected = index }
+        if section == -1 { p.intro.selected = index; p.intro.useClips = false; p.intro.mediaParts = nil; p.intro.playbackOffset = 0 }
+        else { p.sections[section].selected = index; p.sections[section].useClips = false; p.sections[section].mediaParts = nil; p.sections[section].playbackOffset = 0 }
         plan = p; draftSections = nil; live.invalidate(); persist()
     }
     /// Throws away one saved version of a part's artwork (never the one in use). Undo brings it back; its files stay until the song is cleaned up later.
@@ -265,16 +269,20 @@ extension AppModel {
     }
     func reassignPicture(from source: Int, to destination: Int) {
         if refuseWhileWorking() { return }
-        guard var p = plan, source != destination, p.sections.indices.contains(source), p.sections.indices.contains(destination), let a = p.sections[source].selectedCandidate else { return }
-        checkpoint("Move or swap pictures")
-        let b = p.sections[destination].selectedCandidate
-        func select(_ candidate: ImageCandidate?, in section: inout PhotoSection) {
-            guard let c = candidate else { section.selected = -1; return }
-            if let i = section.candidates.firstIndex(where: { $0.id == c.id }) { section.selected = i }
-            else { section.candidates.append(c); section.selected = section.candidates.count - 1 }
-        }
-        select(a, in: &p.sections[destination]); select(b, in: &p.sections[source])
+        guard var p = plan, source != destination, p.sections.indices.contains(source), p.sections.indices.contains(destination) else { return }
+        checkpoint("Move or swap artwork and video")
+        p.sections = TimelineEditor.reassign(p.sections, from: source, to: destination)
         plan = p; draftSections = nil; live.invalidate(); persist()
+    }
+    /// Cleanup reads this lease before removing unreferenced files; an in-memory Undo entry keeps its original on disk.
+    func retainHistoryMedia() {
+        guard let w = workDir else { return }
+        let files = Set((editUndo + editRedo).compactMap(\.plan).flatMap { p in
+            TimelineEditor.allMediaSections([p.intro] + p.sections).flatMap { s in
+                s.candidates.flatMap { [$0.fullFile, $0.thumbFile, $0.videoFile].compactMap { $0 } } + (s.clips + s.retainedClips).flatMap { [$0.file, $0.lastFrame] }
+            }
+        })
+        if let data = try? JSONEncoder().encode(files.sorted()) { try? data.write(to: w.appendingPathComponent("history_media.json"), options: .atomic) }
     }
     func backupForVersionChange() async throws {
         if stage == .loop, let p = loopProject, let w = loopDir {

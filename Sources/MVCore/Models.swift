@@ -160,13 +160,19 @@ public struct PhotoSection: Codable, Identifiable {
     public var clips: [SectionClip] = []     // generated video clips for this section
     public var repeatClips: Bool = false     // a single clip repeats (with a crossfade) instead of holding its last frame and moving the camera
     public var useClips: Bool = false        // false = Ken Burns on the picture (the default); true = play the clips, then freeze and Ken Burns for the rest
+    /// Source elapsed time at this section's start. Splits/Shorts preserve movie phase without duplicating or trimming originals.
+    public var playbackOffset: Double = 0
+    /// A joined section keeps its original visible media parts, in song time. nil = the ordinary single assignment above.
+    public var mediaParts: [PhotoSection]? = nil
+    /// Paid alternatives, including discarded/redone clips. Removing an assignment never destroys an original.
+    public var retainedClips: [SectionClip] = []
     public var focal: [String] = []          // the two focal points named in the picture idea; the camera moves from the first to the second
     public var promptManual: Bool = false    // true once you edit the idea yourself: the story logic check never changes it
     public var logicNote: String? = nil      // what the story logic check changed in this idea (shown under the idea)
     /// Whether this picture's idea shows what the picture to base it on shows (the same place, building or subject), and the idea that was decided for.
     /// A picture whose idea is about something else is drawn from its own words, not forced to look like that photo.
     public var usesSource: Bool? = nil, usesSourceFor: String? = nil
-    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal, usesSource, usesSourceFor }
+    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal, usesSource, usesSourceFor, playbackOffset, mediaParts, retainedClips }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id); start = try c.decode(Double.self, forKey: .start); end = try c.decode(Double.self, forKey: .end)
@@ -183,6 +189,9 @@ public struct PhotoSection: Codable, Identifiable {
         clips = try c.decodeIfPresent([SectionClip].self, forKey: .clips) ?? []
         useClips = try c.decodeIfPresent(Bool.self, forKey: .useClips) ?? false
         repeatClips = try c.decodeIfPresent(Bool.self, forKey: .repeatClips) ?? false
+        playbackOffset = try c.decodeIfPresent(Double.self, forKey: .playbackOffset) ?? 0
+        mediaParts = try c.decodeIfPresent([PhotoSection].self, forKey: .mediaParts)
+        retainedClips = try c.decodeIfPresent([SectionClip].self, forKey: .retainedClips) ?? []
         logicNote = try c.decodeIfPresent(String.self, forKey: .logicNote)
         usesSource = try c.decodeIfPresent(Bool.self, forKey: .usesSource); usesSourceFor = try c.decodeIfPresent(String.self, forKey: .usesSourceFor)
     }

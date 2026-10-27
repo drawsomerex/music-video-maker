@@ -59,6 +59,7 @@ final class PhotoScene {
     var kbStart: Double = .nan          // when that Ken Burns begins (video time); NaN = at the start of the scene
     let video: VideoClipSource?          // a video clip that plays during this scene instead of a moving still picture
     let a: Double, b: Double            // video-time interval
+    var sourceStart: Double = 0, sourceTimeOffset: Double = 0 // movie time is independent of transition handles and Short origin
     let seed: UInt64
     let focus: CGPoint                  // normalized saliency focus in [0, 1] x [0, 1]
     let vertical: Bool
@@ -71,6 +72,7 @@ final class PhotoScene {
         self.box = box
         self.video = video
         self.a = a
+        self.sourceStart = a
         self.b = b
         self.seed = seed
         self.focus = CGPoint(x: min(0.88, max(0.12, focus.x)), y: min(0.88, max(0.12, focus.y)))
@@ -121,7 +123,7 @@ final class PhotoScene {
         let u = 0.28 * u0 + 0.72 * uCos
 
         if !clipTrack.isEmpty {                                      // generated clips: play them, then fall through to the Ken Burns on the last frame
-            let local = t - a
+            let local = max(0, t - sourceStart + sourceTimeOffset)
             if let seg = clipTrack.last(where: { local >= $0.offset - 0.001 }), local < seg.offset + seg.seconds, let frame = seg.source.frame(at: max(0, local - seg.offset)) {
                 let iw = Double(frame.width), ih = Double(frame.height), target = Double(W) / Double(H)
                 let bw = iw / ih > target ? ih * target : iw, bh = bw / target
@@ -133,7 +135,7 @@ final class PhotoScene {
             }
         }
         if let v = video {
-            let shot = v.looped(at: max(0, t - a), sceneLength: self.b - a)
+            let shot = v.looped(at: max(0, t - sourceStart + sourceTimeOffset), sceneLength: self.b - a, always: true)
             if let frame = shot.main {
                 func put(_ img: CGImage) {
                     let iw = Double(img.width), ih = Double(img.height), target = Double(W) / Double(H)

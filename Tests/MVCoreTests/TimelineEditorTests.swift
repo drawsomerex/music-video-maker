@@ -142,13 +142,14 @@ final class TimelineEditorTests: XCTestCase {
     func clip(_ file: String, seconds: Double, offset: Double, trimStart: Double = 0, trimEnd: Double? = nil) -> SectionClip {
         var c = SectionClip(); c.file = file; c.seconds = seconds; c.offset = offset; c.trimStart = trimStart; c.trimEnd = trimEnd; return c
     }
-    func testPaidClipsStayWithOnePictureWhenSplit() {
+    func testSplitContinuesTheSamePaidClipAtItsSourceTime() {
         var a = section(0, 0, 20)
         a.clips = [clip("clips/a.mp4", seconds: 10, offset: 0)]; a.useClips = true; a.repeatClips = true
         let split = TimelineEditor.split([a], at: 12, lines: [])
         XCTAssertEqual(split[0].clips.count, 1)
-        XCTAssertTrue(split[1].clips.isEmpty, "both halves must not play the same paid clip")
-        XCTAssertFalse(split[1].useClips)
+        XCTAssertEqual(split[1].clips.first?.file, "clips/a.mp4")
+        XCTAssertTrue(split[1].useClips)
+        XCTAssertEqual(split[1].playbackOffset, 12)
     }
     func testJoinKeepsBothPicturesClipsOneAfterTheOther() {
         var a = section(0, 0, 10), b = section(1, 10, 20)
@@ -158,6 +159,37 @@ final class TimelineEditorTests: XCTestCase {
         XCTAssertEqual(joined[0].clips.map(\.file), ["clips/a.mp4", "clips/b.mp4"])
         XCTAssertEqual(joined[0].clips[1].offset, 10, accuracy: 0.001)
         XCTAssertFalse(joined[0].repeatClips, "two clips never repeat")
+    }
+    func testJoinKeepsDisabledClipsDisabledAndUsesOriginalBoundary() {
+        var a = section(0, 0, 10), b = section(1, 10, 20)
+        a.clips = [clip("hidden.mp4", seconds: 3, offset: 0)]
+        b.clips = [clip("visible.mp4", seconds: 5, offset: 0)]; b.useClips = true
+        let joined = TimelineEditor.join([a, b], before: 1)
+        let visible = TimelineEditor.renderSections(joined)
+        XCTAssertFalse(visible[0].useClips)
+        XCTAssertEqual(visible[1].start, 10)
+        XCTAssertEqual(joined[0].clips.first?.offset, 10)
+        XCTAssertEqual(joined[0].retainedClips.count, 2)
+    }
+    func testShortAndSplitKeepSourceTimeThroughJoinedSections() {
+        var a = section(0, 0, 10), b = section(1, 10, 20)
+        a.playbackOffset = 2; b.playbackOffset = 4
+        let joined = TimelineEditor.join([a, b], before: 1)
+        let window = TimelineEditor.shifted(TimelineEditor.cropped(joined[0], from: 8, to: 15), by: -8)
+        let parts = TimelineEditor.renderSections([window])
+        XCTAssertEqual(parts.map(\.start), [0, 2])
+        XCTAssertEqual(parts.map(\.playbackOffset), [10, 4])
+        let split = TimelineEditor.split(joined, at: 12, lines: [])
+        XCTAssertEqual(TimelineEditor.renderSections([split[1]]).first?.playbackOffset, 6)
+    }
+    func testReassignMovesVisibleMovieWithPicture() {
+        var a = section(0, 0, 10), b = section(1, 10, 20)
+        a.clips = [clip("a.mp4", seconds: 5, offset: 0)]; a.useClips = true
+        b.clips = [clip("b.mp4", seconds: 8, offset: 0)]; b.useClips = true
+        let moved = TimelineEditor.reassign([a, b], from: 0, to: 1)
+        XCTAssertEqual(moved[1].clips.first?.file, "a.mp4")
+        XCTAssertEqual(moved[0].clips.first?.file, "b.mp4")
+        XCTAssertEqual(moved.map(\.start), [0, 10])
     }
     func testClipPlaysOnlyTheChosenPartAndDefaultsDoNotLoop() {
         let c = clip("clips/a.mp4", seconds: 10, offset: 0, trimStart: 2, trimEnd: 7)

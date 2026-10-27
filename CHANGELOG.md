@@ -5,6 +5,9 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+- Splits and Shorts continue imported and generated clips at the original source time. Joining keeps each original visible assignment and its timing; unused clips stay unused.
+- Reassigning a picture moves its video assignment too. Deleted and redone media remain available to Undo and backups.
+
 - Added checked looping-project saves, visible save failures, looping-video Undo/Redo and complete version backups for both project types, including references, cast sheets and paid media.
 
 - Protected project/task ownership across cancellation, project switches and delayed results; failed highest-quality redraws release their editing lock.

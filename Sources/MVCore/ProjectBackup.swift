@@ -9,8 +9,9 @@ public enum ProjectBackup {
     public static func create(plan: Plan, work: URL) throws -> URL {
         try Pipeline.savePlan(plan, work)
         var copy = plan
-        var files = Set(([plan.intro] + plan.sections).flatMap(\.candidates).flatMap { [$0.fullFile, $0.thumbFile, $0.videoFile].compactMap { $0 } })
-        for s in [plan.intro] + plan.sections { for c in s.clips { files.insert(c.file); files.insert(c.lastFrame) } }
+        let media = TimelineEditor.allMediaSections([plan.intro] + plan.sections)
+        var files = Set(media.flatMap(\.candidates).flatMap { [$0.fullFile, $0.thumbFile, $0.videoFile].compactMap { $0 } })
+        for s in media { for c in s.clips + s.retainedClips { files.insert(c.file); files.insert(c.lastFrame) } }
         for file in [plan.source, plan.subjectPicture, plan.castSheet].compactMap({ $0 }) { files.insert(file) }
         if !plan.audioFile.isEmpty { files.insert(plan.audioFile) }
         for name in ["pending_video_jobs.json", "video_jobs.jsonl"] where FileManager.default.fileExists(atPath: work.appendingPathComponent(name).path) { files.insert(name) }

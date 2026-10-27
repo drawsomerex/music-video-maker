@@ -30,7 +30,8 @@ public final class FrameComposer: @unchecked Sendable {
     /// `short` renders only that song range (vertical, no title card, times shifted to start at 0).
     public init(plan fullPlan: Plan, work: URL, settings: VideoSettings, short: ShortClip? = nil, beats: [Double] = []) {
         W = settings.width; H = settings.height
-        let plan = short.map { FrameComposer.clip(fullPlan, to: $0) } ?? fullPlan
+        var plan = short.map { FrameComposer.clip(fullPlan, to: $0) } ?? fullPlan
+        plan.sections = TimelineEditor.renderSections(plan.sections)
         hasIntro = short == nil
         dyn = short?.dynamic ?? false
         style = ShortStyle.make(seed: short?.styleSeed ?? 1, clip: short)
@@ -94,9 +95,11 @@ public final class FrameComposer: @unchecked Sendable {
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
                                  shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
                                  video: repeatSource, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath)
+            scene.sourceStart = i == 0 ? 0 : sec.start + off
+            scene.sourceTimeOffset = sec.playbackOffset
             if hasTail {
                 scene.clipTrack = segs; scene.tail = true
-                if let l = segs.last { scene.kbStart = a + l.offset + l.seconds }
+                if let l = segs.last { scene.kbStart = scene.sourceStart + l.offset + l.seconds - sec.playbackOffset }
                 scene.subjects = tailFocal; scene.subjectsOrdered = tailFocal.count == 2 && sec.clips.last?.focalAX != nil && sec.clips.last?.trimEnd == nil
             } else if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
                 scene.subjects = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)]; scene.subjectsOrdered = true        // the picture's own two focal points, 1 → 2
@@ -138,10 +141,8 @@ public final class FrameComposer: @unchecked Sendable {
         q.songDuration = c.duration; q.audioOffset = 0; q.introDuration = 0
         q.lines = p.lines.map { l in var l = l; l.words = l.words.map { var w = $0; w.start -= c.start; w.end -= c.start; return w }; return l }
         q.sections = p.sections.filter { $0.end > c.start && $0.start < c.end }.map { s in
-            var s = s
-            let skipped = max(0, c.start - s.start)                       // a Short that starts inside this section skips the first part of it, and so of its video clips
-            s.clips = s.clips.compactMap { var k = $0; k.offset -= skipped; return k.offset + k.playSeconds > 0.1 ? k : nil }
-            s.start = max(s.start, c.start) - c.start; s.end = min(s.end, c.end) - c.start; return s }
+            let cropped = TimelineEditor.cropped(s, from: max(s.start, c.start), to: min(s.end, c.end))
+            return TimelineEditor.shifted(cropped, by: -c.start) }
         if q.sections.isEmpty { q.sections = [p.sections.first ?? p.intro] }
         // No picture change in the first/last 3 s: the title and the ending sit on one steady picture.
         if q.sections.count > 1, q.sections[0].duration < 3.0 { q.sections.removeFirst(); q.sections[0].start = 0 }

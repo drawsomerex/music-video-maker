@@ -68,13 +68,13 @@ extension AppModel {
         else { updateCandidate(section: section) { $0.videoRepeat = on } }
     }
 
-    func setClipMode(section: Int, use: Bool) { checkpoint("Change motion"); edit(section) { $0.useClips = use && !$0.clips.isEmpty } }
+    func setClipMode(section: Int, use: Bool) { checkpoint("Change motion"); edit(section) { $0.mediaParts = nil; $0.playbackOffset = 0; $0.useClips = use && !$0.clips.isEmpty } }
 
     func deleteClips(section: Int) {
         guard workDir != nil, sectionRef(section) != nil else { return }
         checkpoint("Delete video clips")
         // Remove the assignment, not the paid media. Undo/history and other sections may still reference these files.
-        edit(section) { $0.clips = []; $0.useClips = false }
+        edit(section) { $0.retainedClips = TimelineEditor.uniqueClips($0.retainedClips + $0.clips); $0.clips = []; $0.mediaParts = nil; $0.useClips = false }
     }
 
     /// Makes the clip(s). Single: one clip from the picture. Chain: clips back to back, each starting on the last frame of the one before.

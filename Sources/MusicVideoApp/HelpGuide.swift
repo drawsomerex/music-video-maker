@@ -45,11 +45,12 @@ enum HelpGuide {
         - "Split picture at point" starts a new picture at the chosen time, after showing the exact time. "Hear this change" plays around that point; use the split button again to commit after listening.
         - Every lyric line of the song is always visible in the list, with its time and a play button, grouped under its picture. Between two lines there is a "start a new picture here (time)" line: click it, then press "Start new picture at (time)". Only that one picture is divided; every other picture stays exactly as it was, and the new bottom picture starts with the same artwork. A bar below the list says what changed and has an "Undo" button.
         - Your picture divisions are saved as you make them, so they are still there if you listen to the song again or restart the app.
-        - "Split in two" makes two equal picture sections. Both initially reuse the same artwork.
-        - "Join with previous" removes only that boundary. Any neighbors can join, including music-only sections and singing. The first artwork is used and the other artwork is kept under "Choose saved artwork".
+        - "Split in two" makes two equal picture sections. Both initially reuse the same artwork. Movies continue at their original source time instead of starting again.
+        - "Join with previous" removes only that boundary. Any neighbors can join, including music-only sections and singing. Both original visible media assignments keep their original song times inside the joined row. Choosing saved artwork explicitly replaces the joined row with that picture.
         - "Split long sections" divides sections over 30 seconds evenly.
         - "Restore automatic divisions" restores verse and music divisions after confirmation, while keeping artwork and Shorts. It can be undone.
         Automatic divisions start with one picture per verse and music break of at least 4 seconds. Music breaks over 40 seconds divide into pictures of at most 30 seconds. Manual boundaries take precedence, even if all boundaries have been removed.
+        Reassigning a picture moves its active movie with it, including its trim and repeat choice. Paid alternatives stay available and Undo restores the assignment.
         Splitting or joining pictures never changes audio, lyrics, or Shorts. Your raw lyrics are kept, including verse formatting. Bracketed stage directions are omitted from captions and picture ideas.
         To split a Short: on the Song page, open "Pictures & Shorts" and select its "Shorts" tab. Choose the Short, move the listening point inside it (at least half a second from either end), then press "Split at point".
         Shorts tab (also on the first page):

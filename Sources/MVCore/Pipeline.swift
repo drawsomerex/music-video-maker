@@ -520,7 +520,7 @@ public enum Pipeline {
         var c = ImageCandidate(id: "video:\(UUID().uuidString)", provider: "Video", thumbURL: "", fullURL: "", pageURL: "", width: w, height: h, credit: url.lastPathComponent, query: "", rank: 0)
         c.thumbFile = thumb; c.fullFile = poster; c.videoFile = vid; c.videoLength = secs
         c.libraryName = PictureLibrary.save(dst, title: plan.title)
-        if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1 } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1 }
+        if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1; plan.intro.mediaParts = nil; plan.intro.playbackOffset = 0; plan.intro.useClips = false } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1; plan.sections[index].mediaParts = nil; plan.sections[index].playbackOffset = 0; plan.sections[index].useClips = false }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
         var notes: [String] = []
@@ -532,10 +532,11 @@ public enum Pipeline {
     /// Deletes orphaned `section_*` files (pictures, thumbnails, clips, last frames) no longer referenced by any section in `plan`.
     /// Files made in the last ten minutes are never touched: another task may be making them right now with its own copy of the plan.
     public static func cleanupUnreferencedImages(plan: Plan, work: URL, minAge: TimeInterval = 600) {
-        let allSecs = [plan.intro] + plan.sections
-        let usedClips = Set(allSecs.flatMap(\.clips).flatMap { [$0.file, $0.lastFrame] })
-        let usedFull = Set(allSecs.flatMap(\.candidates).flatMap { [$0.fullFile, $0.videoFile].compactMap { $0 } })
-        let usedThumb = Set(allSecs.flatMap(\.candidates).compactMap(\.thumbFile))
+        let allSecs = TimelineEditor.allMediaSections([plan.intro] + plan.sections)
+        let history = Set((try? Data(contentsOf: work.appendingPathComponent("history_media.json"))).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? [])
+        let usedClips = Set(allSecs.flatMap { $0.clips + $0.retainedClips }.flatMap { [$0.file, $0.lastFrame] }).union(history)
+        let usedFull = Set(allSecs.flatMap(\.candidates).flatMap { [$0.fullFile, $0.videoFile].compactMap { $0 } }).union(history)
+        let usedThumb = Set(allSecs.flatMap(\.candidates).compactMap(\.thumbFile)).union(history)
         let fm = FileManager.default
         for (sub, used) in [("full", usedFull), ("thumbs", usedThumb), ("clips", usedClips), ("frames", usedClips)] {
             let dir = work.appendingPathComponent(sub)
@@ -569,7 +570,7 @@ public enum Pipeline {
         c.thumbFile = thumb; c.fullFile = full
         c.libraryName = PictureLibrary.save(dst, title: plan.title)
         if let a = ImageScorer.analyze(fileURL: work.appendingPathComponent(thumb)) { c.focusX = Double(a.focus.x); c.focusY = Double(a.focus.y) }
-        if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1 } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1 }
+        if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1; plan.intro.mediaParts = nil; plan.intro.playbackOffset = 0; plan.intro.useClips = false } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1; plan.sections[index].mediaParts = nil; plan.sections[index].playbackOffset = 0; plan.sections[index].useClips = false }
         cleanupUnreferencedImages(plan: plan, work: work)
         try? savePlan(plan, work)
         let aspect = Double(w) / Double(h)
