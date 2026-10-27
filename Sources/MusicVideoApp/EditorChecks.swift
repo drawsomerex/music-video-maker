@@ -22,6 +22,14 @@ enum EditorChecks {
             model.mergeTaskResult(paid, startedFrom: p, work: work, section: -1, artwork: true)
             check(model.plan?.projectID == "another-project" && model.plan?.totalGenerationCostUSD == other.totalGenerationCostUSD, "old result cannot enter another project")
             model.plan = original
+            if !original.sections.isEmpty {
+                var completed = original; var clip = SectionClip(); clip.jobID = "paid-once"; clip.costUSD = 0.18
+                completed.sections[0].retainedClips.append(clip); completed.totalVideoCostUSD += 0.18
+                model.mergeTaskResult(completed, startedFrom: original, work: work, section: 0)
+                model.mergeTaskResult(completed, startedFrom: original, work: work, section: 0)
+                check(abs((model.plan?.totalVideoCostUSD ?? 0) - original.totalVideoCostUSD - 0.18) < 0.00001, "live state counts a recovered provider job once")
+                model.plan = original
+            }
             var releaseOld: CheckedContinuation<Void, Never>?
             model.runBackground(initialPhase: "Old") { await withCheckedContinuation { releaseOld = $0 } }
             while releaseOld == nil { await Task.yield() }

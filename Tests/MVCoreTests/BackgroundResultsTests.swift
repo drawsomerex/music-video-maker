@@ -33,11 +33,13 @@ final class BackgroundResultsTests: XCTestCase {
         try Pipeline.saveMediaResult(done, startedFrom: before, section: 0, work: dir, artwork: false)
         let saved = try Pipeline.loadPlan(dir)
         XCTAssertEqual(saved.totalVideoCostUSD, 0.18); XCTAssertEqual(saved.sections[0].retainedClips.count, 1)
+        XCTAssertEqual(Pipeline.videoCostDelta(done, startedFrom: before, mergingInto: saved), 0)
         let loopBefore = LoopProject(); try LoopVideo.saveChecked(loopBefore, dir)
         var loopDone = loopBefore; loopDone.clips = ["clip-paid.mp4"]; loopDone.clip = "clip-paid.mp4"; loopDone.videoUSD = 0.5; loopDone.versionCosts["clip-paid.mp4"] = 0.5
         try LoopVideo.saveMediaResult(loopDone, startedFrom: loopBefore, dir: dir)
         try LoopVideo.saveMediaResult(loopDone, startedFrom: loopBefore, dir: dir)
         XCTAssertEqual(try LoopVideo.load(dir).videoUSD, 0.5)
+        XCTAssertEqual(LoopVideo.videoCostDelta(loopDone, startedFrom: loopBefore, mergingInto: try LoopVideo.load(dir)), 0)
     }
     func testPaidPictureResultPreservesInterveningSavedEdits() throws {
         let before = plan(); try Pipeline.savePlan(before, dir)

@@ -4,6 +4,13 @@ import Foundation
 extension Pipeline {
     static let projectWriteLock = NSRecursiveLock()
 
+    public static func videoCostDelta(_ done: Plan, startedFrom before: Plan, mergingInto current: Plan) -> Double {
+        func clips(_ plan: Plan) -> [SectionClip] { TimelineEditor.uniqueClips(TimelineEditor.allMediaSections([plan.intro] + plan.sections).flatMap { $0.clips + $0.retainedClips }) }
+        let oldJobs = Set(clips(before).compactMap(\.jobID)), savedJobs = Set(clips(current).compactMap(\.jobID))
+        let duplicate = clips(done).filter { c in c.jobID.map { !oldJobs.contains($0) && savedJobs.contains($0) } ?? false }.reduce(0) { $0 + $1.costUSD }
+        return max(0, done.totalVideoCostUSD - before.totalVideoCostUSD - duplicate)
+    }
+
     /// Merge a completed paid output into the latest saved project under the same lock as ordinary saves.
     /// Keep the task's local result unchanged so its caller can merge the same cost delta into live state exactly once.
     static func saveMediaResult(_ done: Plan, startedFrom before: Plan, section index: Int, work: URL, artwork: Bool) throws {
@@ -13,11 +20,7 @@ extension Pipeline {
         guard current.projectID == before.projectID else { throw MVError("The original project identity changed. The new media stays in its original folder.") }
         let produced = index < 0 ? done.intro : done.sections[index]
         let initial = index < 0 ? before.intro : before.sections[index]
-        let originalJobs = Set((initial.clips + initial.retainedClips).compactMap(\.jobID))
-        let savedJobs = Set(TimelineEditor.allMediaSections([current.intro] + current.sections).flatMap { $0.clips + $0.retainedClips }.compactMap(\.jobID))
-        let duplicateProviderCost = TimelineEditor.uniqueClips(produced.retainedClips).filter { clip in
-            guard let job = clip.jobID else { return false }; return !originalJobs.contains(job) && savedJobs.contains(job)
-        }.reduce(0) { $0 + $1.costUSD }
+        let videoDelta = videoCostDelta(done, startedFrom: before, mergingInto: current)
         func merge(_ target: inout PhotoSection) {
             for candidate in produced.candidates where !target.candidates.contains(where: { $0.id == candidate.id }) { target.candidates.append(candidate) }
             target.retainedClips = TimelineEditor.uniqueClips(target.retainedClips + produced.retainedClips)
@@ -33,7 +36,7 @@ extension Pipeline {
             for i in current.sections.indices where current.sections[i].end > initial.start && current.sections[i].start < initial.end { merge(&current.sections[i]) }
         }
         current.totalGenerationCostUSD += max(0, done.totalGenerationCostUSD - before.totalGenerationCostUSD)
-        current.totalVideoCostUSD += max(0, done.totalVideoCostUSD - before.totalVideoCostUSD - duplicateProviderCost)
+        current.totalVideoCostUSD += videoDelta
         current.imagesGeneratedCount += max(0, done.imagesGeneratedCount - before.imagesGeneratedCount)
         if done.lastImageCostUSD != before.lastImageCostUSD { current.lastImageCostUSD = done.lastImageCostUSD }
         if done.castSheet != before.castSheet && current.castSheet == before.castSheet { current.castSheet = done.castSheet }
@@ -43,6 +46,11 @@ extension Pipeline {
 
 extension LoopVideo {
     static let projectWriteLock = NSRecursiveLock()
+
+    public static func videoCostDelta(_ done: LoopProject, startedFrom before: LoopProject, mergingInto current: LoopProject) -> Double {
+        let duplicate = done.clips.filter { !before.clips.contains($0) && current.clips.contains($0) }.reduce(0) { $0 + (done.versionCosts[$1] ?? 0) }
+        return max(0, done.videoUSD - before.videoUSD - duplicate)
+    }
 
     /// Three-way merge for a background loop operation. User edits win conflicts; paid additions and cost deltas survive Stop.
     static func saveMediaResult(_ done: LoopProject, startedFrom before: LoopProject, dir: URL) throws {

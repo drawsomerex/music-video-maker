@@ -132,9 +132,10 @@ extension AppModel {
                 if loopJobID != owner || Task.isCancelled {
                     // A completed paid original still belongs to this project after local Stop. Retain it without changing the visible scene.
                     if var cur = loopProject {
+                        let videoDelta = LoopVideo.videoCostDelta(done, startedFrom: p0, mergingInto: cur)
                         for file in done.pictures where !p0.pictures.contains(file) && !cur.pictures.contains(file) { cur.pictures.append(file) }
                         for file in done.clips where !p0.clips.contains(file) && !cur.clips.contains(file) { cur.clips.append(file) }
-                        cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += max(0, done.videoUSD - p0.videoUSD)
+                        cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += videoDelta
                         cur.pictureCount += max(0, done.pictureCount - p0.pictureCount)
                         cur.versionCosts.merge(done.versionCosts) { _, new in new }; cur.versionQualities.merge(done.versionQualities) { _, new in new }
                     cur.motionByPicture.merge(done.motionByPicture) { old, _ in old }
@@ -143,6 +144,7 @@ extension AppModel {
                     return
                 }
                 if var cur = loopProject, cur.id == done.id {
+                    let videoDelta = LoopVideo.videoCostDelta(done, startedFrom: p0, mergingInto: cur)
                     for file in done.pictures where !cur.pictures.contains(file) { cur.pictures.append(file) }
                     for file in done.clips where !cur.clips.contains(file) { cur.clips.append(file) }
                     if cur.picture == p0.picture { cur.picture = done.picture }
@@ -168,7 +170,7 @@ extension AppModel {
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
-                    cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += max(0, done.videoUSD - p0.videoUSD); cur.pictureCount += max(0, done.pictureCount - p0.pictureCount); cur.pendingJob = done.pendingJob; cur.pendingOptions = done.pendingOptions; cur.output = done.output
+                    cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += videoDelta; cur.pictureCount += max(0, done.pictureCount - p0.pictureCount); cur.pendingJob = done.pendingJob; cur.pendingOptions = done.pendingOptions; cur.output = done.output
                     loopProject = cur; planRevision += 1; checkpointRevision = nil
                     try LoopVideo.saveChecked(cur, d); try LoopVideo.acknowledgeLoopJobs(cur, dir: d); saveStatus = "Saved"
                 }

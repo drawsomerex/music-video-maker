@@ -1054,6 +1054,7 @@ final class AppModel: ObservableObject {
     func mergeTaskResult(_ done: Plan, startedFrom before: Plan, work origin: URL, section: Int, artwork: Bool = false, idea: Bool = false, clips: Bool = false) {
         // Paid outputs are persisted by the core into origin. A closed project's result must never enter another open project.
         guard var cur = plan, workDir?.standardizedFileURL == origin.standardizedFileURL, cur.projectID == before.projectID else { return }
+        let videoDelta = Pipeline.videoCostDelta(done, startedFrom: before, mergingInto: cur)
         let d: PhotoSection? = section < 0 ? done.intro : (done.sections.indices.contains(section) ? done.sections[section] : nil)
         func apply(_ s: inout PhotoSection) {
             guard let d else { return }
@@ -1074,7 +1075,7 @@ final class AppModel: ObservableObject {
         if section < 0 { apply(&cur.intro) } else if cur.sections.indices.contains(section), cur.sections.count == done.sections.count { apply(&cur.sections[section]) }
         cur.totalGenerationCostUSD += done.totalGenerationCostUSD - before.totalGenerationCostUSD
         cur.imagesGeneratedCount += done.imagesGeneratedCount - before.imagesGeneratedCount
-        cur.totalVideoCostUSD += done.totalVideoCostUSD - before.totalVideoCostUSD
+        cur.totalVideoCostUSD += videoDelta
         if done.lastImageCostUSD != before.lastImageCostUSD { cur.lastImageCostUSD = done.lastImageCostUSD }
         plan = cur; persist(); live.invalidate()
     }

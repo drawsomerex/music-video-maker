@@ -193,12 +193,13 @@ extension AppModel {
         Task {
             defer { recoveringClips = false }
             var p = plan!
-            let before = p.totalVideoCostUSD
+            let before = p
             let notes = await Pipeline.recoverPendingClips(plan: &p, work: w, config: config)
             guard !notes.isEmpty, var cur = plan, workDir == w, cur.projectID == p.projectID else { return }
+            let videoDelta = Pipeline.videoCostDelta(p, startedFrom: before, mergingInto: cur)
             cur.intro.retainedClips = TimelineEditor.uniqueClips(cur.intro.retainedClips + p.intro.retainedClips)
             for i in p.sections.indices where cur.sections.indices.contains(i) { cur.sections[i].retainedClips = TimelineEditor.uniqueClips(cur.sections[i].retainedClips + p.sections[i].retainedClips) }
-            cur.totalVideoCostUSD += p.totalVideoCostUSD - before
+            cur.totalVideoCostUSD += videoDelta
             plan = cur; persist(); live.invalidate(); notice = notes.joined(separator: "\n")
             for c in TimelineEditor.allMediaSections([cur.intro] + cur.sections).flatMap({ $0.retainedClips }) { if let job = c.jobID { try? Pipeline.acknowledgeClip(job, work: w) } }
         }
