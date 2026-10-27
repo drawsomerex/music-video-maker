@@ -17,7 +17,13 @@ public enum TimelineEditor {
     public static func join(_ sections: [PhotoSection], before index: Int) -> [PhotoSection] {
         guard index > 0, sections.indices.contains(index) else { return sections }
         var out = sections
-        let left = out[index - 1], right = out[index]
+        let left = out[index - 1]
+        var right = out[index]
+        let usedIDs = Set(allMediaSections([left]).flatMap(\.clips).map(\.id))
+        var renamed: [String: String] = [:]
+        for clip in allMediaSections([right]).flatMap(\.clips) where usedIDs.contains(clip.id) { if renamed[clip.id] == nil { renamed[clip.id] = UUID().uuidString } }
+        editMedia(&right) { part in for i in part.clips.indices { if let id = renamed[part.clips[i].id] { part.clips[i].id = id } } }
+
         // Keep visible assignments and their source times. Stored, disabled alternatives never become active merely because of a join.
         out[index - 1].mediaParts = renderSections([left]) + renderSections([right])
         out[index - 1].end = right.end
@@ -55,7 +61,7 @@ public enum TimelineEditor {
         }
     }
     public static func uniqueClips(_ clips: [SectionClip]) -> [SectionClip] {
-        var seen = Set<String>(); return clips.filter { seen.insert($0.id).inserted }
+        var seen = Set<String>(); return clips.filter { seen.insert($0.jobID ?? $0.id).inserted }
     }
     /// Crops the timeline window, not the underlying movie. All source types use the same elapsed-time mapping.
     public static func cropped(_ section: PhotoSection, from start: Double, to end: Double) -> PhotoSection {

@@ -24,6 +24,21 @@ final class BackgroundResultsTests: XCTestCase {
         let opened = try Pipeline.loadPlan(dir)
         XCTAssertFalse(opened.projectID.isEmpty); XCTAssertEqual(try Pipeline.loadPlan(dir).projectID, opened.projectID)
     }
+    func testRepeatedStalePaidResultCountsProviderJobOnlyOnce() throws {
+        let before = plan(); try Pipeline.savePlan(before, dir)
+        var done = before; var clip = SectionClip(); clip.jobID = "paid-once"; clip.file = "clip.mp4"; clip.costUSD = 0.18
+        done.sections[0].retainedClips = [clip]; done.totalVideoCostUSD = 0.18
+        try Pipeline.saveMediaResult(done, startedFrom: before, section: 0, work: dir, artwork: false)
+        clip.id = UUID().uuidString; done.sections[0].retainedClips = [clip]
+        try Pipeline.saveMediaResult(done, startedFrom: before, section: 0, work: dir, artwork: false)
+        let saved = try Pipeline.loadPlan(dir)
+        XCTAssertEqual(saved.totalVideoCostUSD, 0.18); XCTAssertEqual(saved.sections[0].retainedClips.count, 1)
+        let loopBefore = LoopProject(); try LoopVideo.saveChecked(loopBefore, dir)
+        var loopDone = loopBefore; loopDone.clips = ["clip-paid.mp4"]; loopDone.clip = "clip-paid.mp4"; loopDone.videoUSD = 0.5; loopDone.versionCosts["clip-paid.mp4"] = 0.5
+        try LoopVideo.saveMediaResult(loopDone, startedFrom: loopBefore, dir: dir)
+        try LoopVideo.saveMediaResult(loopDone, startedFrom: loopBefore, dir: dir)
+        XCTAssertEqual(try LoopVideo.load(dir).videoUSD, 0.5)
+    }
     func testPaidPictureResultPreservesInterveningSavedEdits() throws {
         let before = plan(); try Pipeline.savePlan(before, dir)
         var edited = before; edited.title = "After"; edited.sections[0].prompt = "My new idea"

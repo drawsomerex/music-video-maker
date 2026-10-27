@@ -6,10 +6,11 @@ import MVCore
 struct ClipPlayer: View {
     let url: URL
     var autoplay = false
+    var aspect: Double = 16.0 / 9
     @State private var player: AVPlayer?
     var body: some View {
         Group { if let player { PlayerView(player: player) } else { Color.black } }
-            .aspectRatio(16.0 / 9, contentMode: .fit)
+            .aspectRatio(aspect, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .onAppear { player = AVPlayer(url: url); if autoplay { player?.play() } }
             .onChange(of: url) { _, u in player = AVPlayer(url: u) }

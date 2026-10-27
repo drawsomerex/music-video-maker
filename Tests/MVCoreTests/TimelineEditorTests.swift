@@ -151,6 +151,13 @@ final class TimelineEditorTests: XCTestCase {
         XCTAssertTrue(split[1].useClips)
         XCTAssertEqual(split[1].playbackOffset, 12)
     }
+    func testRejoinedClipRowsHaveDistinctEditableIDs() {
+        var a = section(0, 0, 20); a.clips = [clip("clip.mp4", seconds: 8, offset: 0)]; a.useClips = true
+        let split = TimelineEditor.split([a], at: 10, lines: [])
+        let joined = TimelineEditor.join(split, before: 1)
+        XCTAssertEqual(Set(joined[0].clips.map(\.id)).count, 2)
+        XCTAssertEqual(joined[0].clips.map(\.id), TimelineEditor.renderSections(joined).flatMap(\.clips).map(\.id))
+    }
     func testJoinKeepsBothPicturesClipsOneAfterTheOther() {
         var a = section(0, 0, 10), b = section(1, 10, 20)
         a.clips = [clip("clips/a.mp4", seconds: 10, offset: 0)]; a.useClips = true

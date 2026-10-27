@@ -126,7 +126,7 @@ struct SetupView: View {
                     Label("Music video with lyrics", systemImage: "text.bubble").tag(0)
                     Label("Looping long music video", systemImage: "repeat").tag(1)
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 460)
-                    .help("Music video with lyrics: pictures that change with the song and the words on screen. Looping long music video: one song and one seamlessly looping 15-second scene, made into a 1 to 12 hour video (study music).")
+                    .help("Music video with lyrics: pictures that change with the song and the words on screen. Looping long music video: one song and one or more seamlessly looping short scenes, made into a 1 to 12 hour video (study music).")
                 Spacer(minLength: 0)
                 Button { model.showProjects = true } label: { Label("Projects", systemImage: "square.grid.2x2") }
                     .help("All your music videos and looping videos: open one, show it in Finder, or move it to the Trash. (Command-O)")

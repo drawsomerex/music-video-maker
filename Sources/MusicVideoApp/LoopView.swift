@@ -62,6 +62,7 @@ struct LoopView: View {
         .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
         .sheet(isPresented: $showSubject) { FindPictureSheet(set: { model.loopSetReference($0) }) }
         .sheet(isPresented: Binding(get: { model.loopSample != nil }, set: { if !$0 { model.loopSample = nil } })) {
+            let portrait = model.loopSample?.lastPathComponent == "short-preview.mp4"
             VStack(spacing: 12) {
                 HStack {
                     Text("Preview").font(.headline); Spacer()
@@ -71,9 +72,9 @@ struct LoopView: View {
                     }
                     Button("Done") { model.loopSample = nil }.keyboardShortcut(.defaultAction)
                 }
-                if let u = model.loopSample { ClipPlayer(url: u, autoplay: true).frame(minWidth: 640, minHeight: 360) }
-                Text("A short part of the long video, exactly as it will be, with sound.").font(.callout).foregroundStyle(.secondary)
-            }.padding(20).frame(minWidth: 680, idealWidth: 900)
+                if let u = model.loopSample { ClipPlayer(url: u, autoplay: true, aspect: portrait ? 9.0 / 16 : 16.0 / 9).frame(width: portrait ? 320 : 640, height: portrait ? 568 : 360) }
+                Text(portrait ? "Your portrait Short with the chosen text and framing, with sound." : "A short part of the long video, exactly as it will be, with sound.").font(.callout).foregroundStyle(.secondary)
+            }.padding(20).frame(minWidth: portrait ? 360 : 680, idealWidth: portrait ? 420 : 900)
         }
     }
 
@@ -330,7 +331,7 @@ struct LoopView: View {
                     Text("Standard 768p → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: false, perSecond768: model.videoPricePerSecond, seconds: p.clipLength))))").tag(false)
                     Text("Sharp 2K → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: true, perSecond768: model.videoPricePerSecond, seconds: p.clipLength))))").tag(true)
                 }.pickerStyle(.segmented).frame(maxWidth: 540)
-                    .help("HeyGen makes clips at 768p or 2K (it has no 1080p setting). Prices are HeyGen's list prices (half while their promotion runs).")
+                    .help("HeyGen makes clips at 768p or 2K (it has no 1080p setting). Prices are HeyGen's list estimates; the actual billed cost is shown afterwards.")
                 Text("Either way the long video is 1080p. Standard is made at 768p and scaled up, so it's a little soft; Sharp is made at 2K and scaled down, so it has full 1080p detail.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ClipFirstFrameView(file: model.loopFile(p.picture), sharp: p.sharpClip)
