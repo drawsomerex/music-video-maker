@@ -5,6 +5,18 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+- Added a free pre-export check for missing referenced media, low-resolution pictures and pending clip jobs. Native builds now use a complete dedicated dependency lockfile.
+
+- Both clip workflows offer 3-, 5-, 8- and 15-second motion with Standard/Sharp quality. Three seconds uses a five-second order with its full price disclosed. Short clips now receive a feasible loop search and show their repeat interval.
+- Music clips wait for approval before use; Redo and Discard retain paid originals under Earlier clips. Accepted jobs are saved before polling, attached before recovery records are cleared, and recovered by stable job identity. Failed HTTP responses and unreadable video downloads are rejected.
+- Generated loop clips honor the same realism-check preference as music clips. Reusing earlier pictures reuses their motion description without a paid request.
+- Clip playback uses the AppKit player. Precise typed trim times and accessible trim markers complement drag and nudge controls.
+- Help now explains current cloud data use, duration billing, repeat overlap, recovery, exact export length and both workflows. Shorts stay on request, including after deleting the list. Loop projects supply their own context to the help assistant.
+- Reused image-processing contexts and capped in-flight frame memory. Highest quality and successful local enlargement are reported separately.
+
+
+- Fixed-duration looping videos now end at the selected length, including the final sound and picture fade. A 15-minute track repeat can no longer extend a one-hour video to another whole turn.
+
 - Splits and Shorts continue imported and generated clips at the original source time. Joining keeps each original visible assignment and its timing; unused clips stay unused.
 - Reassigning a picture moves its video assignment too. Deleted and redone media remain available to Undo and backups.
 

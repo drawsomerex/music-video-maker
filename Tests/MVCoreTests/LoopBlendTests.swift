@@ -95,8 +95,9 @@ final class LoopBlendTests: XCTestCase {
     }
 
     func testASteadyWheelAndWaterThatGoesBackAndForthAreLeftAlone() throws {
-        XCTAssertEqual(LoopVideo.turnReversals(try clip("wheel-steady.mp4")), [])
-        XCTAssertEqual(LoopVideo.turnReversals(try clip("waves-reverse.mp4")), [], "water going one way and then the other is natural (surf does it)")
-        XCTAssertEqual(LoopVideo.turnReversals(try clip("drift.mp4")), [])
+        let steady = try clip("wheel-steady.mp4"), waves = try clip("waves-reverse.mp4"), drift = try clip("drift.mp4")
+        XCTAssertEqual(LoopVideo.turnReversals(steady), [])
+        XCTAssertEqual(LoopVideo.turnReversals(waves), [], "water going one way and then the other is natural (surf does it)")
+        XCTAssertEqual(LoopVideo.turnReversals(drift), [])
     }
 }

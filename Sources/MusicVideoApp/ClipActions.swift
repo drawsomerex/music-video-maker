@@ -5,6 +5,8 @@ import MVCore
 enum ClipDecision { case next, redo, stop, use, discard }
 
 struct ClipJob {
+    var id = UUID()
+    var preview: SectionClip? = nil
     var section: Int
     var chain: Bool
     var secondsList: [Int]            // the clips still to make, in order (including the one in progress)
@@ -31,13 +33,19 @@ extension AppModel {
         guard let p = plan else { return [] }
         let dur = section < 0 ? p.introDuration : (p.sections.indices.contains(section) ? p.sections[section].duration : 0)
         guard dur > 0 else { return [] }
-        if !chain { return [OpenRouterVideo.clipSeconds(forSectionSeconds: dur)] }
+        if !chain { return [(section < 0 ? p.intro : p.sections[section]).clipOptions.generatedSeconds(section: dur)] }
         let have = (section < 0 ? p.intro : p.sections[section]).clips.reduce(0) { $0 + $1.playSeconds }
         var out: [Int] = []; var left = Int(ceil(dur - have - 0.001))
         while left > 0 { let s = min(OpenRouterVideo.maxSeconds, max(OpenRouterVideo.minSeconds, left)); out.append(s); left -= s }
         return out
     }
-    func clipPriceUSD(_ seconds: [Int]) -> Double { Double(seconds.reduce(0, +)) * videoPricePerSecond }
+    func clipPriceUSD(_ seconds: [Int], sharp: Bool = false) -> Double { Double(seconds.reduce(0, +)) * (sharp ? 0.10 : videoPricePerSecond) }
+    func setClipOptions(section: Int, seconds: Int?, sharp: Bool, repeatClip: Bool) {
+        checkpoint("Change clip options"); edit(section) { $0.clipOptions = ClipOptions(seconds: seconds, sharp: sharp); $0.repeatClips = repeatClip }
+    }
+    func useSavedClip(section: Int, clip: SectionClip) {
+        checkpoint("Use saved clip"); edit(section) { $0.clips = [clip]; $0.useClips = true; $0.mediaParts = nil; $0.playbackOffset = 0 }
+    }
     func refreshVideoPrice() { Task { videoPricePerSecond = await OpenRouterVideo.pricePerSecond() } }
 
     private func sectionRef(_ i: Int) -> PhotoSection? { guard let p = plan else { return nil }; return i < 0 ? p.intro : (p.sections.indices.contains(i) ? p.sections[i] : nil) }
@@ -86,12 +94,14 @@ extension AppModel {
         guard !secs.isEmpty else { return }
         config = Config.load()
         let spentBefore = plan?.totalVideoCostUSD ?? 0
+        clipTaskID = UUID(); let owner = clipTaskID
         clipJob = ClipJob(section: section, chain: chain, secondsList: secs)
         clipTask = Task { [weak self] in
             guard let self else { return }
             do { try await self.runClips(section: section, chain: chain, work: w) }
             catch is CancellationError { }
-            catch { self.clipJob?.failed = error.localizedDescription }
+            catch { if self.clipTaskID == owner { self.clipJob?.failed = error.localizedDescription } }
+            guard self.clipTaskID == owner else { return }
             if self.clipJob?.failed == nil {
                 self.clipJob = nil
                 let spent = (self.plan?.totalVideoCostUSD ?? 0) - spentBefore
@@ -104,12 +114,13 @@ extension AppModel {
     private func runClips(section: Int, chain: Bool, work w: URL) async throws {
         guard let job = clipJob, let sec0 = sectionRef(section), let p0 = plan else { return }
         // the credit must cover the whole job, so it can never run dry halfway
-        let price = clipPriceUSD(job.secondsList)
+        let price = clipPriceUSD(job.secondsList, sharp: sec0.clipOptions.sharp)
         if let rem = try? await OpenRouter.fetchCredits(apiKey: config.openRouterKey).remaining {
             openRouterCredits = rem
             if rem < price { throw MVError("This needs about \(OpenRouter.formatUSD(price)) of OpenRouter credit but only \(OpenRouter.formatCredits(rem)) is left. Add credit and try again.") }
         }
         // story prompts for the clips from the local model (one call)
+        try Task.checkCancellation()
         clipJob?.phase = "Writing the clip prompts…"
         let lines = p0.lines
         let ids = sec0.lineIDs.sorted()
@@ -120,7 +131,7 @@ extension AppModel {
         }()
         let omlx = OMLX(config: config); try? await omlx.ensureReady()
         let shots = await PromptWriter(omlx: omlx).clipShots(idea: sec0.prompt, lyricsPerClip: perClip, title: p0.title, subject: p0.description, setting: p0.setting, focal: sec0.selectedCandidate?.focalNames.count == 2 ? sec0.selectedCandidate!.focalNames : sec0.focal)
-        let wasUsing = sec0.useClips
+        try Task.checkCancellation()
         var base = sec0.clips                                  // clips already in the section stay when the whole section is continued
         if !chain { base = []; checkpoint("Make video clip") } else { checkpoint("Make video clips") }
         var made: [SectionClip] = []
@@ -135,38 +146,37 @@ extension AppModel {
             guard var p = plan else { return }
             let before = p
             var clip = try await Pipeline.makeClip(plan: &p, section: section, seconds: job.secondsList[k], prompt: prompt, firstFrame: firstFrame, offset: offset, work: w, config: config,
-                                                   onPhase: { ph in Task { @MainActor in self.clipJob?.phase = ph } })
-            if config.videoRealismCheck {
+                                                   onPhase: { ph in Task { @MainActor in if self.clipJob?.id == job.id { self.clipJob?.phase = ph } } }, options: chain ? ClipOptions(sharp: sec0.clipOptions.sharp) : sec0.clipOptions)
+            if config.videoRealismCheck && !Task.isCancelled {
                 clipJob?.phase = "Checking the clip looks physically believable…"
                 let r = await Pipeline.realismWarning(clipFile: w.appendingPathComponent(clip.file), idea: sec0.prompt, config: config)
                 clip.warning = r.warning; p.totalVideoCostUSD += r.costUSD
             }
             // keep the new clip with the section (not yet used until you accept it)
             let shown = base + made + [clip]
-            if section < 0 { p.intro.clips = shown; p.intro.useClips = true } else { p.sections[section].clips = shown; p.sections[section].useClips = true }      // a new clip is in use straight away
-            mergeTaskResult(p, startedFrom: before, work: w, section: section, clips: true)          // edits you made while it was being made are kept
+            // The paid original is already durable in retainedClips. Approval controls the visible assignment.
+            if clipJob?.id == job.id { clipJob?.preview = clip }
+            mergeTaskResult(p, startedFrom: before, work: w, section: section)          // edits you made while it was being made are kept
             refreshOpenRouterCredits(silent: true)
+            try Task.checkCancellation()
+            func accept() { edit(section) { $0.clips = shown; $0.useClips = true; $0.mediaParts = nil; $0.playbackOffset = 0 } }
             let last = k == job.secondsList.count - 1
-            if clipJob?.noWait == true { made.append(clip); edit(section) { $0.useClips = true }; k += 1; continue }
-            if chain && !last && clipJob?.autoContinue == true { made.append(clip); k += 1; continue }
+            if clipJob?.noWait == true { made.append(clip); accept(); k += 1; continue }
+            if chain && !last && clipJob?.autoContinue == true { made.append(clip); accept(); k += 1; continue }
             // watch it, then decide
             clipJob?.waiting = true; clipJob?.phase = ""
             let decision = await withCheckedContinuation { (c: CheckedContinuation<ClipDecision, Never>) in clipDecision = c }
             clipDecision = nil
+            try Task.checkCancellation()
             switch decision {
-            case .redo:                                      // the clip is paid for already; make another from the same first frame
-                let wasting = clip
-                var q = plan!; let drop = { (s: inout PhotoSection) in s.clips.removeAll { $0.id == wasting.id } }
-                if section < 0 { drop(&q.intro) } else { drop(&q.sections[section]) }
-                plan = q; persist(); continue
-            case .discard:
-                var q = plan!; let drop = { (s: inout PhotoSection) in s.clips = Array(s.clips.prefix(base.count + made.count)); s.useClips = !s.clips.isEmpty && (wasUsing || !made.isEmpty) }
-                if section < 0 { drop(&q.intro) } else { drop(&q.sections[section]) }
-                plan = q; persist(); live.invalidate(); return
+            case .redo:
+                // Redo leaves this paid original in Earlier clips; it never changes the current assignment.
+                continue
+            case .discard: return
             case .stop:
-                made.append(clip); edit(section) { $0.useClips = true }; return
+                made.append(clip); accept(); return
             case .use, .next:
-                made.append(clip); edit(section) { $0.useClips = true }
+                made.append(clip); accept()
                 k += 1
             }
         }
@@ -196,7 +206,7 @@ extension AppModel {
         for (i, s) in p.sections.enumerated() where s.selectedCandidate?.fullFile != nil && s.selectedCandidate?.videoFile == nil && s.clips.isEmpty && s.duration > 0 { out.append(i) }
         return out
     }
-    var allClipsPriceUSD: Double { clipPriceUSD(clipTargets.flatMap { clipSeconds(section: $0, chain: false) }) }
+    var allClipsPriceUSD: Double { clipTargets.reduce(0) { $0 + clipPriceUSD(clipSeconds(section: $1, chain: false), sharp: sectionRef($1)?.clipOptions.sharp ?? false) } }
 
     /// One clip per picture that has none, one after the other, each used as soon as it arrives (you can still redo or trim any of them afterwards).
     func startAllClips() {
@@ -205,6 +215,7 @@ extension AppModel {
         let targets = clipTargets
         guard !targets.isEmpty else { return }
         config = Config.load()
+        clipTaskID = UUID(); let owner = clipTaskID
         let spentBefore = plan?.totalVideoCostUSD ?? 0, price = allClipsPriceUSD
         clipTask = Task { [weak self] in
             guard let self else { return }
@@ -212,6 +223,7 @@ extension AppModel {
                 self.openRouterCredits = rem
                 if rem < price { self.errorMessage = "Making every clip needs about \(OpenRouter.formatUSD(price)) of OpenRouter credit but only \(OpenRouter.formatCredits(rem)) is left. Add credit and try again."; self.clipTask = nil; return }
             }
+            guard self.clipTaskID == owner, !Task.isCancelled else { return }
             var made = 0
             for (n, s) in targets.enumerated() {
                 if Task.isCancelled { break }
@@ -220,8 +232,9 @@ extension AppModel {
                 self.clipJob = j
                 do { try await self.runClips(section: s, chain: false, work: w); made += 1 }
                 catch is CancellationError { break }
-                catch { self.clipJob?.failed = error.localizedDescription; self.clipTask = nil; return }
+                catch { if self.clipTaskID == owner { self.clipJob?.failed = error.localizedDescription; self.clipTask = nil }; return }
             }
+            guard self.clipTaskID == owner else { return }
             self.clipJob = nil; self.clipTask = nil
             let spent = (self.plan?.totalVideoCostUSD ?? 0) - spentBefore
             if made > 0 { self.doneNote = DoneNote(text: "Done — \(made) video clip\(made == 1 ? "" : "s") made · cost \(OpenRouter.formatUSD(spent))") }
@@ -229,6 +242,6 @@ extension AppModel {
     }
 
     func decideClip(_ d: ClipDecision) { clipDecision?.resume(returning: d); clipDecision = nil }
-    func cancelClipJob() { clipDecision?.resume(returning: .stop); clipDecision = nil; clipTask?.cancel(); clipJob = nil }
+    func cancelClipJob() { clipTaskID = UUID(); clipDecision?.resume(returning: .stop); clipDecision = nil; clipTask?.cancel(); clipJob = nil }
     func dismissClipError() { clipJob = nil }
 }

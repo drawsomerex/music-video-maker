@@ -63,7 +63,7 @@ extension AppModel {
             restored.pictureCount = max(restored.pictureCount, current.pictureCount)
             for file in current.pictures where !restored.pictures.contains(file) { restored.pictures.append(file) }
             for file in current.clips where !restored.clips.contains(file) { restored.clips.append(file) }
-            restored.pendingJob = current.pendingJob // Undo cannot cancel a paid provider job.
+            restored.pendingJob = current.pendingJob; restored.pendingOptions = current.pendingOptions // Undo cannot cancel a paid provider job.
             loopProject = restored; persistLoop(); return
         }
         var restored = state.plan
@@ -78,14 +78,11 @@ extension AppModel {
             }
             keep(current.intro.candidates, in: &target.intro)
             target.intro.retainedClips = TimelineEditor.uniqueClips(target.intro.retainedClips + current.intro.retainedClips + current.intro.clips)
-            for c in current.intro.clips where !target.intro.clips.contains(where: { $0.id == c.id }) { target.intro.clips.append(c) }
             for i in target.sections.indices {
                 let assets = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.candidates)
                 keep(assets, in: &target.sections[i])
                 // generated video clips are paid for too: Undo may switch back to Ken Burns, but never loses a clip
                 target.sections[i].retainedClips = TimelineEditor.uniqueClips(target.sections[i].retainedClips + current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap { $0.retainedClips + $0.clips })
-                let clipsHere = current.sections.filter { $0.end > target.sections[i].start && $0.start < target.sections[i].end }.flatMap(\.clips)
-                for c in clipsHere where !target.sections[i].clips.contains(where: { $0.id == c.id }) { target.sections[i].clips.append(c) }
             }
             restored = target
         }

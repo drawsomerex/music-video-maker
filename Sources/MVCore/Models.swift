@@ -44,6 +44,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var fullFile: String? = nil
     /// A video clip used instead of a still picture (relative to the work dir). `fullFile`/`thumbFile` then hold a still frame from it.
     public var videoFile: String? = nil
+    public var enlarged: Bool? = nil             // true only when on-device enlargement actually succeeded
     public var libraryName: String? = nil         // the file name this picture has in the shared Pictures folder
     /// The two focal points of the picture (0…1 across and down, top-left origin): the automatic camera travels from the first to the second.
     public var focalAX: Double? = nil, focalAY: Double? = nil, focalBX: Double? = nil, focalBY: Double? = nil
@@ -67,7 +68,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
     public var videoRepeat: Bool = false       // an imported clip repeats (with a crossfade) instead of holding its last frame while the camera moves
     public var videoEnd: Double? = nil         // where it stops (nil = the end of the clip)
 
-    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView, subjectDistance, subjectLimit, checkNote, checkFix }
+    enum CodingKeys: String, CodingKey { case id, provider, thumbURL, fullURL, pageURL, width, height, credit, query, rank, score, focusX, focusY, tags, thumbFile, fullFile, camStartX, camStartY, camEndX, camEndY, camZoom, videoFile, videoLength, videoStart, videoEnd, videoRepeat, libraryName, focalAX, focalAY, focalBX, focalBY, focalNames, framingLuma, framingEdge, framingAgainst, cameraView, subjectDistance, subjectLimit, checkNote, checkFix, enlarged }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -94,6 +95,7 @@ public struct ImageCandidate: Codable, Identifiable, Hashable {
         videoStart = try c.decodeIfPresent(Double.self, forKey: .videoStart) ?? 0
         videoEnd = try c.decodeIfPresent(Double.self, forKey: .videoEnd)
         videoRepeat = try c.decodeIfPresent(Bool.self, forKey: .videoRepeat) ?? false
+        enlarged = try c.decodeIfPresent(Bool.self, forKey: .enlarged)
         libraryName = try c.decodeIfPresent(String.self, forKey: .libraryName)
         focalAX = try c.decodeIfPresent(Double.self, forKey: .focalAX); focalAY = try c.decodeIfPresent(Double.self, forKey: .focalAY)
         focalBX = try c.decodeIfPresent(Double.self, forKey: .focalBX); focalBY = try c.decodeIfPresent(Double.self, forKey: .focalBY)
@@ -123,6 +125,7 @@ public struct SectionClip: Codable, Identifiable, Hashable {
     public var offset: Double = 0           // where it starts inside the section
     public var prompt: String = ""
     public var costUSD: Double = 0
+    public var jobID: String? = nil         // stable paid job identity for idempotent recovery
     public var warning: String? = nil       // what the realism check noticed, if anything
     public var libraryName: String? = nil   // the file name this clip has in the shared Pictures folder
     public var trimStart: Double = 0        // the part of the clip that is used: from … (seconds into the clip)
@@ -131,13 +134,14 @@ public struct SectionClip: Codable, Identifiable, Hashable {
     /// How long the used part plays.
     public var playSeconds: Double { max(0.5, (trimEnd ?? seconds) - trimStart) }
     public init() {}
-    enum CodingKeys: String, CodingKey { case id, file, lastFrame, seconds, offset, prompt, costUSD, warning, libraryName, trimStart, trimEnd, focalAX, focalAY, focalBX, focalBY }
+    enum CodingKeys: String, CodingKey { case id, file, lastFrame, seconds, offset, prompt, costUSD, warning, libraryName, trimStart, trimEnd, focalAX, focalAY, focalBX, focalBY, jobID }
     public init(from d: Decoder) throws {          // every field has a default, so clips saved by older versions still open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""; lastFrame = try c.decodeIfPresent(String.self, forKey: .lastFrame) ?? ""
         seconds = try c.decodeIfPresent(Double.self, forKey: .seconds) ?? 0; offset = try c.decodeIfPresent(Double.self, forKey: .offset) ?? 0
         prompt = try c.decodeIfPresent(String.self, forKey: .prompt) ?? ""; costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        jobID = try c.decodeIfPresent(String.self, forKey: .jobID)
         warning = try c.decodeIfPresent(String.self, forKey: .warning); libraryName = try c.decodeIfPresent(String.self, forKey: .libraryName)
         trimStart = try c.decodeIfPresent(Double.self, forKey: .trimStart) ?? 0; trimEnd = try c.decodeIfPresent(Double.self, forKey: .trimEnd)
         focalAX = try c.decodeIfPresent(Double.self, forKey: .focalAX); focalAY = try c.decodeIfPresent(Double.self, forKey: .focalAY)
@@ -166,13 +170,14 @@ public struct PhotoSection: Codable, Identifiable {
     public var mediaParts: [PhotoSection]? = nil
     /// Paid alternatives, including discarded/redone clips. Removing an assignment never destroys an original.
     public var retainedClips: [SectionClip] = []
+    public var clipOptions: ClipOptions = ClipOptions()
     public var focal: [String] = []          // the two focal points named in the picture idea; the camera moves from the first to the second
     public var promptManual: Bool = false    // true once you edit the idea yourself: the story logic check never changes it
     public var logicNote: String? = nil      // what the story logic check changed in this idea (shown under the idea)
     /// Whether this picture's idea shows what the picture to base it on shows (the same place, building or subject), and the idea that was decided for.
     /// A picture whose idea is about something else is drawn from its own words, not forced to look like that photo.
     public var usesSource: Bool? = nil, usesSourceFor: String? = nil
-    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal, usesSource, usesSourceFor, playbackOffset, mediaParts, retainedClips }
+    enum CodingKeys: String, CodingKey { case id, start, end, lineIDs, queries, candidates, selected, seed, prompt, repeatOf, note, promptManual, logicNote, clips, useClips, repeatClips, focal, usesSource, usesSourceFor, playbackOffset, mediaParts, retainedClips, clipOptions }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id); start = try c.decode(Double.self, forKey: .start); end = try c.decode(Double.self, forKey: .end)
@@ -192,6 +197,7 @@ public struct PhotoSection: Codable, Identifiable {
         playbackOffset = try c.decodeIfPresent(Double.self, forKey: .playbackOffset) ?? 0
         mediaParts = try c.decodeIfPresent([PhotoSection].self, forKey: .mediaParts)
         retainedClips = try c.decodeIfPresent([SectionClip].self, forKey: .retainedClips) ?? []
+        clipOptions = try c.decodeIfPresent(ClipOptions.self, forKey: .clipOptions) ?? ClipOptions()
         logicNote = try c.decodeIfPresent(String.self, forKey: .logicNote)
         usesSource = try c.decodeIfPresent(Bool.self, forKey: .usesSource); usesSourceFor = try c.decodeIfPresent(String.self, forKey: .usesSourceFor)
     }
@@ -437,6 +443,12 @@ public struct Config: Codable {
     }
 
     public static var url: URL {
+        let env = ProcessInfo.processInfo.environment
+        if env["MV_EDITOR_SELFTEST"] != nil, let root = env["MV_TEST_ROOT"] {
+            let dir = URL(fileURLWithPath: root).appendingPathComponent("test-support")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir.appendingPathComponent("config.json")
+        }
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("config.json")

@@ -58,7 +58,7 @@ struct SmallFrames {
 
 extension LoopVideo {
     /// The loop geometry the painter uses for a trim: start, period and the short dissolve (seconds into the clip).
-    static func loopTimes(_ trim: ClipTrim, length: Double) -> (start: Double, period: Double, fade: Double) {
+    public static func loopTimes(_ trim: ClipTrim, length: Double) -> (start: Double, period: Double, fade: Double) {
         let s = max(0, trim.start), seconds = max(0.5, min(trim.end ?? length, length) - s)
         let f = min(trim.blend ?? clipBlend, seconds / 3)
         return (s, max(0.5, seconds - f), f)

@@ -139,9 +139,9 @@ struct VideoTrimView: View {
                     // where the preview is looking
                     Rectangle().fill(.white).frame(width: 2, height: h + 6).shadow(radius: 2).offset(x: lx - 1, y: top - 3)
                     // markers: the bars sit on the strip; START's time label is above it, END's is below, so they never collide
-                    bar(.green).offset(x: min(max(0, sx - 11), w - 22), y: top - 3).zIndex(2)
+                    bar(.green).accessibilityLabel("Clip start marker").accessibilityValue(clock(start)).accessibilityAdjustableAction { d in move(start: true, to: start + (d == .increment ? 0.1 : -0.1)); commit() }.offset(x: min(max(0, sx - 11), w - 22), y: top - 3).zIndex(2)
                         .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("strip")).onChanged { g in dragHandle(isStart: true, g, from: sx, width: w) }.onEnded { _ in grab = nil; commit() })
-                    bar(.red).offset(x: min(max(0, ex - 11), w - 22), y: top - 3).zIndex(2)
+                    bar(.red).accessibilityLabel("Clip end marker").accessibilityValue(clock(end)).accessibilityAdjustableAction { d in move(start: false, to: end + (d == .increment ? 0.1 : -0.1)); commit() }.offset(x: min(max(0, ex - 11), w - 22), y: top - 3).zIndex(2)
                         .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("strip")).onChanged { g in dragHandle(isStart: false, g, from: ex, width: w) }.onEnded { _ in grab = nil; commit() })
                     pill("START \(clock(start))", .green).offset(x: min(max(0, sx - 55), max(0, w - 110)), y: 0)
                     pill("END \(clock(end))", .red).offset(x: min(max(0, ex - 55), max(0, w - 110)), y: top + h + 6)
@@ -188,7 +188,10 @@ struct VideoTrimView: View {
                 Circle().fill(color).frame(width: 12, height: 12)
                 Text(isStart ? "Start of the clip" : "End of the clip").font(.callout.weight(.semibold))
                 Spacer()
-                Text(clock(t)).font(.title3.monospacedDigit().weight(.semibold))
+                TextField("Seconds", value: Binding(get: { t }, set: { value in move(start: isStart, to: value); commit() }), format: .number.precision(.fractionLength(0...3)))
+                    .textFieldStyle(.roundedBorder).frame(width: 95)
+                    .accessibilityLabel(isStart ? "Clip start in seconds" : "Clip end in seconds")
+                    .help("Type an exact time in seconds, then press Return.")
             }
             Button { move(start: isStart, to: look); commit() } label: { Label(isStart ? "Start here (at \(clock(look)))" : "End here (at \(clock(look)))", systemImage: "scope").frame(maxWidth: .infinity) }
                 .buttonStyle(.bordered).controlSize(.regular)
@@ -214,7 +217,7 @@ struct VideoTrimView: View {
 
     var summary: String {
         var s = isWhole ? "The whole clip is used (\(String(format: "%.1f", playsFor)) seconds)." : "Using \(String(format: "%.1f", playsFor)) seconds of the \(String(format: "%.1f", length))-second clip: from \(clock(start)) to \(clock(end))."
-        if onCommit != nil { s += " This part repeats for the whole video; each time, its last 1.6 seconds dissolve into its start." }
+        if onCommit != nil { s += " This part repeats for the whole video. Its end overlaps its beginning with a blend that fits the selected range." }
         if partLength > 0 {
             if playsFor + 0.3 < partLength { s += repeats && canRepeat ? " This part of the song lasts \(Int(partLength.rounded())) seconds, so the clip repeats." : " This part of the song lasts \(Int(partLength.rounded())) seconds: the clip plays once, then the last picture holds and the camera moves between its main features." }
             else if playsFor > partLength + 0.3 { s += " This part of the song lasts \(Int(partLength.rounded())) seconds, so the end of the clip is not reached." }

@@ -1,8 +1,18 @@
 # Music Video Maker
 
-A native macOS app (Apple Silicon) that turns a song into a YouTube-ready video. Give it an MP3/WAV, a title and your lyrics and it makes a 1080p MP4 with a title card, a Ken Burns picture sequence with feathered wipes, and karaoke-style lyrics synced to the singing — plus vertical **YouTube Shorts** cut from any lines you pick. All AI (speech timing, writing picture prompts) runs **on your Mac**, offline; nothing is uploaded.
+A native macOS app (Apple Silicon) that turns a song into a YouTube-ready video. Give it an MP3/WAV, a title and your lyrics and it makes a 1080p MP4 with a title card, a Ken Burns picture sequence with feathered wipes, and karaoke-style lyrics synced to the singing — plus vertical **YouTube Shorts** cut from any lines you pick. Speech timing, ordinary picture ideas and export run **on your Mac** after model setup. Optional cloud drawing, direction, checks, reference/motion descriptions and online searches use internet services. The cloud director receives title, notes/description and lyrics; image services receive prompts, supplied references or sampled frames.
 
 > **Built with Claude.** This project was written with the help of [Claude](https://claude.com/claude-code) (Anthropic's AI coding assistant), directed and tested by its owner. `CLAUDE.md` / `AGENTS.md` hold the rules an AI assistant should follow when changing it.
+
+## Current workflows
+
+- **Song → Pictures → Video:** plan a lyric video, split and join picture sections without changing the song, move visible picture/movie assignments between sections, and manage independent Shorts from the Song page. Planning and export never recreate deleted Shorts.
+- **Looping video:** arrange up to 100 songs, choose per-track repeats and joins, make one or more fixed-camera scenes, preview the start/change/end, then export an exact duration. A one-hour choice ends at 1:00:00 including the final audio/picture fade; 15-minute track repeats cannot extend it. Each song once plays a complete pass instead.
+- **Pictures and clips:** shared quality, brightness, weather, shot, reference, cast, checks, highest-quality redraw and version controls. Local enlargement is attempted on supported Macs and reported only when it succeeds. Both clip workflows offer 3/5/8/15 seconds and Standard 768p / Sharp 2K. A 3-second choice orders 5 seconds and uses 3; the confirmation shows that charge. Repeats blend overlapping ranges, so the actual repeat interval is shorter than the source window.
+- **Recovery:** paid originals survive Redo/Discard and assignment deletion. Music clips wait for approval before use. Pending accepted jobs remain recoverable after local Stop or restart. Undo/Redo covers both project types; version installation backs up the open project and its referenced media. Settings supports staying on, skipping or reverting app versions.
+- **Help:** the in-app guide covers current buttons and is the help assistant's only knowledge source. It is split by task, with deterministic retrieval tests. Optional cloud operations require an OpenRouter key and may cost money; Stop cannot promise a provider refund.
+
+Native builds use the reviewed `Package.native.resolved` graph. `install_native.sh` temporarily selects it with automatic dependency resolution disabled and restores the lightweight `Package.resolved` afterwards. Update the native lock intentionally when upgrading dependencies.
 
 ## Requirements
 - A Mac with Apple Silicon (M1 or newer), macOS 14+; 16 GB RAM is plenty (8 GB works with the *small* model).

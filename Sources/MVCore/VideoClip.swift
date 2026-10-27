@@ -28,12 +28,14 @@ final class VideoClipSource: @unchecked Sendable {
         seconds = max(0.001, min(end ?? whole, whole) - from)
         gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
+        if #available(macOS 15.0, *) { gen.dynamicRangePolicy = .forceSDR }
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = CMTime(seconds: 1.0 / 60, preferredTimescale: 600)
         gen.maximumSize = CGSize(width: maxPixel, height: maxPixel)
         // the reader is only used for clips stored upright (a phone video stored sideways goes through the generator, which turns it)
         let t = asset.tracks(withMediaType: .video).first
-        if let t, t.preferredTransform.isIdentity {
+        // HDR requires Apple's tone-mapped image generator; reading raw 8-bit HDR as SDR can wash out highlights.
+        if let t, t.preferredTransform.isIdentity, !t.hasMediaCharacteristic(.containsHDRVideo) {
             track = t
             let n = t.naturalSize, scale = min(1, Double(maxPixel) / Double(max(n.width, n.height, 1)))
             outSize = scale < 1 ? CGSize(width: (Double(n.width) * scale / 2).rounded() * 2, height: (Double(n.height) * scale / 2).rounded() * 2) : nil

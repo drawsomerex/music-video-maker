@@ -27,7 +27,8 @@ final class ReportCenter: ObservableObject {
     static var endpoint: URL? { let baked = Updater.info["MVReportURL"] as? String ?? ""; let s = baked.isEmpty ? (ProcessInfo.processInfo.environment["MV_REPORT_URL"] ?? "") : baked; return s.isEmpty ? nil : URL(string: s) }
     static var repo: String { Updater.repo ?? "drawsomerex/music-video-maker" }
     private var file: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo")
+        let env = ProcessInfo.processInfo.environment
+        let dir = env["MV_EDITOR_SELFTEST"] != nil && env["MV_TEST_ROOT"] != nil ? URL(fileURLWithPath: env["MV_TEST_ROOT"]!).appendingPathComponent("test-support") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("reports.json")
     }

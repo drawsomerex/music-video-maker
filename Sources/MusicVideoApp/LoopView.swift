@@ -262,12 +262,12 @@ struct LoopView: View {
                         .help("Uses a picture from your Mac exactly as it is (or drag it onto the box). The loop clip starts from it.")
                 }
                 if p.picture != nil { nextSceneButton }
-                if p.pictures.count > 1 { thumbs(p.pictures, selected: p.picture) { n in model.editLoop { $0.picture = n }; model.loopDescribeMotion() } }
+                if p.pictures.count > 1 { thumbs(p.pictures, selected: p.picture) { n in model.loopSelectPicture(n) } }
                 if p.picture != nil {
                     HStack {
                         Text("What moves").font(.callout.weight(.semibold))
                         Spacer()
-                        Button { model.loopDescribeMotion() } label: { Label("Describe it from the picture", systemImage: "eye") }.disabled(working || !model.hasOpenRouterKey)
+                        Button { model.loopDescribeMotion(force: true) } label: { Label("Describe it from the picture", systemImage: "eye") }.disabled(working || !model.hasOpenRouterKey)
                             .help("Looks at the picture and lists what should move in the clip (a fraction of a cent). Done automatically for every new picture.")
                     }
                     TextField("e.g. waves rolling onto the beach, foam washing up the sand, clouds drifting very slowly", text: bind(\.motion), axis: .vertical)
@@ -285,16 +285,19 @@ struct LoopView: View {
                     .contentShape(Rectangle()).onTapGesture { FullScreenPlayer.showImage(u, title: "Picture") }
                     .help("Click to see the picture full screen and zoom in.")
                 HStack(spacing: 8) {
+                    if let pic = p.picture, p.enlarged.contains(pic) {
+                        Text("Enlarged on this Mac").font(.caption).padding(6).background(.black.opacity(0.65)).foregroundStyle(.white)
+                    }
                     if let pic = p.picture, p.enhanced.contains(pic) {
                         Label("Highest quality", systemImage: "sparkles").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
                             .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.green)
-                            .help("This picture was redrawn at the highest quality and sharpened. The earlier version is in the list below.")
+                            .help("This picture was redrawn at the highest quality. The earlier version is in the list below.")
                     } else {
                         Button { model.loopHighestQuality() } label: {
                             Label("Make highest quality", systemImage: "sparkles").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(Capsule().fill(Color.black.opacity(0.65))).foregroundStyle(.white)
                         }.buttonStyle(.plain).disabled(working)
-                        .help("Redraws this same picture at the picture maker's very highest level (about \(OpenRouter.formatUSD(PictureQuality.enhanceEstimate)), under a minute): finer detail, crisper edges and sharper textures, keeping the composition and colours. Then it is sharpened 4× on your Mac. The picture you have now stays in the list below.")
+                        .help("Redraws this same picture at the picture maker's very highest level (about \(OpenRouter.formatUSD(PictureQuality.enhanceEstimate)), under a minute): finer detail, crisper edges and sharper textures, keeping the composition and colours. On supported Macs, the app also tries free on-device enlargement. The picture you have now stays in the list below.")
                     }
                     Button { FullScreenPlayer.showImage(u, title: "Picture") } label: {
                         Label("View larger", systemImage: "plus.magnifyingglass").font(.callout.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
@@ -316,11 +319,16 @@ struct LoopView: View {
 
     // MARK: 3 clip
     var clipCard: some View {
-        card(3, "The loop clip", "15 seconds made by HeyGen from the picture: a still camera with gentle, repeating motion. Its end blends into its start, so it loops without a seam.") {
+        card(3, "The loop clip", "A short clip made by HeyGen from the picture: a still camera with gentle, repeating motion. Its end blends into its start, so it loops without a seam.") {
             VStack(alignment: .leading, spacing: 10) {
+                Picker("Clip length", selection: Binding(get: { p.clipLength ?? 15 }, set: { length in model.editLoop { $0.clipLength = length } })) {
+                    Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("8 seconds").tag(8); Text("15 seconds").tag(15)
+                }.pickerStyle(.segmented).frame(maxWidth: 540).disabled(working)
+                    .help("Choose how much motion to loop. A 3-second choice uses part of a 5-second order; you pay for 5 seconds.")
+                Text(ClipOptions(seconds: p.clipLength).durationExplanation).font(.callout).foregroundStyle(.secondary)
                 Picker("Clip quality", selection: bind(\.sharpClip)) {
-                    Text("Standard 768p → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: false, perSecond768: model.videoPricePerSecond))))").tag(false)
-                    Text("Sharp 2K → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: true, perSecond768: model.videoPricePerSecond))))").tag(true)
+                    Text("Standard 768p → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: false, perSecond768: model.videoPricePerSecond, seconds: p.clipLength))))").tag(false)
+                    Text("Sharp 2K → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: true, perSecond768: model.videoPricePerSecond, seconds: p.clipLength))))").tag(true)
                 }.pickerStyle(.segmented).frame(maxWidth: 540)
                     .help("HeyGen makes clips at 768p or 2K (it has no 1080p setting). Prices are HeyGen's list prices (half while their promotion runs).")
                 Text("Either way the long video is 1080p. Standard is made at 768p and scaled up, so it's a little soft; Sharp is made at 2K and scaled down, so it has full 1080p detail.")
@@ -330,7 +338,7 @@ struct LoopView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Button { confirmClip = true } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
                             .buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
-                            .help(p.picture == nil ? "Add or draw the picture first." : "Makes a 15-second clip from the picture. You see the price first.")
+                            .help(p.picture == nil ? "Add or draw the picture first." : "Makes the chosen length from the picture. You see the price first.")
                         Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
                             .help("Loop a video from your Mac instead (or drag it onto the box). A still camera works best.")
                         if p.clip != nil {
@@ -354,6 +362,9 @@ struct LoopView: View {
                     }
                 }
                 if let c = p.clip, let u = model.loopFile(c) {
+                    let sourceLength = CMTimeGetSeconds(AVURLAsset(url: u).duration)
+                    let times = LoopVideo.loopTimes(p.trim, length: sourceLength.isFinite ? sourceLength : 15)
+                    Text(String(format: "Repeats every %.2f seconds after blending.", times.1)).font(.callout).foregroundStyle(.secondary)
                     DisclosureGroup(isExpanded: $showTrim) {
                         VideoTrimView(fileURL: u, length: nil, start: p.trim.start, end: p.trim.end, heading: "The part that loops",
                                       subheading: "Only the part between the green and red markers repeats. Leave out anything you don't want (a jump, a flip, a moment that looks odd).") { s, e in model.loopSetTrim(start: s, end: e) }
@@ -364,11 +375,11 @@ struct LoopView: View {
                 if !p.clips.isEmpty { clipStrip }
             }
         }
-        .confirmationDialog("Make the 15-second loop clip?", isPresented: $confirmClip, titleVisibility: .visible) {
+        .confirmationDialog("Make the loop clip?", isPresented: $confirmClip, titleVisibility: .visible) {
             Button("Make it (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))") { model.loopMakeClip() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"), for a 1080p video, at HeyGen's list price." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " It takes a few minutes; you can keep working.")
+            Text(loopClipConfirmation)
         }
     }
     /// The picture to base the pictures on (optional), what to keep from it, the weather and time of day: the same rows as a music video's.
@@ -431,11 +442,17 @@ struct LoopView: View {
             Button("Add it (≈ \(OpenRouter.formatUSD(model.loopAddScenePrice)))") { model.loopAddScene() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The app draws the next picture (about \(OpenRouter.formatUSD(model.perImageCostUSD))), then HeyGen makes its 15-second clip (about \(OpenRouter.formatUSD(model.loopClipPrice)) at list price). It takes a few minutes; you can keep working. The new scene joins the video automatically.")
+            Text("The app draws the next picture (about \(OpenRouter.formatUSD(model.perImageCostUSD))), then HeyGen makes its chosen-length clip (about \(OpenRouter.formatUSD(model.loopClipPrice)) at list price). It takes a few minutes; you can keep working. The new scene joins the video automatically.")
         }
     }
 
     /// The clips as pictures: click one to look at it (and use it to start the video); the tick says whether it is one of the scenes in the video.
+    var loopClipConfirmation: String {
+        let quality = p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"
+        let credit = model.openRouterCredits.map { " Your credit: " + OpenRouter.formatCredits($0) + "." } ?? ""
+        return ClipOptions(seconds: p.clipLength).durationExplanation + " " + quality + ", at HeyGen's list price." + credit + " It takes a few minutes; you can keep working."
+    }
+
     var clipStrip: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Your scenes (click one to look at it)").font(.callout.weight(.semibold))
@@ -456,6 +473,11 @@ struct LoopView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(shown ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: shown ? 3 : 1))
                             }.buttonStyle(.plain).disabled(working)
                                 .help(shown ? "Showing now. The video starts with this scene." : "Look at this scene (the video then starts with it).")
+                            HStack {
+                                if let file = model.loopFile(c) { Button("View larger") { FullScreenPlayer.show(file, title: "Scene", loop: true, muted: true) }.font(.caption).help("Inspect the original clip full screen.") }
+                                Button(role: .destructive) { model.editLoop { q in q.clips.removeAll { $0 == c }; q.sceneClips.removeAll { $0 == c }; if q.clip == c { q.clip = q.clips.first } } } label: { Image(systemName: "trash") }
+                                    .disabled(working).help("Remove this scene assignment. Its original stays on disk and Undo restores it.").accessibilityLabel("Remove scene \(i + 1)")
+                            }
                             Toggle(isOn: Binding(get: { inVideo }, set: { v in model.editLoop { q in
                                 guard c != q.clip else { return }                 // the scene shown always starts the video
                                 var list = LoopVideo.sceneClips(q)
@@ -500,7 +522,10 @@ struct LoopView: View {
 
     // MARK: 4 long video
     var longVideoCard: some View {
-        card(4, "The long video", "The scene with the music for at least as long as you choose: the song playing when that length is reached always finishes, then the picture fades to black. A YouTube thumbnail and a description written for search are made with it.") {
+        card(4, "The long video", "The scene with the music for exactly the length you choose, including a gentle final fade. A YouTube thumbnail and a description written for search are made with it.") {
+            Button("Check before export") {
+                if let dir = model.loopDir { let health = ExportHealth.loop(p, work: dir); model.notice = health.text.isEmpty ? "Referenced songs and scenes are ready for export." : health.text }
+            }.help("Checks referenced songs, scenes and pending paid clips. The export also checks disk space.")
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Text("Length").font(.callout.weight(.semibold))
@@ -511,7 +536,7 @@ struct LoopView: View {
                         Text(p.tracks.count > 1 ? "Each song once" : "The song once").tag(-2.0)
                         Text("1 hour").tag(1.0); Text("3 hours").tag(3.0); Text("8 hours").tag(8.0); Text("12 hours").tag(12.0); Text("Other").tag(-1.0)
                     }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 560)
-                        .help("Each song once: the video is exactly as long as the album (or the one song), played through one time. The hours are a minimum: songs play whole, in order and again from the top, until that length is reached.")
+                        .help("Each song once: the video is exactly as long as the album (or the one song), played through one time. The hours are the exact video length, including the final fade. The last song is shortened if needed.")
                     if !p.playOnce && ![1.0, 3, 8, 12].contains(p.hours) {
                         Stepper(String(format: "%.1f h", p.hours), value: Binding(get: { p.hours }, set: { v in customHours = v; model.editLoop { $0.hours = v } }), in: 0.5...12, step: 0.5).fixedSize()
                     }
@@ -580,6 +605,12 @@ struct LoopView: View {
                             .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(f == selected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: f == selected ? 3 : 1))
                     }.buttonStyle(.plain).help(f == selected ? "In use now." : "Use this picture again (free).")
+                    .overlay(alignment: .topTrailing) {
+                        if p.pictures.contains(f) {
+                            Button { model.editLoop { q in q.pictures.removeAll { $0 == f }; if q.picture == f { q.picture = q.pictures.last } } } label: { Image(systemName: "xmark.circle.fill").padding(3).background(.black.opacity(0.6)).foregroundStyle(.white) }
+                                .buttonStyle(.plain).disabled(working).help("Remove this picture version. Undo restores it; the file stays on disk.").accessibilityLabel("Remove picture version")
+                        }
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         if let u = model.loopFile(f) {
                             Button { FullScreenPlayer.showImage(u, title: "Picture") } label: { Image(systemName: "plus.magnifyingglass").font(.caption.weight(.bold)).padding(4).background(Circle().fill(.black.opacity(0.6))).foregroundStyle(.white) }
@@ -613,7 +644,7 @@ struct LoopStartView: View {
     @State private var targeted = false
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("One song, one beautiful 15-second scene that loops seamlessly, made into a 1 to 12 hour video, for study or background music.")
+            Text("One song, one beautiful short scene that loops seamlessly, made into a 1 to 12 hour video, for study or background music.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button {
                 let o = NSOpenPanel(); o.allowedContentTypes = [.audio]; o.allowsMultipleSelection = true

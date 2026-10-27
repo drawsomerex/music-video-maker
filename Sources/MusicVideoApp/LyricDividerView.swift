@@ -234,11 +234,15 @@ struct SongTimelineEditor: View {
             Text("\(preciseClock(c.start))–\(preciseClock(c.end)) · \(Int(c.duration.rounded())) seconds").monospacedDigit()
             HStack {
                 Text("Start")
+                TextField("Seconds", value: Binding(get: { c.start }, set: { time in model.editTimelineShort(c.id) { $0.start = min(max(0, time), $0.end - 0.5) } }), format: .number.precision(.fractionLength(0...3)))
+                    .textFieldStyle(.roundedBorder).frame(width: 90).accessibilityLabel("Short start in seconds").help("Type an exact time in seconds. Typed values bypass word snapping.")
                 Slider(value: Binding(get: { model.timelineShorts.first(where: { $0.id == c.id })?.start ?? c.start }, set: { value in model.editTimelineShort(c.id) { $0.start = min(model.snappedTimelineTime(value, start: true), $0.end - 0.5) } }), in: 0...max(0.1, duration), onEditingChanged: { editing in if editing { model.beginTimelineDrag() } else { model.endTimelineDrag() } })
                     .help("Move only the start of this Short. Whole-word mode moves it before a word.")
             }
             HStack {
                 Text("End")
+                TextField("Seconds", value: Binding(get: { c.end }, set: { time in model.editTimelineShort(c.id) { $0.end = min(duration, max(time, $0.start + 0.5)) } }), format: .number.precision(.fractionLength(0...3)))
+                    .textFieldStyle(.roundedBorder).frame(width: 90).accessibilityLabel("Short end in seconds").help("Type an exact time in seconds. The maximum duration remains three minutes.")
                 Slider(value: Binding(get: { model.timelineShorts.first(where: { $0.id == c.id })?.end ?? c.end }, set: { value in model.editTimelineShort(c.id) { $0.end = max(model.snappedTimelineTime(value, start: false), $0.start + 0.5) } }), in: 0...max(0.1, duration), onEditingChanged: { editing in if editing { model.beginTimelineDrag() } else { model.endTimelineDrag() } })
                     .help("Move only the end of this Short. Whole-word mode moves it after a word. Maximum length is 3 minutes.")
             }

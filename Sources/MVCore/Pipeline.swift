@@ -232,7 +232,7 @@ public enum Pipeline {
     }
 
     /// Re-times an existing project with exact word timestamps, keeping its pictures, prompts and Shorts.
-    /// Section edges move to the midpoint of the gaps between the re-timed lines.
+    /// Explicit manual boundaries stay fixed; automatic section edges follow the re-timed lyric gaps.
     public static func resync(plan: inout Plan, work: URL, config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Double {
         let omlx = OMLX(config: config)
         progress?("Listening with Parakeet (exact word timing)", 0.1)
@@ -718,7 +718,9 @@ public enum Pipeline {
         // 4× sharper on this Mac (free, Apple's super resolution) when it can; otherwise the picture as drawn
         let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
         defer { try? FileManager.default.removeItem(at: sharp) }
-        _ = try attach(imageAt: await SuperRes.enlarge(tmpURL, to: sharp) ? sharp : tmpURL, section: index, plan: &plan, work: work)
+        let enlarged = await SuperRes.enlarge(tmpURL, to: sharp)
+        _ = try attach(imageAt: enlarged ? sharp : tmpURL, section: index, plan: &plan, work: work)
+        if index < 0 { plan.intro.candidates[plan.intro.selected].enlarged = enlarged } else { plan.sections[index].candidates[plan.sections[index].selected].enlarged = enlarged }
         // the automatic picture check (about a tenth of a cent): a fault gets a note and a one-click fix
         let drawn = index < 0 ? plan.intro : plan.sections[index]
         if let file = drawn.selectedCandidate?.fullFile,
@@ -791,7 +793,7 @@ public enum Pipeline {
     public static func highestQualityPrompt(idea: String, style: String) -> String {
         "Redraw the attached picture at the highest possible quality. Keep EXACTLY the same picture: the same composition and framing, the same people, animals and objects in the same places and poses, the same faces and clothing, the same colours, light and art style. Only make it better: much finer detail, crisp clean edges, sharp textures, refined faces and hands, no blur, no noise, no smudges. The picture shows: \(idea)\(StylePreset.styleClause(style)) Widescreen 16:9, no text, no lettering, no watermark."
     }
-    /// "Make highest quality": redraws the picture at High quality from itself (more detail and sharpness, the same picture), then the free 4× sharpening.
+    /// "Make highest quality": redraws the picture at xhigh quality from itself (more detail and sharpness, the same picture), then the free 4× sharpening.
     /// It becomes a new choice for that part; the earlier one stays.
     @discardableResult
     public static func highestQualitySectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
@@ -810,12 +812,14 @@ public enum Pipeline {
         let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
         defer { try? FileManager.default.removeItem(at: tmp); try? FileManager.default.removeItem(at: sharp) }
         try gen.data.write(to: tmp)
-        _ = try attach(imageAt: await SuperRes.enlarge(tmp, to: sharp) ? sharp : tmp, section: index, plan: &plan, work: work)
+        let enlarged = await SuperRes.enlarge(tmp, to: sharp)
+        _ = try attach(imageAt: enlarged ? sharp : tmp, section: index, plan: &plan, work: work)
         func carry(_ x: inout PhotoSection) {           // the camera and focal points stay as they were
             guard x.candidates.indices.contains(x.selected) else { return }
             var n = x.candidates[x.selected]
             n.focalAX = c.focalAX; n.focalAY = c.focalAY; n.focalBX = c.focalBX; n.focalBY = c.focalBY; n.focalNames = c.focalNames
             n.camStartX = c.camStartX; n.camStartY = c.camStartY; n.camEndX = c.camEndX; n.camEndY = c.camEndY; n.camZoom = c.camZoom
+            n.enlarged = enlarged
             n.provider = "OpenRouter"; n.credit = "\(label) (\(OpenRouter.formatUSD(gen.costUSD)))"
             x.candidates[x.selected] = n
         }

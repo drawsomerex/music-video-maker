@@ -128,20 +128,33 @@ extension AppModel {
         loopTask = Task {
             do {
                 let done = try await work(p0, d)
-                guard loopJobID == owner, loopDir == d, !Task.isCancelled else { return }
+                guard loopDir == d, loopProject?.id == p0.id else { return }
+                if loopJobID != owner || Task.isCancelled {
+                    // A completed paid original still belongs to this project after local Stop. Retain it without changing the visible scene.
+                    if var cur = loopProject {
+                        for file in done.pictures where !p0.pictures.contains(file) && !cur.pictures.contains(file) { cur.pictures.append(file) }
+                        for file in done.clips where !p0.clips.contains(file) && !cur.clips.contains(file) { cur.clips.append(file) }
+                        cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += max(0, done.videoUSD - p0.videoUSD)
+                        cur.pictureCount += max(0, done.pictureCount - p0.pictureCount)
+                        cur.motionByPicture.merge(done.motionByPicture) { old, _ in old }
+                        loopProject = cur; persistLoop()
+                    }
+                    return
+                }
                 if var cur = loopProject, cur.id == done.id {
                     cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
                     if done.scene != p0.scene && cur.scene == p0.scene { cur.scene = done.scene }   // the next scene's description, unless you typed meanwhile
                     cur.sceneDrawn = done.sceneDrawn
                     cur.sceneChanges = done.sceneChanges; cur.subjectClose = done.subjectClose
                     if done.sceneClips != p0.sceneClips { cur.sceneClips = done.sceneClips; cur.sceneChange = done.sceneChange }
+                    cur.motionByPicture.merge(done.motionByPicture) { _, new in new }
                     cur.motion = done.motion != p0.motion ? done.motion : cur.motion
                     if done.style != p0.style && cur.style == p0.style { cur.style = done.style }
                     if cur.nextFocus == p0.nextFocus { cur.nextFocus = done.nextFocus }
                     if cur.source == p0.source { cur.source = done.source }
                     if cur.brightness == p0.brightness { cur.brightness = done.brightness }
                     if cur.shot == p0.shot { cur.shot = done.shot }
-                    cur.checks = done.checks; cur.enhanced = done.enhanced; cur.castSheet = done.castSheet
+                    cur.checks = done.checks; cur.enhanced = done.enhanced; cur.enlarged = done.enlarged; cur.castSheet = done.castSheet
                     if cur.cast == p0.cast { cur.cast = done.cast }
                     if cur.pictureQuality == p0.pictureQuality { cur.pictureQuality = done.pictureQuality }
                     if cur.weather == p0.weather { cur.weather = done.weather }
@@ -150,7 +163,7 @@ extension AppModel {
                     if done.motion != p0.motion { cur.motion = done.motion }       // a new description from the picture (your own edits made meanwhile are otherwise kept)
                     cur.thumbnail = done.thumbnail; cur.listing = done.listing; cur.clipWarning = done.clipWarning; cur.loopScores = done.loopScores; cur.loopDrift = done.loopDrift
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
-                    cur.imagesUSD = done.imagesUSD; cur.videoUSD = done.videoUSD; cur.pictureCount = done.pictureCount; cur.pendingJob = done.pendingJob; cur.output = done.output
+                    cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += max(0, done.videoUSD - p0.videoUSD); cur.pictureCount += max(0, done.pictureCount - p0.pictureCount); cur.pendingJob = done.pendingJob; cur.pendingOptions = done.pendingOptions; cur.output = done.output
                     loopProject = cur; planRevision += 1; checkpointRevision = nil
                     try LoopVideo.saveChecked(cur, d); saveStatus = "Saved"
                 }
@@ -269,10 +282,17 @@ extension AppModel {
         loopDescribeMotion()
     }
     /// Writes "what moves" from the picture in use (a fraction of a cent).
-    func loopDescribeMotion() {
+    func loopDescribeMotion(force: Bool = false) {
+        if force, let pic = loopProject?.picture { editLoop { $0.motionByPicture[pic] = nil } }
         guard hasOpenRouterKey, loopProject?.picture != nil else { return }
         let cfg = Config.load()
         runLoop("Looking at what should move…", estimate: 8) { p, d in var q = p; await LoopVideo.refreshMotion(&q, dir: d, config: cfg); return q }
+    }
+    func loopSelectPicture(_ file: String) {
+        editLoop { project in
+            if let old = project.picture, !project.motion.isEmpty { project.motionByPicture[old] = project.motion }
+            project.picture = file; project.motion = project.motionByPicture[file] ?? ""
+        }
     }
     func loopChoosePicture() {
         let o = NSOpenPanel(); o.allowedContentTypes = [.image]; o.message = "Choose the picture the loop clip starts from"
@@ -280,13 +300,13 @@ extension AppModel {
     }
 
     // MARK: the clip
-    var loopClipPrice: Double { LoopVideo.clipPrice(sharp: loopProject?.sharpClip ?? false, perSecond768: videoPricePerSecond) }
+    var loopClipPrice: Double { LoopVideo.clipPrice(sharp: loopProject?.sharpClip ?? false, perSecond768: videoPricePerSecond, seconds: loopProject?.clipLength) }
 
     func loopMakeClip() {
         guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
         config = Config.load()
         let cfg = config, price = loopClipPrice
-        runLoop("Making the 15-second loop clip…", estimate: 240) { [weak self] p, d in
+        runLoop("Making the loop clip…", estimate: 240) { [weak self] p, d in
             if let rem = try? await OpenRouter.fetchCredits(apiKey: cfg.openRouterKey).remaining, rem < price {
                 throw MVError("The clip costs about \(OpenRouter.formatUSD(price)) but your OpenRouter credit is \(OpenRouter.formatCredits(rem)). Add credit and try again.")
             }

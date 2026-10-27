@@ -161,7 +161,13 @@ struct PlanView: View {
                     Image(systemName: "music.note").foregroundStyle(.orange)
                     Text("The first words start at \(timeString(first)), but the music before them has no picture of its own.")
                         .font(.callout).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
+                    Button("Check before export") {
+                if let work = model.workDir {
+                    let health = ExportHealth.music(plan, work: work, height: model.quality)
+                    model.notice = health.text.isEmpty ? "Referenced song and media files are ready for export." : health.text
+                }
+            }.help("Checks for missing media, low-resolution pictures and pending paid clips without spending money.")
+            Spacer(minLength: 8)
                     Button { model.addInstrumentalIntro() } label: { Label("Add a picture for the opening music", systemImage: "plus.circle.fill") }
                         .buttonStyle(.borderedProminent).disabled(model.busy)
                         .help("Adds a new part to the list for the music before the first words and writes a picture idea for it. Your other pictures stay exactly where they are.")
@@ -520,7 +526,7 @@ struct PlanView: View {
             Toggle(isOn: $model.autoRenderShorts) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Also make YouTube Shorts").font(.subheadline.weight(.medium))
-                    Text(plan.shorts.isEmpty ? "No Shorts yet: the app cuts your song into Shorts of about 30 seconds at natural breaks and makes them with the video." : "\(plan.shorts.count) Shorts, made with the video.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(plan.shorts.isEmpty ? "No Shorts selected: only the main video will be made. Use Suggest Shorts or Add a Short to choose some." : "\(plan.shorts.count) Shorts, made with the video.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.checkbox).help("Also make the YouTube Shorts when the main video is made. You can change them on the Shorts page.")
@@ -651,13 +657,14 @@ struct DropWell: View {
                         .help("See this picture full screen and zoom in on any part (Esc closes).")
                 }
                 if let c = sec.selectedCandidate, c.videoFile == nil, c.fullFile != nil {
+                    if c.enlarged == true { Label("Enlarged on this Mac", systemImage: "arrow.up.left.and.arrow.down.right").font(.caption).foregroundStyle(.secondary) }
                     if c.credit.hasPrefix("Highest quality") {
                         Label("Highest quality", systemImage: "sparkles").font(.callout).foregroundStyle(.green)
-                            .help("This picture was redrawn at the highest quality and sharpened. The earlier version is still under the picture.")
+                            .help("This picture was redrawn at the highest quality. The earlier version is still under the picture.")
                     } else {
                         Button { model.makeHighestQuality([section]) } label: { Label("Make highest quality", systemImage: "sparkles") }
                             .disabled(model.busy)
-                            .help("Redraws this same picture at the picture maker's very highest level, above the High used for new pictures (about \(OpenRouter.formatUSD(PictureQuality.enhanceEstimate)), under a minute): finer detail, crisper edges and sharper textures, keeping the composition, the people and the colours. Then it is sharpened 4× on your Mac. The picture you have now stays as an earlier version.")
+                            .help("Redraws this same picture at the picture maker's very highest level, above the High used for new pictures (about \(OpenRouter.formatUSD(PictureQuality.enhanceEstimate)), under a minute): finer detail, crisper edges and sharper textures, keeping the composition, the people and the colours. On supported Macs, the app also tries free on-device enlargement. The picture you have now stays as an earlier version.")
                     }
                 }
                 if sec.selectedCandidate != nil {

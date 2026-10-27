@@ -1,9 +1,9 @@
-// The music of a looping long video: one song or a playlist of up to 100, played whole (never cut off) until the chosen length is reached.
+// The music of a looping long video: one song or a playlist of up to 100, scheduled to the exact chosen video length.
 //
 //   • each song is listened to once: where its sound really starts and ends (silence trimmed, ring-outs kept), how loud it is
 //     (ITU-R BS.1770 loudness, the measure YouTube uses), whether it fades out at the end and whether it opens with a hit;
 //   • the plays are scheduled: the list in order, then again from the top (optionally shuffled each round), until the end of a song
-//     reaches the length you chose (the song that crosses it plays to its end);
+//     reaches the length you chose; the final play is trimmed and faded within that duration;
 //   • joins: Seamless (a tight 3-second blend), Automatic (overlap a song that fades out, a 2-second pause after a clean stop, never fade
 //     in a song that opens with a hit), Crossfade (2–12 s) or Album gaps (0.5–5 s);
 //   • the mix is made a little at a time, with at most a few songs in memory, so 100 songs and 12 hours need no more memory than one.
@@ -208,17 +208,20 @@ public enum LoopAudio {
         public var end: Double { start + length }
     }
     public struct Plan { public var plays: [Play]; public var total: Double; public var songsEnd: Double
+        /// The ending is part of the chosen duration; it never adds another song or scene.
+        public var fadeStart: Double { max(0, min(songsEnd, total - 3)) }
+        public func endingFade(at time: Double) -> Double { min(1, max(0, (time - fadeStart) / max(0.001, total - fadeStart))) }
         /// The first time through the playlist (for the chapters): each song's turn once, not its repeats.
         public var firstRound: [Play] { plays.filter { $0.round == 0 && $0.rep == 0 } }
         /// Where each song's turn starts (its repeats are part of the turn).
         public var turns: [Play] { plays.filter { $0.rep == 0 } }
     }
 
-    /// Plays the songs until one's turn ends at or after `minimum` seconds; the video lasts until that turn ends, plus `tail` seconds.
+    /// Schedules exactly `minimum` seconds, including the final fade. `onePass` preserves complete turns and adds `tail`.
     /// A song plays whole unless its repeat is timed (`repeats`, one per song; missing = once).
     public static func plan(analyses: [TrackAnalysis], transition: LoopTransition, crossfade: Double, gap: Double, evenVolume: Bool, shuffle: Bool,
                             minimum: Double, seed: UInt64, tail: Double = 3, onePass: Bool = false, repeats: [TrackRepeat] = []) -> Plan {
-        guard !analyses.isEmpty else { return Plan(plays: [], total: 0, songsEnd: 0) }
+        guard !analyses.isEmpty, minimum.isFinite, minimum > 0 else { return Plan(plays: [], total: 0, songsEnd: 0) }
         func gain(_ a: TrackAnalysis) -> Double {
             guard evenVolume, analyses.count > 1, a.loudness > -60 else { return 1 }
             return min(4, max(0.1, pow(10, (targetLUFS - a.loudness) / 20)))
@@ -263,6 +266,17 @@ public enum LoopAudio {
             }
             round += 1
             if plays.count > 200_000 { break }
+        }
+        if !onePass {
+            // A timed turn can end a few seconds early at a quiet moment. Never let that trigger an entire extra turn in the output.
+            plays = plays.filter { $0.start < minimum }.map { play in
+                var p = play
+                if p.end > minimum { p.to = p.from + minimum - p.start; p.cut = true }
+                p.fadeIn = min(p.fadeIn, p.length)
+                p.fadeOut = min(p.fadeOut, p.length)
+                return p
+            }
+            return Plan(plays: plays, total: minimum, songsEnd: min(minimum, plays.last?.end ?? 0))
         }
         let songsEnd = plays.last?.end ?? 0
         return Plan(plays: plays, total: songsEnd + tail, songsEnd: songsEnd)
@@ -373,6 +387,12 @@ public enum LoopAudio {
                     if j < 96 && p.fadeIn == 0 && !isFirst { w *= Float(j) / 96 }        // 2 ms, only so a song never starts with a click
                     if j >= n - 96 && p.fadeOut == 0 { w *= Float(n - j) / 96 }
                     out[(f - start) * 2] += s[j * 2] * w; out[(f - start) * 2 + 1] += s[j * 2 + 1] * w
+                }
+            }
+            if plan.total <= plan.songsEnd + 0.001 {
+                for f in 0..<count {
+                    let weight = Float(cos(plan.endingFade(at: Double(start + f) / r) * .pi / 2))
+                    out[f * 2] *= weight; out[f * 2 + 1] *= weight
                 }
             }
             // safety limiter: a raised song or an overlap never clips

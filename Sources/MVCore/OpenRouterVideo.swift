@@ -1,5 +1,6 @@
 // HeyGen video clips through OpenRouter: one picture in (the first frame), a few seconds of video out.
 import Foundation
+import AVFoundation
 
 public enum OpenRouterVideo {
     public static let model = "heygen/heygen-video-1"
@@ -21,16 +22,18 @@ public enum OpenRouterVideo {
     public static func formatPrice(_ usd: Double) -> String { usd < 1 ? String(format: "$%.2f", usd) : String(format: "$%.2f", usd) }
 
     /// Clip length for a section: its length rounded up to whole seconds, between 5 and 15.
-    public static func clipSeconds(forSectionSeconds s: Double) -> Int { min(maxSeconds, max(minSeconds, Int(ceil(s - 0.001)))) }
+    public static func clipSeconds(forSectionSeconds s: Double) -> Int { guard s.isFinite else { return maxSeconds }; return Int(min(Double(maxSeconds), max(Double(minSeconds), ceil(s - 0.001)))) }
 
-    /// Makes one clip from a first-frame picture. `onPhase` reports progress text. Throws on any refusal (a refused request is never charged).
+    /// Makes one clip from a first-frame picture. `onPhase` reports progress text. Records accepted jobs before polling. A local Stop does not cancel a provider charge.
     /// `exactPrompt`: HeyGen follows the prompt word for word instead of rewriting it first (its "prompt enhancement" off), for a fully written brief.
     public static func generate(prompt: String, firstFrameJPEG: Data, seconds: Int, apiKey: String, resolution res: String = OpenRouterVideo.resolution, seed: Int? = nil, exactPrompt: Bool = false,
-                                onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> Clip {
+                                onJob: ((String) throws -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> Clip {
+        guard (minSeconds...maxSeconds).contains(seconds) else { throw MVError("HeyGen orders must be between 5 and 15 seconds.") }
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first.") }
         func request(_ method: String, _ url: String, body: [String: Any]? = nil) async throws -> (Int, Data) {
-            var r = URLRequest(url: URL(string: url)!); r.httpMethod = method; r.timeoutInterval = 120
+            guard let endpoint = URL(string: url), trustedAPI(endpoint) else { throw MVError("The video service returned an untrusted polling address. Your paid job is kept for recovery.") }
+            var r = URLRequest(url: endpoint); r.httpMethod = method; r.timeoutInterval = 120
             r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization"); r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.setValue("Music Video Maker", forHTTPHeaderField: "X-Title")
             if let body { r.httpBody = try JSONSerialization.data(withJSONObject: body) }
@@ -50,15 +53,16 @@ public enum OpenRouterVideo {
         let (st, d) = try await request("POST", "https://openrouter.ai/api/v1/videos", body: body)
         guard (200..<300).contains(st), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let id = j["id"] as? String else {
             if st == 402 { throw MVError(OpenRouter.creditMessage) }
-            throw MVError("HeyGen refused the clip (nothing was charged): \(message(d))")
+            throw MVError("The clip request did not complete. Check OpenRouter activity before ordering again: \(message(d))")
         }
-        onJob?(id)
+        do { try onJob?(id) } catch { throw MVError("HeyGen accepted job \(id), but its recovery record could not be saved: \(error.localizedDescription). Keep this job ID and check OpenRouter activity before trying again.") }
         let poll = (j["polling_url"] as? String) ?? "https://openrouter.ai/api/v1/videos/\(id)"
         let started = Date()
         while true {
             try Task.checkCancellation()
             try await Task.sleep(nanoseconds: 8_000_000_000)
-            let (_, pd) = try await request("GET", poll)
+            let (statusCode, pd) = try await request("GET", poll)
+            guard (200..<300).contains(statusCode) else { throw MVError("Could not check paid job \(id) (HTTP \(statusCode)). It remains available for recovery; do not order it again.") }
             guard let pj = try? JSONSerialization.jsonObject(with: pd) as? [String: Any] else { continue }
             let status = pj["status"] as? String ?? ""
             onPhase?("HeyGen is making the clip (\(Int(Date().timeIntervalSince(started))) s)…")
@@ -66,14 +70,36 @@ public enum OpenRouterVideo {
             if status == "completed" {
                 let cost = ((pj["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue
                 guard let urlStr = ((pj["unsigned_urls"] as? [String])?.first ?? (pj["urls"] as? [String])?.first), let url = URL(string: urlStr) else { throw MVError("The clip finished but no download link came back.") }
-                var dl = URLRequest(url: url); dl.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization"); dl.timeoutInterval = 300
                 onPhase?("Downloading the clip…")
-                let (data, _) = try await URLSession.shared.data(for: dl)
-                guard data.count > 10_000 else { throw MVError("The downloaded clip was empty.") }
+                let data = try await download(url, authenticated: pj["unsigned_urls"] != nil, apiKey: key)
                 return Clip(data: data, costUSD: cost, jobID: id)
             }
             if Date().timeIntervalSince(started) > 1200 { throw MVError("The clip is taking too long (job \(id)). It may still finish; check your OpenRouter activity.") }
         }
+    }
+
+    static func trustedAPI(_ url: URL) -> Bool { url.scheme == "https" && url.host?.lowercased() == "openrouter.ai" && url.user == nil && url.password == nil && (url.port == nil || url.port == 443) }
+
+    /// Unsigned API downloads need authentication; signed storage links must never receive the API key.
+    static func download(_ url: URL, authenticated: Bool, apiKey: String, session: URLSession = .shared) async throws -> Data {
+        guard url.scheme == "https", url.user == nil, url.password == nil, !authenticated || trustedAPI(url) else { throw MVError("The clip download address is not trusted.") }
+        var req = URLRequest(url: url); req.timeoutInterval = 300
+        if authenticated { req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await session.data(for: req)
+        try await validateDownload(data, response: response)
+        return data
+    }
+
+    /// Byte count alone accepts HTML error pages. Require HTTP success and a decodable video frame before retaining a paid result.
+    static func validateDownload(_ data: Data, response: URLResponse) async throws {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count > 1000 else { throw MVError("The clip download failed. The paid job is kept so you can recover it without ordering again.") }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("clip-check-" + UUID().uuidString + ".mp4")
+        try data.write(to: file, options: .atomic); defer { try? FileManager.default.removeItem(at: file) }
+        let asset = AVURLAsset(url: file)
+        guard let duration = try? await asset.load(.duration), duration.seconds.isFinite, duration.seconds > 0,
+              let tracks = try? await asset.loadTracks(withMediaType: .video), !tracks.isEmpty else { throw MVError("The download did not contain a readable video. Its paid job is kept for recovery.") }
+        let generator = AVAssetImageGenerator(asset: asset); generator.appliesPreferredTrackTransform = true; generator.maximumSize = CGSize(width: 64, height: 64)
+        do { _ = try await generator.image(at: .zero) } catch { throw MVError("The downloaded clip cannot be decoded. Its paid job is kept for recovery.") }
     }
 
     public enum JobResult { case finished(Data, Double?), running, failed, unknown }
@@ -87,8 +113,7 @@ public enum OpenRouterVideo {
         switch j["status"] as? String ?? "" {
         case "completed":
             guard let urlStr = ((j["unsigned_urls"] as? [String])?.first ?? (j["urls"] as? [String])?.first), let u = URL(string: urlStr) else { return .unknown }
-            var dl = URLRequest(url: u); dl.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization"); dl.timeoutInterval = 300
-            guard let (data, _) = try? await URLSession.shared.data(for: dl), data.count > 10_000 else { return .unknown }
+            guard let data = try? await download(u, authenticated: j["unsigned_urls"] != nil, apiKey: key) else { return .unknown }
             return .finished(data, ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue)
         case "failed", "cancelled", "expired": return .failed
         default: return .running

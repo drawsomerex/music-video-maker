@@ -1,5 +1,5 @@
 // Every prompt is checked by a fast language model before it is sent to the picture or clip maker: anything that contradicts the scene (your own
-// words) is taken out, because the scene always wins (a stormy scene must never be drawn in golden-hour light because a style or a general line said so),
+// words) is taken out, except that an explicitly approved brightness rule wins over the scene (a stormy scene must never be drawn in golden-hour light because a style or a general line said so),
 // and any other contradiction is settled. Everything else is kept exactly. If the check fails, the prompt goes as it was.
 import Foundation
 

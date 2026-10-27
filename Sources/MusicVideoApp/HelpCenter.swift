@@ -28,6 +28,7 @@ struct HelpCenterView: View {
 
     var suggestions: [String] {
         let s = model.helpScreen.lowercased()
+        if s.contains("loop") { return ["How do I make a 3 second loop clip?", "How do track repeats affect the one hour length?", "How do I recover a paid clip after Stop?"] }
         if s.contains("shorts") { return ["How do I make Shorts?", "How long can a Short be?", "Where are my Shorts saved?"] }
         if s.contains("pictures") { return ["How do I add my own picture?", "What will the blank pictures cost?", "Why do the words look early?", "How do I choose where the camera moves?"] }
         if s.contains("video") && !s.contains("making") { return ["Where is my video saved?", "How do I make Shorts?", "How do I change a picture and make it again?"] }
@@ -55,7 +56,7 @@ struct HelpCenterView: View {
     // MARK: ask
     var ask: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Ask anything about the app. The helper answers using the guide and what is on your screen right now. If the guide doesn't cover it, or the app can't do it, it will say so instead of guessing.")
+            Text("Ask anything about the app. The helper answers using the guide and what is on your screen right now. If the guide doesn't cover it, or the app can't do it, it will say so when it cannot find an answer in the guide.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 TextField("Type your question here, for example: how do I add my own pictures?", text: $question, axis: .vertical)

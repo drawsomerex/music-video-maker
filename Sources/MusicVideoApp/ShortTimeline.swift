@@ -228,6 +228,12 @@ struct WordTimeline: View {
         }
         .frame(width: 26, height: height)
         .contentShape(Rectangle())
+        .accessibilityLabel(isStart ? "Short start marker" : "Short end marker")
+        .accessibilityValue(String(format: "%.2f seconds", t))
+        .accessibilityAdjustableAction { direction in
+            let value = t + (direction == .increment ? 0.1 : -0.1)
+            model.update(clip.id) { if isStart { $0.start = min(max(0, value), $0.end - 0.5) } else { $0.end = min(dur, max(value, $0.start + 0.5)) } }
+        }
         .offset(x: CGFloat(t) * pps - 13)
         .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("tl"))
             .onChanged { g in

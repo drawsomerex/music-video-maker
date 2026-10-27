@@ -7,6 +7,8 @@ import AppKit
 import CoreImage
 
 let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+// Export pixels use the same transfer curve as the encoded Rec.709 metadata.
+let exportColorSpace = CGColorSpace(name: CGColorSpace.itur_709)!
 let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
 
 func makeContext(_ w: Int, _ h: Int) -> CGContext {

@@ -34,12 +34,21 @@ say "Metal toolchain (needed to compile MLX's GPU kernels)"
 if xcrun -sdk macosx metal --version >/dev/null 2>&1; then echo "  already installed ✓"
 else echo "  downloading Apple's Metal Toolchain (one time, ~0.7 GB)…"; xcodebuild -downloadComponent MetalToolchain; fi
 
+# Keep native dependencies reproducible without letting ordinary SwiftPM builds prune their lockfile.
+# Always restore the lightweight graph, even after a failed build; the dedicated native lock is reviewed in Git.
+[ -f Package.native.resolved ] || die "Missing Package.native.resolved. Restore the native dependency lockfile."
+NATIVE_LOCK_BACKUP=$(mktemp -d)
+cp Package.resolved "$NATIVE_LOCK_BACKUP/Package.resolved"
+restore_resolved() { cp "$NATIVE_LOCK_BACKUP/Package.resolved" Package.resolved; rm -rf "$NATIVE_LOCK_BACKUP"; }
+trap restore_resolved EXIT
+cp Package.native.resolved Package.resolved
+
 say "Building (first build compiles MLX — about 4 minutes)"
 MV_NATIVE=1 xcodebuild -scheme MusicVideoApp -destination 'platform=macOS,arch=arm64' -configuration Release \
-  -derivedDataPath .build-native -skipMacroValidation -skipPackagePluginValidation build > /tmp/mv-native-build.log 2>&1 \
+  -derivedDataPath .build-native -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution -skipMacroValidation -skipPackagePluginValidation build > /tmp/mv-native-build.log 2>&1 \
   || { tail -25 /tmp/mv-native-build.log; die "Build failed (full log: /tmp/mv-native-build.log)"; }
 MV_NATIVE=1 xcodebuild -scheme mvideo -destination 'platform=macOS,arch=arm64' -configuration Release \
-  -derivedDataPath .build-native -skipMacroValidation -skipPackagePluginValidation build > /tmp/mv-native-build-cli.log 2>&1 \
+  -derivedDataPath .build-native -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution -skipMacroValidation -skipPackagePluginValidation build > /tmp/mv-native-build-cli.log 2>&1 \
   || { tail -25 /tmp/mv-native-build-cli.log; die "CLI build failed (full log: /tmp/mv-native-build-cli.log)"; }
 PRODUCTS=".build-native/Build/Products/Release"
 

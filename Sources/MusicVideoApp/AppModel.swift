@@ -644,7 +644,6 @@ final class AppModel: ObservableObject {
                 let cached = listenFolder.appendingPathComponent("transcript_words.json")
                 if FileManager.default.fileExists(atPath: cached.path) { try? FileManager.default.copyItem(at: cached, to: work.appendingPathComponent("transcript_words.json")) }
                 var made = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, notes: notes, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
-                if made.shorts.isEmpty { made.shorts = Pipeline.autoShorts(plan: made); try? Pipeline.savePlan(made, work) }      // a new plan starts with suggested Shorts (drag, delete or add as you like)
                 plan = made
                 draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
@@ -998,6 +997,7 @@ final class AppModel: ObservableObject {
     @Published var clipJob: ClipJob?                // the video clip being made right now (or waiting for your decision)
     @Published var videoPricePerSecond = OpenRouterVideo.fallbackPricePerSecond
     var clipTask: Task<Void, Never>?
+    var clipTaskID = UUID()
     var clipDecision: CheckedContinuation<ClipDecision, Never>?
     @Published var showReport = false        // the "Report a problem" window
     var reportPrefill = ""
@@ -1047,8 +1047,14 @@ final class AppModel: ObservableObject {
         let d: PhotoSection? = section < 0 ? done.intro : (done.sections.indices.contains(section) ? done.sections[section] : nil)
         func apply(_ s: inout PhotoSection) {
             guard let d else { return }
-            if artwork { s.candidates = d.candidates; s.selected = d.selected }
+            if artwork {
+                let selectedID = d.selectedCandidate?.id
+                for candidate in d.candidates { if let i = s.candidates.firstIndex(where: { $0.id == candidate.id }) { s.candidates[i] = candidate } else { s.candidates.append(candidate) } }
+                s.selected = selectedID.flatMap { id in s.candidates.firstIndex { $0.id == id } } ?? -1
+                s.mediaParts = nil; s.playbackOffset = 0; s.useClips = false
+            }
             if idea { s.prompt = d.prompt; s.promptManual = d.promptManual; s.logicNote = d.logicNote; s.focal = d.focal }
+            s.retainedClips = TimelineEditor.uniqueClips(s.retainedClips + d.retainedClips)
             if clips { s.clips = d.clips; s.useClips = d.useClips; s.repeatClips = d.repeatClips }
         }
         if section < 0 { apply(&cur.intro) } else if cur.sections.indices.contains(section), cur.sections.count == done.sections.count { apply(&cur.sections[section]) }
@@ -1088,7 +1094,6 @@ final class AppModel: ObservableObject {
         guard videoJob == nil, var p = plan, let w = workDir else { return }
         let q = quality
         let alsoShorts = autoRenderShorts
-        if alsoShorts && p.shorts.isEmpty { p.shorts = Pipeline.autoShorts(plan: p); plan = p; persist() }      // no Shorts yet: cut the song into Shorts automatically
         videoJob = VideoJob(); renderedShorts = []
         videoTask?.cancel()
         videoTask = Task {

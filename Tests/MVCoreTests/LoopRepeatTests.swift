@@ -44,7 +44,7 @@ final class LoopRepeatTests: XCTestCase {
     func testAShortTimeCutsTheFirstPlayAndAOneSongVideoComesBackRound() {
         // one song for 2 minutes at a time, video of 10 minutes: cut, blend into its own start, cut again…
         let plan = LoopAudio.plan(analyses: [song()], transition: .seamless, crossfade: 6, gap: 2, evenVolume: false, shuffle: false, minimum: 600, seed: 1, repeats: [.minutes(2)])
-        XCTAssertTrue(plan.plays.allSatisfy { $0.cut && $0.length <= 121 && $0.length > 100 })
+        XCTAssertTrue(plan.plays.dropLast().allSatisfy { $0.cut && $0.length <= 121 && $0.length > 100 })
         for (x, y) in zip(plan.plays, plan.plays.dropFirst()) { XCTAssertEqual(x.end - y.start, 6, accuracy: 0.001) }
         XCTAssertGreaterThanOrEqual(plan.songsEnd, 600)
     }

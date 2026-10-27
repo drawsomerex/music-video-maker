@@ -18,20 +18,40 @@ final class LoopAudioTests: XCTestCase {
         XCTAssertTrue(a[1].hardStart, "the second starts at full volume"); XCTAssertFalse(a[2].hardStart, "the third fades in")
     }
 
-    func testEverySongPlaysWholeAndTheVideoNeverCutsOne() throws {
+    func testFixedDurationTrimsOnlyTheFinalPlay() throws {
         let a = try analyses()
         for mode in LoopTransition.allCases {
             let plan = LoopAudio.plan(analyses: a, transition: mode, crossfade: 6, gap: 2, evenVolume: true, shuffle: true, minimum: 600, seed: 42)
-            XCTAssertGreaterThanOrEqual(plan.songsEnd, 600, "\(mode): at least the chosen length")
+            XCTAssertEqual(plan.total, 600, accuracy: 0.001)
             XCTAssertLessThan(plan.plays.dropLast().last!.end, 600, "\(mode): it stops at the first song that reaches the length")
-            for p in plan.plays { XCTAssertEqual(p.length, a[p.track].length, accuracy: 0.001, "\(mode): no song is shortened") }
-            XCTAssertEqual(plan.total, plan.songsEnd + 3, accuracy: 0.001)
+            for p in plan.plays.dropLast() { XCTAssertEqual(p.length, a[p.track].length, accuracy: 0.001) }
+            XCTAssertLessThanOrEqual(plan.songsEnd, plan.total)
             // shuffled rounds never play the same song twice in a row
             for (x, y) in zip(plan.plays, plan.plays.dropFirst()) { XCTAssertNotEqual(x.track, y.track) }
             XCTAssertEqual(plan.firstRound.map(\.track), [0, 1, 2], "the first time through is in your order")
         }
     }
 
+    func testFifteenMinuteRepeatNeverExtendsOneHour() {
+        var a = TrackAnalysis(); a.end = 224; a.energy = [Float](repeating: -18, count: 896)
+        // Quiet moments can end each 15-minute turn early, formerly causing a fifth turn (~74 min).
+        for k in stride(from: 0, to: a.energy.count, by: 100) { a.energy[k] = -50 }
+        for mode in LoopTransition.allCases {
+            let p = LoopAudio.plan(analyses: [a], transition: mode, crossfade: 6, gap: 2, evenVolume: false, shuffle: false,
+                                   minimum: 3600, seed: 1, repeats: [.minutes(15)])
+            XCTAssertEqual(p.total, 3600)
+            XCTAssertTrue(p.plays.allSatisfy { $0.start < 3600 && $0.end <= 3600.000001 })
+            XCTAssertEqual(p.fadeStart, 3597)
+            XCTAssertEqual(p.endingFade(at: 3600), 1)
+            XCTAssertEqual(p.endingFade(at: 3598.5), 0.5)
+        }
+    }
+    func testLongFirstTrackAndOverlappingPlaysRespectFixedDuration() {
+        var a = TrackAnalysis(); a.end = 5000
+        let p = LoopAudio.plan(analyses: [a], transition: .seamless, crossfade: 6, gap: 2, evenVolume: false, shuffle: false, minimum: 3600, seed: 1)
+        XCTAssertEqual(p.plays.count, 1); XCTAssertEqual(p.plays[0].length, 3600)
+        XCTAssertEqual(p.total, 3600)
+    }
     func testJoins() throws {
         let a = try analyses()
         let auto = LoopAudio.plan(analyses: a, transition: .automatic, crossfade: 6, gap: 2, evenVolume: true, shuffle: false, minimum: 100, seed: 1).plays

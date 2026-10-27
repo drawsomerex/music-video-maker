@@ -92,7 +92,13 @@ extension AppModel {
         if let j = videoJob { l.append("The app is making the video in the strip at the top: \(j.phase) (\(Int(j.progress * 100))%).") }
         if stage == .rendering { l.append("The app is making the video: \(phase) (\(Int(progress * 100))%).") }
         if isRecording { l.append("Recording is in progress (\(Int(recordingSeconds)) seconds).") }
-        if let p = plan {
+        if stage == .loop, let p = loopProject {
+            l.append("An open looping video: \(p.title). \(p.tracks.count) tracks; picture \(p.picture == nil ? "missing" : "ready"); loop clip \(p.clip == nil ? "missing" : "ready"). Lyrics are optional.")
+            l.append("Clip choice: \(p.clipLength ?? 15) seconds used, \(p.sharpClip ? "Sharp 2K" : "Standard 768p"). Target: \(p.playOnce ? "Each song once" : LoopVideo.clock(p.hours * 3600)).")
+            if let schedule = loopPlan { l.append("Scheduled output: \(LoopVideo.clock(schedule.total)).") }
+            if let job = loopJob { l.append("Loop task: \(job.title), \(job.phase).") }
+            if p.pendingJob != nil { l.append("An accepted paid clip job is pending recovery.") }
+        } else if let p = plan {
             l.append("An open video: “\(p.title)”. Song length \(Int(p.songDuration)) s; \(p.lines.count) lyric lines; \(p.sections.count) parts plus the title card.")
             l.append("Pictures ready: \(loadedCount) of \(totalImages); blank: \(missing.count).")
             l.append("Setting and theme: \(p.setting.isEmpty ? "none set" : p.setting). Picture style words: \(p.style.isEmpty ? "none" : String(p.style.prefix(80))).")
@@ -103,7 +109,7 @@ extension AppModel {
         } else {
             l.append("No video is open.")
         }
-        if stage == .setup || plan == nil {
+        if stage == .setup || (plan == nil && stage != .loop) {
             var why: [String] = []
             if audioURL == nil { why.append("no song chosen") }
             if title.trimmingCharacters(in: .whitespaces).isEmpty { why.append("no title") }

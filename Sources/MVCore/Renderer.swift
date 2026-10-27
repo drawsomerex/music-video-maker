@@ -259,6 +259,7 @@ extension LyricLayer {
 public enum VideoRenderer {
     public static func render(plan: Plan, work: URL, output: URL, settings: VideoSettings = .init(), short: ShortClip? = nil, progress: ProgressHandler? = nil) async throws {
         if let s = short, s.duration > ShortClip.maxDuration + 0.05 { throw MVError("A YouTube Short can't be longer than 3:00 (this clip is \(Int(s.duration / 60)):\(String(format: "%02d", Int(s.duration) % 60))). Shorten it, or use Whole song to split it into parts.") }
+        try ExportHealth.music(plan, work: work, height: settings.height).requireReady()
         progress?("Preparing frames", 0)
         let wantsBeats = short.map {
             let st = ShortStyle.make(seed: $0.styleSeed, clip: $0)
@@ -376,7 +377,11 @@ public enum VideoRenderer {
                 if next >= total {
                     vDone = true; vIn.markAsFinished(); group.leave(); return
                 }
-                let n = min(workers() * 2, total - next)
+                // Bound uncompressed frames by bytes as well as CPU count (4K BGRA is ~33 MB/frame).
+                let frameBytes = max(1, W * H * 4)
+                let budget = min(UInt64(512 * 1024 * 1024), ProcessInfo.processInfo.physicalMemory / 16)
+                let capacity = max(1, Int(budget) / max(1, frameBytes * 2)) // leave room for concurrent drawing/encoding
+                let n = min(workers() * 2, capacity, total - next)
                 composer.releaseImages(before: Double(next) / Double(fps))
                 var bufs = [CVPixelBuffer?](repeating: nil, count: n)
                 let base = next
@@ -388,7 +393,7 @@ public enum VideoRenderer {
                         guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb) == kCVReturnSuccess, let buf = pb else { return }
                         CVPixelBufferLockBaseAddress(buf, [])
                         let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buf), width: W, height: H, bitsPerComponent: 8,
-                                            bytesPerRow: CVPixelBufferGetBytesPerRow(buf), space: sRGB, bitmapInfo: bitmapInfo)!
+                                            bytesPerRow: CVPixelBufferGetBytesPerRow(buf), space: exportColorSpace, bitmapInfo: bitmapInfo)!
                         ctx.interpolationQuality = .high
                         composer.render(t: Double(base + k) / Double(fps), ctx: ctx)
                         CVPixelBufferUnlockBaseAddress(buf, [])

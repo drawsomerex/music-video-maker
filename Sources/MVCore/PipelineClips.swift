@@ -6,9 +6,9 @@ import CoreGraphics
 
 extension Pipeline {
     /// A picture cropped to fill 1366×768 (16:9) as JPEG: the first frame sent to the video model.
-    static func firstFrameJPEG(file: URL) -> Data? {
+    static func firstFrameJPEG(file: URL, sharp: Bool = false) -> Data? {
         guard let img = loadImage(file, maxPixel: 2400) else { return nil }
-        let W = 1366, H = 768
+        let W = sharp ? 2560 : 1366, H = sharp ? 1440 : 768
         guard let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
         let iw = Double(img.width), ih = Double(img.height), s = max(Double(W) / iw, Double(H) / ih)
         ctx.interpolationQuality = .high
@@ -22,36 +22,43 @@ extension Pipeline {
 
     /// A clip that has been ordered (and so paid for) but not yet saved. It is written to disk the moment HeyGen accepts the order, so a clip is never lost
     /// if the app is closed while it is being made.
-    public struct PendingClipJob: Codable { public var job: String; public var section: Int; public var seconds: Int; public var offset: Double; public var prompt: String; public var started: Date }
+    public struct PendingClipJob: Codable { public var job: String; public var section: Int; public var seconds: Int; public var offset: Double; public var prompt: String; public var started: Date; public var usedSeconds: Int? = nil; public var sharp: Bool? = nil }
     static func pendingURL(_ work: URL) -> URL { work.appendingPathComponent("pending_video_jobs.json") }
     public static func pendingClipJobs(work: URL) -> [PendingClipJob] {
         guard let d = try? Data(contentsOf: pendingURL(work)) else { return [] }
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
         return (try? dec.decode([PendingClipJob].self, from: d)) ?? []
     }
-    static func savePending(_ jobs: [PendingClipJob], work: URL) {
+    static func savePending(_ jobs: [PendingClipJob], work: URL) throws {
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
-        if jobs.isEmpty { try? FileManager.default.removeItem(at: pendingURL(work)) }
-        else if let d = try? enc.encode(jobs) { try? d.write(to: pendingURL(work), options: .atomic) }
+        if jobs.isEmpty { if FileManager.default.fileExists(atPath: pendingURL(work).path) { try FileManager.default.removeItem(at: pendingURL(work)) } }
+        else { try enc.encode(jobs).write(to: pendingURL(work), options: .atomic) }
     }
 
     /// Saves a finished clip into the project: the video, its last frame, the two most prominent features on that frame, and the cost.
-    static func finalizeClip(plan: inout Plan, section index: Int, data: Data, costUSD: Double?, jobID: String, seconds: Int, prompt: String, offset: Double, work: URL, config: Config) async throws -> SectionClip {
+    static func finalizeClip(plan: inout Plan, section index: Int, data: Data, costUSD: Double?, jobID: String, seconds: Int, prompt: String, offset: Double, work: URL, config: Config, usedSeconds: Int? = nil, sharp: Bool = false) async throws -> SectionClip {
+        guard index >= -1, index < plan.sections.count else { throw MVError("The original picture section is no longer available; the paid job is kept for recovery.") }
+        let section = index < 0 ? plan.intro : plan.sections[index]
+        if let existing = (section.clips + section.retainedClips).first(where: { $0.jobID == jobID }) { return existing }
         let fm = FileManager.default
         try fm.createDirectory(at: work.appendingPathComponent("clips"), withIntermediateDirectories: true)
         try fm.createDirectory(at: work.appendingPathComponent("frames"), withIntermediateDirectories: true)
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
+        let stamp = LoopVideo.stableSeed(jobID)
         let file = "clips/section_\(index + 1)_\(stamp).mp4", last = "frames/section_\(index + 1)_\(stamp)_last.jpg"
         try data.write(to: work.appendingPathComponent(file))
         let asset = AVURLAsset(url: work.appendingPathComponent(file))
-        let dur = max(0.5, CMTimeGetSeconds(asset.duration))
+        let duration = CMTimeGetSeconds(asset.duration)
+        guard duration.isFinite, duration > 0 else { throw MVError("The finished clip could not be read; its paid job is kept.") }
+        let dur = max(0.5, duration)
+        let usedEnd = min(dur, Double(usedSeconds ?? seconds))
         let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true; gen.requestedTimeToleranceBefore = .zero; gen.requestedTimeToleranceAfter = .zero
-        guard let lastImg = try? gen.copyCGImage(at: CMTime(seconds: max(0, dur - 0.06), preferredTimescale: 600), actualTime: nil),
+        guard let lastImg = try? gen.copyCGImage(at: CMTime(seconds: max(0, usedEnd - 0.06), preferredTimescale: 600), actualTime: nil),
               let dest = CGImageDestinationCreateWithURL(work.appendingPathComponent(last) as CFURL, "public.jpeg" as CFString, 1, nil) else { throw MVError("Couldn't read the last frame of the clip.") }
         CGImageDestinationAddImage(dest, lastImg, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary); CGImageDestinationFinalize(dest)
         var c = SectionClip()
+        c.jobID = jobID; c.trimEnd = usedSeconds == 3 ? usedEnd : nil
         c.file = file; c.lastFrame = last; c.seconds = dur; c.offset = offset; c.prompt = prompt
-        c.costUSD = costUSD ?? Double(seconds) * OpenRouterVideo.fallbackPricePerSecond
+        c.costUSD = costUSD ?? Double(seconds) * (sharp ? 0.10 : OpenRouterVideo.fallbackPricePerSecond)
         plan.totalVideoCostUSD += c.costUSD
         // a copy in the shared Pictures folder, named after the picture it was made from
         let pic = (index < 0 ? plan.intro : plan.sections[index]).selectedCandidate?.libraryName
@@ -65,20 +72,23 @@ extension Pipeline {
         let rec = "{\"time\":\"\(Date())\",\"section\":\(index),\"job\":\"\(jobID)\",\"seconds\":\(seconds),\"cost\":\(c.costUSD)}\n"
         if let h = try? FileHandle(forWritingTo: work.appendingPathComponent("video_jobs.jsonl")) { h.seekToEndOfFile(); h.write(Data(rec.utf8)); try? h.close() }
         else { try? rec.write(to: work.appendingPathComponent("video_jobs.jsonl"), atomically: true, encoding: .utf8) }
+        // Attach the original before removing the recovery record, even if the app closes before the approval screen appears.
+        if index < 0 { plan.intro.retainedClips = TimelineEditor.uniqueClips(plan.intro.retainedClips + [c]) }
+        else { plan.sections[index].retainedClips = TimelineEditor.uniqueClips(plan.sections[index].retainedClips + [c]) }
         try savePlan(plan, work)
         return c
     }
 
     /// Makes ONE clip of `seconds` from `firstFrame` (a file in the project folder). Saves it, its last frame and the cost; the caller adds it to the section.
     public static func makeClip(plan: inout Plan, section index: Int, seconds: Int, prompt: String, firstFrame: String, offset: Double, work: URL, config: Config = .load(),
-                                onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil) async throws -> SectionClip {
-        guard let frame = firstFrameJPEG(file: work.appendingPathComponent(firstFrame)) else { throw MVError("Couldn't read the picture to start the clip from.") }
-        let result = try await OpenRouterVideo.generate(prompt: prompt, firstFrameJPEG: frame, seconds: seconds, apiKey: config.openRouterKey, onJob: { id in
-            var jobs = pendingClipJobs(work: work); jobs.append(PendingClipJob(job: id, section: index, seconds: seconds, offset: offset, prompt: prompt, started: Date())); savePending(jobs, work: work)
+                                onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil, options: ClipOptions = ClipOptions()) async throws -> SectionClip {
+        guard let frame = firstFrameJPEG(file: work.appendingPathComponent(firstFrame), sharp: options.sharp) else { throw MVError("Couldn't read the picture to start the clip from.") }
+        let result = try await OpenRouterVideo.generate(prompt: prompt, firstFrameJPEG: frame, seconds: seconds, apiKey: config.openRouterKey, resolution: options.resolution, onJob: { id in
+            var jobs = pendingClipJobs(work: work); jobs.append(PendingClipJob(job: id, section: index, seconds: seconds, offset: offset, prompt: prompt, started: Date(), usedSeconds: options.seconds, sharp: options.sharp)); try savePending(jobs, work: work)
             onJob?(id)
         }, onPhase: onPhase)
-        let c = try await finalizeClip(plan: &plan, section: index, data: result.data, costUSD: result.costUSD, jobID: result.jobID, seconds: seconds, prompt: prompt, offset: offset, work: work, config: config)
-        savePending(pendingClipJobs(work: work).filter { $0.job != result.jobID }, work: work)
+        let c = try await finalizeClip(plan: &plan, section: index, data: result.data, costUSD: result.costUSD, jobID: result.jobID, seconds: seconds, prompt: prompt, offset: offset, work: work, config: config, usedSeconds: options.seconds, sharp: options.sharp)
+        try savePending(pendingClipJobs(work: work).filter { $0.job != result.jobID }, work: work)
         return c
     }
 
@@ -90,15 +100,16 @@ extension Pipeline {
         for job in pendingClipJobs(work: work) {
             switch await OpenRouterVideo.fetchFinished(jobID: job.job, apiKey: config.openRouterKey) {
             case .finished(let data, let cost):
-                guard job.section < plan.sections.count, let c = try? await finalizeClip(plan: &plan, section: job.section, data: data, costUSD: cost, jobID: job.job, seconds: job.seconds, prompt: job.prompt, offset: job.offset, work: work, config: config) else { continue }
-                if job.section < 0 { plan.intro.clips.append(c) } else { plan.sections[job.section].clips.append(c) }
+                guard job.section < plan.sections.count, let c = try? await finalizeClip(plan: &plan, section: job.section, data: data, costUSD: cost, jobID: job.job, seconds: job.seconds, prompt: job.prompt, offset: job.offset, work: work, config: config, usedSeconds: job.usedSeconds, sharp: job.sharp ?? false) else { continue }
+                if job.section < 0 { plan.intro.clips = TimelineEditor.uniqueClips(plan.intro.clips + [c]) } else { plan.sections[job.section].clips = TimelineEditor.uniqueClips(plan.sections[job.section].clips + [c]) }
+                guard (try? savePlan(plan, work)) != nil else { continue }
                 left.removeAll { $0.job == job.job }
                 notes.append("A video clip for picture \(job.section + 1) that was still being made when the app closed has been saved (\(OpenRouter.formatUSD(c.costUSD))). Choose “Video clip” under that picture to use it.")
             case .failed: left.removeAll { $0.job == job.job }
-            case .running, .unknown: if Date().timeIntervalSince(job.started) > 86_400 { left.removeAll { $0.job == job.job } }
+            case .running, .unknown: break // Never silently abandon an accepted paid job because a day has passed.
             }
         }
-        savePending(left, work: work)
+        do { try savePending(left, work: work) } catch { notes.append("Could not save clip recovery status: \(error.localizedDescription). The job record is retained.") }
         return notes
     }
 

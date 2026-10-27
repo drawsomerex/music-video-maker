@@ -58,6 +58,7 @@ public final class StyleLibrary: ObservableObject, @unchecked Sendable {
     private var deleted: Set<String> = []
 
     static var fileURL: URL {
+        if ProcessInfo.processInfo.environment["MV_EDITOR_SELFTEST"] != nil, let root = ProcessInfo.processInfo.environment["MV_TEST_ROOT"] { return URL(fileURLWithPath: root).appendingPathComponent("styles.json") }
         if let f = ProcessInfo.processInfo.environment["MV_STYLES_FILE"] { return URL(fileURLWithPath: f) }      // tests
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

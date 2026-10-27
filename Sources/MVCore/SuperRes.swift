@@ -9,6 +9,8 @@ import UniformTypeIdentifiers
 
 public enum SuperRes {
     public static let width = 3840
+    // CIContext owns expensive GPU resources and is safe to reuse for image work.
+    private static let context = CIContext(options: [.cacheIntermediates: false])
 
     /// True when this Mac can enlarge pictures.
     public static var available: Bool {
@@ -22,7 +24,7 @@ public enum SuperRes {
               let src = CGImageSourceCreateWithURL(input as CFURL, nil), let img = CGImageSourceCreateImageAtIndex(src, 0, nil),
               img.width <= 1920, img.width < width else { return false }
         guard let up = await enlarge4x(img) else { return false }
-        let ctx = CIContext()
+        let ctx = context
         let scale = Double(width) / Double(up.extent.width)
         let small = up.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = ctx.createCGImage(small, from: small.extent.integral),
@@ -49,7 +51,7 @@ public enum SuperRes {
             CVPixelBufferCreate(nil, w, h, (a[kCVPixelBufferPixelFormatTypeKey as String] as? NSNumber)?.uint32Value ?? kCVPixelFormatType_32BGRA, a as CFDictionary, &pb)
             return pb
         }
-        let ctx = CIContext()
+        let ctx = context
         guard let inPB = buffer(cfg.sourcePixelBufferAttributes, w, h), let outPB = buffer(cfg.destinationPixelBufferAttributes, w * 4, h * 4) else { return nil }
         ctx.render(CIImage(cgImage: img), to: inPB)
         let t = CMTime(value: 0, timescale: 30)
