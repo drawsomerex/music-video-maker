@@ -41,7 +41,7 @@ extension AppModel {
     }
     func clipPriceUSD(_ seconds: [Int], sharp: Bool = false) -> Double { Double(seconds.reduce(0, +)) * (sharp ? 0.10 : videoPricePerSecond) }
     func setClipOptions(section: Int, seconds: Int?, sharp: Bool, repeatClip: Bool) {
-        checkpoint("Change clip options"); edit(section) { $0.clipOptions = ClipOptions(seconds: seconds, sharp: sharp); $0.repeatClips = repeatClip }
+        checkpoint("Change clip options"); edit(section) { section in section.clipOptions = ClipOptions(seconds: seconds, sharp: sharp); TimelineEditor.editMedia(&section) { $0.repeatClips = repeatClip && $0.clips.count <= 1 } }
     }
     func useSavedClip(section: Int, clip: SectionClip) {
         checkpoint("Use saved clip"); edit(section) { $0.clips = [clip]; $0.useClips = true; $0.mediaParts = nil; $0.playbackOffset = 0 }
@@ -58,13 +58,15 @@ extension AppModel {
     /// Chooses which part of one generated clip plays; the clips after it slide up so there is no gap.
     func setClipTrim(section: Int, clip id: String, start: Double, end: Double?) {
         checkpoint("Trim video", coalesce: true)
-        edit(section) { s in
+        edit(section) { section in
+            TimelineEditor.editMedia(&section) { s in
             guard let i = s.clips.firstIndex(where: { $0.id == id }) else { return }
             let len = max(0.5, s.clips[i].seconds), from = min(max(0, start), max(0, len - 0.5))
             s.clips[i].trimStart = from
             s.clips[i].trimEnd = end.map { min(len, max(from + 0.5, $0)) }
             var t = s.clips.first?.offset ?? 0
             for k in s.clips.indices { s.clips[k].offset = t; t += s.clips[k].playSeconds }
+            }
         }
     }
 
@@ -72,7 +74,7 @@ extension AppModel {
     func setClipRepeat(section: Int, on: Bool) {
         checkpoint("Change repeat")
         guard let s = sectionRef(section) else { return }
-        if s.useClips && !s.clips.isEmpty { edit(section) { $0.repeatClips = on && $0.clips.count == 1 } }
+        if s.useClips && !s.clips.isEmpty { edit(section) { section in TimelineEditor.editMedia(&section) { $0.repeatClips = on && $0.clips.count == 1 } } }
         else { updateCandidate(section: section) { $0.videoRepeat = on } }
     }
 
@@ -89,6 +91,7 @@ extension AppModel {
     func startClips(section: Int, chain: Bool) {
         guard clipJob == nil, plan != nil, let w = workDir, let sec = sectionRef(section) else { return }
         guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        guard !Pipeline.pendingClipJobs(work: w).contains(where: { $0.section == section }) else { notice = "A paid clip for this picture is pending. Choose Recover paid clips before ordering another."; return }
         guard sec.selectedCandidate?.fullFile != nil else { errorMessage = "Make or add this picture first. The clip starts from it."; return }
         let secs = clipSeconds(section: section, chain: chain)
         guard !secs.isEmpty else { return }
@@ -156,7 +159,8 @@ extension AppModel {
             let shown = base + made + [clip]
             // The paid original is already durable in retainedClips. Approval controls the visible assignment.
             if clipJob?.id == job.id { clipJob?.preview = clip }
-            mergeTaskResult(p, startedFrom: before, work: w, section: section)          // edits you made while it was being made are kept
+            mergeTaskResult(p, startedFrom: before, work: w, section: section)
+            if workDir == w && plan?.projectID == before.projectID { try Pipeline.acknowledgeClip(clip.jobID ?? "", work: w) }          // edits you made while it was being made are kept
             refreshOpenRouterCredits(silent: true)
             try Task.checkCancellation()
             func accept() { edit(section) { $0.clips = shown; $0.useClips = true; $0.mediaParts = nil; $0.playbackOffset = 0 } }
@@ -184,17 +188,19 @@ extension AppModel {
 
     /// Collects clips that were ordered (and paid for) but not saved because the app was closed while they were being made.
     func recoverClips() {
-        guard hasOpenRouterKey, plan != nil, let w = workDir, !Pipeline.pendingClipJobs(work: w).isEmpty else { return }
-        config = Config.load()
+        guard !recoveringClips, hasOpenRouterKey, plan != nil, let w = workDir, !Pipeline.pendingClipJobs(work: w).isEmpty else { return }
+        config = Config.load(); recoveringClips = true
         Task {
+            defer { recoveringClips = false }
             var p = plan!
             let before = p.totalVideoCostUSD
             let notes = await Pipeline.recoverPendingClips(plan: &p, work: w, config: config)
-            guard !notes.isEmpty, var cur = plan, workDir == w else { return }
-            for c in p.intro.clips where !cur.intro.clips.contains(where: { $0.id == c.id }) { cur.intro.clips.append(c) }
-            for i in p.sections.indices where cur.sections.indices.contains(i) { for c in p.sections[i].clips where !cur.sections[i].clips.contains(where: { $0.id == c.id }) { cur.sections[i].clips.append(c) } }
+            guard !notes.isEmpty, var cur = plan, workDir == w, cur.projectID == p.projectID else { return }
+            cur.intro.retainedClips = TimelineEditor.uniqueClips(cur.intro.retainedClips + p.intro.retainedClips)
+            for i in p.sections.indices where cur.sections.indices.contains(i) { cur.sections[i].retainedClips = TimelineEditor.uniqueClips(cur.sections[i].retainedClips + p.sections[i].retainedClips) }
             cur.totalVideoCostUSD += p.totalVideoCostUSD - before
             plan = cur; persist(); live.invalidate(); notice = notes.joined(separator: "\n")
+            for c in TimelineEditor.allMediaSections([cur.intro] + cur.sections).flatMap({ $0.retainedClips }) { if let job = c.jobID { try? Pipeline.acknowledgeClip(job, work: w) } }
         }
     }
 
@@ -212,6 +218,7 @@ extension AppModel {
     func startAllClips() {
         guard clipJob == nil, plan != nil, let w = workDir else { return }
         guard hasOpenRouterKey else { showOpenRouterKeySheet = true; return }
+        guard Pipeline.pendingClipJobs(work: w).isEmpty else { notice = "Recover the existing paid clips before placing another bulk order."; return }
         let targets = clipTargets
         guard !targets.isEmpty else { return }
         config = Config.load()

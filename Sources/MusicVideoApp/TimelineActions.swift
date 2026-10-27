@@ -49,7 +49,7 @@ extension AppModel {
         lastEditName = name; lastEditAt = Date(); retainHistoryMedia()
     }
     /// Shared activity gate for history, project switches and app-version changes, including both workflows and accepted paid jobs.
-    var hasActiveWork: Bool { busy || listening || stage == .working || stage == .rendering || videoJob != nil || shortProgress != nil || clipJob != nil || loopJob != nil || loopListening != nil || timelineDragging || isRecording || downloadingModel }
+    var hasActiveWork: Bool { busy || recoveringClips || recoveringLoop || listening || stage == .working || stage == .rendering || videoJob != nil || shortProgress != nil || clipJob != nil || loopJob != nil || loopListening != nil || timelineDragging || isRecording || downloadingModel }
     var historyAvailable: Bool { !hasActiveWork }
     func mayLeaveProject() -> Bool {
         guard !hasActiveWork else { notice = "Finish or stop the current task before opening or closing a project. Anything already made is kept."; return false }
@@ -63,6 +63,7 @@ extension AppModel {
             restored.pictureCount = max(restored.pictureCount, current.pictureCount)
             for file in current.pictures where !restored.pictures.contains(file) { restored.pictures.append(file) }
             for file in current.clips where !restored.clips.contains(file) { restored.clips.append(file) }
+            restored.versionCosts.merge(current.versionCosts) { _, new in new }; restored.versionQualities.merge(current.versionQualities) { _, new in new }
             restored.pendingJob = current.pendingJob; restored.pendingOptions = current.pendingOptions // Undo cannot cancel a paid provider job.
             loopProject = restored; persistLoop(); return
         }

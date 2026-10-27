@@ -7,10 +7,11 @@ public struct ExportHealth {
     public var warnings: [String] = []
     public var text: String { (errors.map { "Needs attention: " + $0 } + warnings.map { "Note: " + $0 }).joined(separator: "\n") }
     public func requireReady() throws { if !errors.isEmpty { throw MVError(text) } }
-    public static func music(_ plan: Plan, work: URL, height: Int = 1080) -> ExportHealth {
+    public static func music(_ plan: Plan, work: URL, height: Int = 1080, short: ShortClip? = nil) -> ExportHealth {
         var result = ExportHealth()
         if !FileManager.default.fileExists(atPath: Pipeline.audioURL(plan, work: work).path) { result.errors.append("The song file is missing. Restore it before exporting.") }
-        for (index, section) in ([plan.intro] + TimelineEditor.renderSections(plan.sections)).enumerated() {
+        let media = short.map { FrameComposer.clip(plan, to: $0).sections } ?? ([plan.intro] + plan.sections)
+        for (index, section) in TimelineEditor.renderSections(media).enumerated() {
             let label = index == 0 ? "Title card" : "Picture \(index)"
             if section.useClips && !section.clips.isEmpty {
                 for clip in section.clips { result.check(clip.file, work: work, label: label) }
@@ -33,7 +34,7 @@ public struct ExportHealth {
         for track in plan.tracks { result.check(track.file, work: work, label: "Song \(track.title)") }
         for clip in LoopVideo.sceneClips(plan) { result.check(clip, work: work, label: "Loop scene") }
         if plan.clip == nil { result.errors.append("Make or add the loop clip first.") }
-        if plan.pendingJob != nil { result.warnings.append("A paid clip is pending. This export uses the current scene list.") }
+        if plan.pendingJob != nil || !LoopVideo.pendingLoopJobs(work).isEmpty { result.warnings.append("A paid clip is pending. This export uses the current scene list.") }
         return result
     }
     private mutating func check(_ relative: String, work: URL, label: String) {

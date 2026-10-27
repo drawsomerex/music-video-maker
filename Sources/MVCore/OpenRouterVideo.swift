@@ -69,13 +69,19 @@ public enum OpenRouterVideo {
             if status == "failed" || status == "cancelled" || status == "expired" { throw MVError("The clip \(status): \(message(pd)). Check your OpenRouter activity before trying again.") }
             if status == "completed" {
                 let cost = ((pj["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue
-                guard let urlStr = ((pj["unsigned_urls"] as? [String])?.first ?? (pj["urls"] as? [String])?.first), let url = URL(string: urlStr) else { throw MVError("The clip finished but no download link came back.") }
+                guard let location = downloadLocation(pj) else { throw MVError("The clip finished but no download link came back.") }
                 onPhase?("Downloading the clip…")
-                let data = try await download(url, authenticated: pj["unsigned_urls"] != nil, apiKey: key)
+                let data = try await download(location.url, authenticated: location.authenticated, apiKey: key)
                 return Clip(data: data, costUSD: cost, jobID: id)
             }
             if Date().timeIntervalSince(started) > 1200 { throw MVError("The clip is taking too long (job \(id)). It may still finish; check your OpenRouter activity.") }
         }
+    }
+
+    static func downloadLocation(_ object: [String: Any]) -> (url: URL, authenticated: Bool)? {
+        if let value = (object["unsigned_urls"] as? [String])?.first, let url = URL(string: value) { return (url, true) }
+        if let value = (object["urls"] as? [String])?.first, let url = URL(string: value) { return (url, false) }
+        return nil
     }
 
     static func trustedAPI(_ url: URL) -> Bool { url.scheme == "https" && url.host?.lowercased() == "openrouter.ai" && url.user == nil && url.password == nil && (url.port == nil || url.port == 443) }
@@ -112,8 +118,8 @@ public enum OpenRouterVideo {
         guard let (d, resp) = try? await URLSession.shared.data(for: r), (resp as? HTTPURLResponse)?.statusCode == 200, let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return .unknown }
         switch j["status"] as? String ?? "" {
         case "completed":
-            guard let urlStr = ((j["unsigned_urls"] as? [String])?.first ?? (j["urls"] as? [String])?.first), let u = URL(string: urlStr) else { return .unknown }
-            guard let data = try? await download(u, authenticated: j["unsigned_urls"] != nil, apiKey: key) else { return .unknown }
+            guard let location = downloadLocation(j) else { return .unknown }
+            guard let data = try? await download(location.url, authenticated: location.authenticated, apiKey: key) else { return .unknown }
             return .finished(data, ((j["usage"] as? [String: Any])?["cost"] as? NSNumber)?.doubleValue)
         case "failed", "cancelled", "expired": return .failed
         default: return .running

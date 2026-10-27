@@ -1,6 +1,6 @@
 // YouTube Shorts from a looping video: one Short per song, made from that song's liveliest stretch (up to 45 seconds) with its scene.
-// Upright 1080 × 1920: the scene full width in the middle over a soft, darkened, blurred copy of itself, the song's title above and the video's
-// title below. The sound fades in and out. A text file beside each Short has its YouTube title, description and tags.
+// Upright 1080 × 1920: a full-screen crop by default, with independent custom/hidden text and per-scene framing.
+// The optional fit layout keeps the whole scene over a blurred background. The sound fades in and out. A text file beside each Short has its YouTube title, description and tags.
 import Foundation
 import AVFoundation
 import CoreGraphics
@@ -69,12 +69,18 @@ extension LoopVideo {
             let name = String(format: "%02d ", k + 1) + label.replacingOccurrences(of: "/", with: "-")
             let out = folder.appendingPathComponent(name + ".mp4")
             try await renderShort(song: song, window: win, clip: dir.appendingPathComponent(clip), trim: p.trims[clip] ?? ClipTrim(),
-                                  title: label, subtitle: p.tracks.count > 1 ? p.shownTitle : "", output: out)
+                                  title: p.shortOptions.title(song: label), subtitle: p.shortOptions.subtitle(project: p.shownTitle, playlist: p.tracks.count > 1), output: out, options: p.shortOptions, framing: p.shortOptions.framing[clip] ?? ShortFraming())
             try shortListing(p, track: k).write(to: folder.appendingPathComponent(name + " – YouTube.txt"), atomically: true, encoding: .utf8)
             made.append(out)
         }
         progress?("Done", 1)
         return made
+    }
+
+    public static func makeShortPreview(_ p: LoopProject, dir: URL, output: URL) async throws {
+        guard let song = p.tracks.first, let file = p.clip else { throw MVError("Add a song and scene first.") }
+        let start = shortWindow(dir.appendingPathComponent(song.file))?.start ?? 0
+        try await renderShort(song: dir.appendingPathComponent(song.file), window: (start, min(5, max(0.5, song.seconds - start))), clip: dir.appendingPathComponent(file), trim: p.trims[file] ?? ClipTrim(), title: p.shortOptions.title(song: songName(song.title, 0)), subtitle: p.shortOptions.subtitle(project: p.shownTitle, playlist: p.tracks.count > 1), output: output, options: p.shortOptions, framing: p.shortOptions.framing[file] ?? ShortFraming(), W: 360, H: 640)
     }
 
     /// A song's name without a track number in front ("03 Rain" → "Rain").
@@ -98,19 +104,27 @@ extension LoopVideo {
         return "TITLE\n\(title)\n\nDESCRIPTION\n\(d)\n\n\(hashtags)\n\nTAGS\n\(Array(NSOrderedSet(array: tags)).compactMap { $0 as? String }.joined(separator: ", "))\n"
     }
 
-    /// One upright Short: the scene's loop full width in the middle over a blurred copy, the titles, and the song stretch with fades.
-    static func renderShort(song: URL, window: (start: Double, length: Double), clip: URL, trim: ClipTrim, title: String, subtitle: String, output: URL) async throws {
-        let W = 1080, H = 1920, fgH = 608
-        let painter = LoopPainter(clip: clip, W: W, H: fgH, title: nil, trim: trim)
+    /// One upright Short: full-screen crop or whole-scene fit, optional independent text, and the song stretch with fades.
+    static func renderShort(song: URL, window: (start: Double, length: Double), clip: URL, trim: ClipTrim, title: String, subtitle: String, output: URL, options: LoopShortOptions = LoopShortOptions(), framing: ShortFraming = ShortFraming(), W: Int = 1080, H: Int = 1920) async throws {
+        let fgH = Int(Double(H) * 608 / 1920)
+        let asset = AVURLAsset(url: clip)
+        let track = try await asset.loadTracks(withMediaType: .video).first
+        let natural = (try? await track?.load(.naturalSize)) ?? CGSize(width: 16, height: 9)
+        let transform = (try? await track?.load(.preferredTransform)) ?? .identity
+        let upright = natural.applying(transform)
+        let source = CGSize(width: max(1, abs(upright.width)), height: max(1, abs(upright.height)))
+        let crop = LoopShortOptions.crop(source: source, canvas: CGSize(width: W, height: H), framing: framing)
+        let painter = LoopPainter(clip: clip, W: options.fillScreen ? Int(crop.width.rounded()) : W, H: options.fillScreen ? Int(crop.height.rounded()) : fgH, title: nil, trim: trim)
         let period = max(fps, Int((painter.period * Double(fps)).rounded()))
         let para = NSMutableParagraphStyle(); para.alignment = .center
-        let titleImg = renderTextImage(NSAttributedString(string: title, attributes: [.font: serifFont(size: 84, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: para]),
-                                       maxWidth: CGFloat(W) * 0.86, pad: 40, shadow: true, shadowBlur: 24)
-        let subImg = subtitle.isEmpty ? nil : renderTextImage(NSAttributedString(string: subtitle.uppercased(), attributes: [.font: roundedFont(size: 36, weight: .medium), .foregroundColor: NSColor(white: 1, alpha: 0.9), .paragraphStyle: para, .kern: 4]),
-                                                              maxWidth: CGFloat(W) * 0.8, pad: 30, shadow: true, shadowBlur: 16)
+        let titleImg = title.isEmpty ? nil : renderTextImage(NSAttributedString(string: title, attributes: [.font: serifFont(size: CGFloat(W) * 84 / 1080, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: para]),
+                                       maxWidth: CGFloat(W) * 0.86, pad: CGFloat(W) * 40 / 1080, shadow: true, shadowBlur: CGFloat(W) * 24 / 1080)
+        let subImg = subtitle.isEmpty ? nil : renderTextImage(NSAttributedString(string: subtitle, attributes: [.font: roundedFont(size: CGFloat(W) * 36 / 1080, weight: .medium), .foregroundColor: NSColor(white: 1, alpha: 0.9), .paragraphStyle: para, .kern: CGFloat(W) * 4 / 1080]),
+                                                              maxWidth: CGFloat(W) * 0.8, pad: CGFloat(W) * 30 / 1080, shadow: true, shadowBlur: CGFloat(W) * 16 / 1080)
         try? FileManager.default.removeItem(at: output)
         let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
         let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: W, AVVideoHeightKey: H,
+                                                                         AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2, AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2],
                                                                          AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 8_000_000]])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: vIn, sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: W, kCVPixelBufferHeightKey as String: H])
         let aIn = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48000, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 192_000])
@@ -121,8 +135,8 @@ extension LoopVideo {
         // the sound: the stretch of the song, faded in (1 s) and out (2.5 s)
         let audio = try songStretch(song, start: window.start, length: window.length)
         let frames = Int(window.length * Double(fps))
-        let fgCtx = CGContext(data: nil, width: W, height: fgH, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
-        let ci = CIContext()
+        let fgCtx = CGContext(data: nil, width: W, height: fgH, bitsPerComponent: 8, bytesPerRow: 0, space: exportColorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+        let ci = options.fillScreen ? nil : CIContext()
         var vi = 0, ai = 0
         let aN = audio.count / 2
         while vi < frames || ai < aN {
@@ -137,6 +151,23 @@ extension LoopVideo {
                 var pb: CVPixelBuffer?
                 CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
                 if let pb {
+                    let t = Double(vi) / Double(fps)
+                    let fade = min(1, min(t / 0.6, (window.length - t) / 1.2))
+                    if options.fillScreen {
+                        paint(pb) { ctx in
+                            ctx.saveGState(); ctx.translateBy(x: crop.minX, y: crop.minY)
+                            painter.draw(loopTime: Double(vi % period) / Double(fps), ctx: ctx)
+                            ctx.restoreGState()
+                            if let titleImg {
+                                ctx.draw(titleImg, in: CGRect(x: (Double(W) - Double(titleImg.width)) / 2, y: Double(H) * 0.82 - Double(titleImg.height), width: Double(titleImg.width), height: Double(titleImg.height)))
+                            }
+                            if let subImg {
+                                ctx.draw(subImg, in: CGRect(x: (Double(W) - Double(subImg.width)) / 2, y: Double(H) * 0.18, width: Double(subImg.width), height: Double(subImg.height)))
+                            }
+                            if fade < 1 { ctx.setFillColor(CGColor(gray: 0, alpha: 1 - max(0, fade))); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H)) }
+                        }
+                        adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(vi), timescale: CMTimeScale(fps)))
+                    } else {
                     painter.draw(loopTime: Double(vi % period) / Double(fps), ctx: fgCtx)
                     if let fg = fgCtx.makeImage() {
                         let t = Double(vi) / Double(fps)
@@ -146,21 +177,22 @@ extension LoopVideo {
                         let cover = Double(H) / Double(fgH) * 4
                         let bg = small.clampedToExtent().applyingGaussianBlur(sigma: 10).transformed(by: CGAffineTransform(scaleX: cover, y: cover))
                         let bx = (Double(W) * 1.0 - Double(fg.width) * 0.25 * cover) / 2
-                        let bgImg = ci.createCGImage(bg.transformed(by: CGAffineTransform(translationX: bx, y: 0)), from: CGRect(x: 0, y: 0, width: W, height: H))
+                        let bgImg = ci?.createCGImage(bg.transformed(by: CGAffineTransform(translationX: bx, y: 0)), from: CGRect(x: 0, y: 0, width: W, height: H))
                         paint(pb) { ctx in
                             ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
                             if let b = bgImg { ctx.draw(b, in: CGRect(x: 0, y: 0, width: W, height: H)) }
                             ctx.setFillColor(CGColor(gray: 0, alpha: 0.42)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
                             let fy = Double(H) / 2 - Double(fgH) / 2 + 60                  // a little above the middle (bottom-up coordinates)
                             ctx.draw(fg, in: CGRect(x: 0, y: fy, width: Double(W), height: Double(fgH)))
-                            let tw = Double(titleImg.width), th = Double(titleImg.height)
-                            ctx.draw(titleImg, in: CGRect(x: (Double(W) - tw) / 2, y: fy + Double(fgH) + 40, width: tw, height: th))
+                            if let titleImg { let tw = Double(titleImg.width), th = Double(titleImg.height)
+                            ctx.draw(titleImg, in: CGRect(x: (Double(W) - tw) / 2, y: fy + Double(fgH) + 40, width: tw, height: th)) }
                             if let s = subImg { ctx.draw(s, in: CGRect(x: (Double(W) - Double(s.width)) / 2, y: fy - Double(s.height) - 30, width: Double(s.width), height: Double(s.height))) }
                             if fade < 1 { ctx.setFillColor(CGColor(gray: 0, alpha: 1 - max(0, fade))); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H)) }
                         }
                         adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(vi), timescale: CMTimeScale(fps)))
                     }
                 }
+                    }
                 vi += 1; did = true
                 if vi >= frames { vIn.markAsFinished() }
             }

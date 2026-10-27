@@ -333,6 +333,7 @@ struct LoopView: View {
                     .help("HeyGen makes clips at 768p or 2K (it has no 1080p setting). Prices are HeyGen's list prices (half while their promotion runs).")
                 Text("Either way the long video is 1080p. Standard is made at 768p and scaled up, so it's a little soft; Sharp is made at 2K and scaled down, so it has full 1080p detail.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                ClipFirstFrameView(file: model.loopFile(p.picture), sharp: p.sharpClip)
                 HStack(alignment: .top, spacing: 14) {
                     clipWell
                     VStack(alignment: .leading, spacing: 8) {
@@ -371,6 +372,12 @@ struct LoopView: View {
                             .id(c).padding(.top, 6)
                     } label: { Label("Choose the part that loops", systemImage: "scissors").font(.callout.weight(.semibold)) }
                         .onAppear { if p.clipWarning != nil { showTrim = true } }
+                }
+                if let dir = model.loopDir, !LoopVideo.pendingLoopJobs(dir).isEmpty {
+                    HStack {
+                        Label("A paid clip is waiting to be collected.", systemImage: "clock")
+                        Button("Recover paid clip") { model.recoverLoopClip() }.disabled(working || model.recoveringLoop)
+                    }.font(.callout).help("Checks the existing paid job without placing another order.")
                 }
                 if !p.clips.isEmpty { clipStrip }
             }
@@ -472,7 +479,7 @@ struct LoopView: View {
                                 .frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
                                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(shown ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: shown ? 3 : 1))
                             }.buttonStyle(.plain).disabled(working)
-                                .help(shown ? "Showing now. The video starts with this scene." : "Look at this scene (the video then starts with it).")
+                                .help((shown ? "Showing now. The video starts with this scene. " : "Look at this scene (the video then starts with it). ") + versionDetails(c))
                             HStack {
                                 if let file = model.loopFile(c) { Button("View larger") { FullScreenPlayer.show(file, title: "Scene", loop: true, muted: true) }.font(.caption).help("Inspect the original clip full screen.") }
                                 Button(role: .destructive) { model.editLoop { q in q.clips.removeAll { $0 == c }; q.sceneClips.removeAll { $0 == c }; if q.clip == c { q.clip = q.clips.first } } } label: { Image(systemName: "trash") }
@@ -536,7 +543,7 @@ struct LoopView: View {
                         Text(p.tracks.count > 1 ? "Each song once" : "The song once").tag(-2.0)
                         Text("1 hour").tag(1.0); Text("3 hours").tag(3.0); Text("8 hours").tag(8.0); Text("12 hours").tag(12.0); Text("Other").tag(-1.0)
                     }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 560)
-                        .help("Each song once: the video is exactly as long as the album (or the one song), played through one time. The hours are the exact video length, including the final fade. The last song is shortened if needed.")
+                        .help("Each song once: play one complete pass through the album (or the one song), then add a short picture fade. The hours are the exact video length, including the final fade. The last song is shortened if needed.")
                     if !p.playOnce && ![1.0, 3, 8, 12].contains(p.hours) {
                         Stepper(String(format: "%.1f h", p.hours), value: Binding(get: { p.hours }, set: { v in customHours = v; model.editLoop { $0.hours = v } }), in: 0.5...12, step: 0.5).fixedSize()
                     }
@@ -562,10 +569,11 @@ struct LoopView: View {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o)]) } label: { Label("Show the last video in Finder", systemImage: "folder") }
                     }
                 }
+                LoopShortsOptionsView(project: p)
                 HStack(spacing: 10) {
                     Button { model.loopMakeShorts() } label: { Label(p.tracks.count > 1 ? "Make Shorts (one per song, \(p.tracks.count))" : "Make a Short", systemImage: "rectangle.portrait.on.rectangle.portrait") }
                         .disabled(working || p.clip == nil || p.tracks.isEmpty)
-                        .help("YouTube Shorts: for each song, its liveliest 45 seconds with the scene it plays over (upright, the scene in the middle over a soft blurred copy, the song's title above and the video's title below). A text file beside each has its YouTube title, description and tags. Free and made on this Mac.")
+                        .help("YouTube Shorts: for each song, its liveliest 45 seconds with the scene it plays over (full-screen portrait crop by default, with your chosen text and per-scene framing). A text file beside each has its YouTube title, description and tags. Free and made on this Mac.")
                     let shorts = model.loopShortsFolder(p)
                     if FileManager.default.fileExists(atPath: shorts.path) {
                         Button { NSWorkspace.shared.open(shorts) } label: { Label("Show the Shorts", systemImage: "folder") }
@@ -596,6 +604,13 @@ struct LoopView: View {
         }
     }
 
+    func versionDetails(_ file: String) -> String {
+        let date = model.loopFile(file).flatMap { try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate }.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Earlier version"
+        let quality = p.versionQualities[file] ?? "Imported or older media"
+        let cost = p.versionCosts[file].map { " · " + OpenRouter.formatUSD($0) } ?? ""
+        return date + " · " + quality + cost
+    }
+
     func thumbs(_ files: [String], selected: String?, pick: @escaping (String) -> Void) -> some View {
         ScrollView(.horizontal, showsIndicators: true) {
             HStack(spacing: 8) {
@@ -604,7 +619,7 @@ struct LoopView: View {
                         Group { if let u = model.loopFile(f) { Thumb(file: u) } else { Color.secondary.opacity(0.2) } }
                             .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(f == selected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: f == selected ? 3 : 1))
-                    }.buttonStyle(.plain).help(f == selected ? "In use now." : "Use this picture again (free).")
+                    }.buttonStyle(.plain).help((f == selected ? "In use now. " : "Use this picture again (free). ") + versionDetails(f))
                     .overlay(alignment: .topTrailing) {
                         if p.pictures.contains(f) {
                             Button { model.editLoop { q in q.pictures.removeAll { $0 == f }; if q.picture == f { q.picture = q.pictures.last } } } label: { Image(systemName: "xmark.circle.fill").padding(3).background(.black.opacity(0.6)).foregroundStyle(.white) }
@@ -712,10 +727,10 @@ struct TrackRow: View {
                     TextField("Song name", text: $newName).textFieldStyle(.roundedBorder).frame(width: 340).onSubmit { save() }
                     Text("Shown on its title card, in the chapters and the tracklist.").font(.caption).foregroundStyle(.secondary)
                     HStack {
-                        Button("Use the file name") { newName = (track.file as NSString).deletingPathExtension.components(separatedBy: "/").last ?? newName }
+                        Button("Use the file name") { newName = (track.file as NSString).deletingPathExtension.components(separatedBy: "/").last ?? newName }.help("Copies the original file name into the title field. Save applies it to the song card.")
                         Spacer()
-                        Button("Cancel") { renaming = false }.keyboardShortcut(.cancelAction)
-                        Button("Save") { save() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                        Button("Cancel") { renaming = false }.keyboardShortcut(.cancelAction).help("Keep the existing song title.")
+                        Button("Save") { save() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent).help("Use this title on the song card and track list; the source file name stays the same.")
                     }
                 }.padding(16)
             }

@@ -14,6 +14,57 @@ enum EditorChecks {
         guard let root = Updater.env["MV_TEST_ROOT"], root.hasPrefix("/tmp/"), let p = model.plan, let work = model.workDir, work.path.hasPrefix(root), Updater.env["MV_TEST_PREFS"] != nil else {
             FileHandle.standardError.write(Data("FAIL scratch project and isolated preferences required\n".utf8)); return
         }
+        if Updater.env["MV_SAFETY_TEST"] != nil {
+            let original = p
+            var other = p; other.projectID = "another-project"; other.title = "Other"
+            model.plan = other
+            var paid = p; paid.totalGenerationCostUSD += 0.1
+            model.mergeTaskResult(paid, startedFrom: p, work: work, section: -1, artwork: true)
+            check(model.plan?.projectID == "another-project" && model.plan?.totalGenerationCostUSD == other.totalGenerationCostUSD, "old result cannot enter another project")
+            model.plan = original
+            var releaseOld: CheckedContinuation<Void, Never>?
+            model.runBackground(initialPhase: "Old") { await withCheckedContinuation { releaseOld = $0 } }
+            while releaseOld == nil { await Task.yield() }
+            let old = model.backgroundTask
+            model.cancelBackgroundTask()
+            var releaseNew: CheckedContinuation<Void, Never>?
+            model.runBackground(initialPhase: "Replacement") { await withCheckedContinuation { releaseNew = $0 } }
+            while releaseNew == nil { await Task.yield() }
+            releaseOld?.resume(); await old?.value
+            check(model.busy && model.busyPhase == "Replacement", "canceled old task cannot clear replacement status")
+            let replacement = model.backgroundTask; releaseNew?.resume(); await replacement?.value
+            check(!model.busy && model.backgroundTask == nil, "replacement cleans up its own status")
+            model.runBackground(initialPhase: "Failure") { model.workingSection = 0; throw MVError("Synthetic redraw failure") }
+            await model.backgroundTask?.value
+            check(model.workingSection == nil && !model.busy, "failed redraw releases its editing lock")
+            model.errorMessage = nil
+            if !p.sections.isEmpty {
+                var withClip = p; var clip = SectionClip(); clip.file = "clips/retained.mp4"; clip.seconds = 5
+                try? FileManager.default.createDirectory(at: work.appendingPathComponent("clips"), withIntermediateDirectories: true)
+                try? Data([1, 2, 3]).write(to: work.appendingPathComponent(clip.file))
+                withClip.sections[0].clips = [clip]; withClip.sections[0].useClips = true
+                model.plan = withClip; model.planRevision += 1; model.checkpointRevision = nil
+                model.deleteClips(section: 0)
+                check(FileManager.default.fileExists(atPath: work.appendingPathComponent(clip.file).path), "clip deletion retains the original file")
+                check(model.plan?.sections[0].clips.isEmpty == true, "clip deletion removes only its assignment")
+                model.undoEdit()
+                check(model.plan?.sections[0].clips.first?.id == clip.id, "Undo restores the clip assignment")
+                model.redoEdit()
+                check(model.plan?.sections[0].clips.isEmpty == true, "Redo does not reactivate retained clips")
+            }
+            model.plan = original; model.editUndo = []; model.editRedo = []
+            var loop = LoopProject(); loop.title = "Loop before"; model.loopProject = loop; model.loopDir = URL(fileURLWithPath: root); model.stage = .loop
+            model.editLoop { $0.title = "Loop after" }
+            check(model.loopProject?.title == "Loop after", "loop edits persist")
+            model.undoEdit(); check(model.loopProject?.title == "Loop before", "loop Undo restores the prior choice")
+            model.redoEdit(); check(model.loopProject?.title == "Loop after", "loop Redo restores the edit")
+            let status = model.helpStatus(screen: "Looping video")
+            check(status.contains("Lyrics are optional") && !status.contains("No video is open") && !status.contains("no lyrics"), "loop Help uses loop context")
+            model.loopJob = LoopJob(title: "Clip in progress")
+            check(model.hasActiveWork, "version and project guard includes loop clips")
+            model.loopJob = nil; model.loopProject = nil; model.loopDir = nil; model.plan = original; model.stage = .plan; model.persist()
+            FileHandle.standardError.write(Data("SAFETY CHECKS: \(checks) checks, \(failures) failures\n".utf8)); return
+        }
         if Updater.env["MV_GEN_TEST"] != nil {
             // Real-money check (under a cent): draw one missing picture end to end, with the style guide reference, focal points and the Pictures folder.
             guard var plan = model.plan, let w = model.workDir, let idx = Pipeline.missing(plan).first(where: { $0 >= 0 }) else { return }

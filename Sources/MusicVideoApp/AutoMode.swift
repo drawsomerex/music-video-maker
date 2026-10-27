@@ -67,6 +67,7 @@ extension AppModel {
             try await self.directorStep(0, "Reading the song description and the lyrics")
             bh("The director is reading the song description and the lyrics, and planning the video…", 0.1)
             let (t, cost) = try await Director.musicVideo(p0, work: w, config: cfg)
+            try Task.checkCancellation()
             self.editSong { $0.totalGenerationCostUSD += cost }
             var c = DirectorChoices(style: t.style.isEmpty ? p0.style : t.style, brightness: p0.brightness, suggested: t.mood, weather: t.weather, time: t.timeOfDay, shot: t.shot,
                                     quality: p0.pictureQuality, reference: t.reference ?? "", keep: t.keep, cast: t.cast, scenes: 1)
@@ -120,6 +121,7 @@ extension AppModel {
             } else {
                 directorRun?.detail = "No photo really showed “\(words)”; the pictures follow their own words"
             }
+            try Task.checkCancellation()
             plan = p; persist()
         }
         try await directorStep(2, p.cast.isEmpty ? "Nothing recurs" : "Drawing the people and things that stay the same")
@@ -127,6 +129,7 @@ extension AppModel {
         if !p.cast.isEmpty {
             bh("Drawing the cast sheet (the people and things every picture keeps the same)…", 0.15)
             _ = try? await Pipeline.makeCastSheet(plan: &p, work: w, config: cfg)
+            try Task.checkCancellation()
             plan = p; persist()
         }
         try await directorStep(3, "")
@@ -196,17 +199,19 @@ extension AppModel {
         let cfg = config
         runBackground(initialPhase: "Making \(sections.count == 1 ? "the picture" : "\(sections.count) pictures") highest quality…") { [weak self] in
             guard let self else { return }
+            let owner = self.backgroundID
             for (k, sec) in sections.enumerated() {
                 try Task.checkCancellation()
                 guard var p = self.plan else { break }
                 let before = p
                 self.workingSection = sec
-                defer { self.workingSection = nil }
+                defer { if self.backgroundID == owner { self.workingSection = nil } }
                 self.busyHandler("\(k + 1)/\(sections.count): \(sec < 0 ? "Title card" : "Picture \(sec + 1)") — redrawing at the highest quality, then sharpening…", Double(k) / Double(sections.count))
                 _ = try await Pipeline.highestQualitySectionImage(section: sec, plan: &p, work: w, config: cfg)
                 self.mergeTaskResult(p, startedFrom: before, work: w, section: sec, artwork: true)
                 self.live.invalidate()
             }
+            try Task.checkCancellation()
             self.workingSection = nil
             self.refreshOpenRouterCredits(silent: true)
             self.notice = (sections.count == 1 ? "Done: the picture is redrawn" : "Done: \(sections.count) pictures are redrawn") + " at the highest quality. The earlier version is still there if you prefer it (under the picture)."

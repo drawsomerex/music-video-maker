@@ -47,13 +47,13 @@ struct ReferenceRows: View {
     func qualityPicker(_ q: Binding<PictureQuality>) -> some View {
         HStack(spacing: 8) {
             Text("Picture quality").font(.callout.weight(.semibold))
-            Picker("", selection: q) { ForEach(PictureQuality.allCases, id: \.self) { Text("\($0.name) ≈ \(OpenRouter.formatUSD($0.estimate))").tag($0) } }.labelsHidden().fixedSize()
+            Picker("Picture quality", selection: q) { ForEach(PictureQuality.allCases, id: \.self) { Text("\($0.name) ≈ \(OpenRouter.formatUSD($0.estimate))").tag($0) } }.labelsHidden().fixedSize()
         }.help("High draws noticeably finer, cleaner detail (about 4¢ a picture). Medium is cheaper (about 1¢).")
     }
     func brightnessPicker(_ b: Binding<Brightness>) -> some View {
         HStack(spacing: 8) {
             Text("Brightness").font(.callout.weight(.semibold))
-            Picker("", selection: b) { ForEach(Brightness.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+            Picker("Brightness", selection: b) { ForEach(Brightness.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
         }.help("Pictures are bright unless you choose otherwise. Even a night or a storm stays clearly visible at Bright. Choose Moody or Dark only if you want darker pictures.")
     }
 
@@ -67,25 +67,25 @@ struct ReferenceRows: View {
         if let u = useCurrent { Button("Use the current picture", action: u).disabled(disabled).help("Bases the new pictures on the picture shown.") }
         Button("Choose from my Mac…", action: choose).disabled(disabled).help("Choose a picture or photo of your own.")
         Button("Find online…", action: find).disabled(disabled).help("Search for a photo (it is always redrawn, never copied).")
-        if let r = remove { Button("Remove", action: r).disabled(disabled) }
+        if let r = remove { Button("Remove", action: r).disabled(disabled).help("Stop using this reference for future pictures. Existing artwork stays.") }
     }
     var keeps: some View {
         HStack(spacing: 10) {
             Text("Keep from it").font(.callout.weight(.semibold))
-            Picker("", selection: $focus) { ForEach(NextFocus.allCases, id: \.self) { Text($0.name).tag($0) } }
-                .pickerStyle(.segmented).labelsHidden().fixedSize().disabled(disabled)
+            Picker("Keep from the reference picture", selection: $focus) { ForEach(NextFocus.allCases, id: \.self) { Text($0.name).tag($0) } }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().disabled(disabled).help("Choose what future pictures keep from this reference: the place, building or subject.")
         }
     }
     var weatherPicker: some View {
         HStack(spacing: 8) {
             Text("Weather").font(.callout.weight(.semibold))
-            Picker("", selection: $weather) { ForEach(LoopWeather.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+            Picker("Weather", selection: $weather) { ForEach(LoopWeather.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
         }
     }
     var timePicker: some View {
         HStack(spacing: 8) {
             Text("Time of day").font(.callout.weight(.semibold))
-            Picker("", selection: $time) { ForEach(LoopTimeOfDay.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
+            Picker("Time of day", selection: $time) { ForEach(LoopTimeOfDay.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
         }
     }
 

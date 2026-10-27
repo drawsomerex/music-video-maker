@@ -225,7 +225,7 @@ public struct Plan: Codable {
     public var introDuration: Double
     public var audioOffset: Double        // silence before the song starts (title card pre-roll)
     public var alignmentCoverage: Double  // fraction of lyric words matched to the transcript
-    public var projectID: String = ""       // stable identity of the song, used by the permanent spend record
+    public var projectID: String = UUID().uuidString       // stable identity of the song, used by the permanent spend record
     public var shorts: [ShortClip] = []   // YouTube Shorts cut from this song
     public var timing: String = "windows"  // "exact" = true word timestamps; "windows" = inferred (±0.3 s)
     public var captionY: Double? = nil      // caption position for the full video (fraction of height from the bottom)

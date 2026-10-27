@@ -97,7 +97,7 @@ extension AppModel {
             l.append("Clip choice: \(p.clipLength ?? 15) seconds used, \(p.sharpClip ? "Sharp 2K" : "Standard 768p"). Target: \(p.playOnce ? "Each song once" : LoopVideo.clock(p.hours * 3600)).")
             if let schedule = loopPlan { l.append("Scheduled output: \(LoopVideo.clock(schedule.total)).") }
             if let job = loopJob { l.append("Loop task: \(job.title), \(job.phase).") }
-            if p.pendingJob != nil { l.append("An accepted paid clip job is pending recovery.") }
+            if p.pendingJob != nil || loopDir.map({ !LoopVideo.pendingLoopJobs($0).isEmpty }) == true { l.append("An accepted paid clip job is pending recovery.") }
         } else if let p = plan {
             l.append("An open video: “\(p.title)”. Song length \(Int(p.songDuration)) s; \(p.lines.count) lyric lines; \(p.sections.count) parts plus the title card.")
             l.append("Pictures ready: \(loadedCount) of \(totalImages); blank: \(missing.count).")

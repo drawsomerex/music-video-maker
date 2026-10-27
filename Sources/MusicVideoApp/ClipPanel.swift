@@ -14,6 +14,26 @@ struct ClipPlayer: View {
             .onAppear { player = AVPlayer(url: url); if autoplay { player?.play() } }
             .onChange(of: url) { _, u in player = AVPlayer(url: u) }
             .onDisappear { player?.pause() }
+            .overlay(alignment: .topTrailing) { Button("View larger") { FullScreenPlayer.show(url, title: "Video clip", loop: false, muted: true) }.buttonStyle(.bordered).padding(5).help("Inspect this clip full screen and zoom in. Esc closes.") }
+    }
+}
+
+/// The exact center crop and upload size, shared by both clip-order cards. Never calls a cloud service.
+struct ClipFirstFrameView: View {
+    let file: URL?
+    let sharp: Bool
+    @State private var image: NSImage?
+    var body: some View {
+        DisclosureGroup("First frame sent to HeyGen") {
+            if let image { Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 360).accessibilityLabel("Exact first-frame crop") }
+            Text("A new single clip starts with this crop. Continuing a chain starts from the preceding clip's last frame.").font(.caption).foregroundStyle(.secondary)
+        }
+        .help("Inspect the actual cropped picture before placing a paid order.")
+        .task(id: (file?.path ?? "") + String(sharp)) {
+            guard let file else { image = nil; return }
+            let data = await Task.detached(priority: .utility) { Pipeline.firstFrameJPEG(file: file, sharp: sharp) }.value
+            if !Task.isCancelled { image = data.flatMap(NSImage.init(data:)) }
+        }
     }
 }
 
@@ -24,7 +44,7 @@ struct ClipPanel: View {
     @State private var confirmDelete = false
     @State private var toggled: Set<String> = []       // clips whose trim panel was flipped from its default (open for one clip, closed for several)
 
-    var sec: PhotoSection { (section < 0 ? model.plan?.intro : model.plan?.sections[section]) ?? PhotoSection(id: 0, start: 0, end: 1, lineIDs: [], queries: [], candidates: [], selected: -1, seed: 0) }
+    var sec: PhotoSection { (section < 0 ? model.plan?.intro : (model.plan?.sections.indices.contains(section) == true ? model.plan?.sections[section] : nil)) ?? PhotoSection(id: 0, start: 0, end: 1, lineIDs: [], queries: [], candidates: [], selected: -1, seed: 0) }
     var work: URL? { model.workDir }
     var coveredSeconds: Double { sec.clips.reduce(0) { $0 + $1.playSeconds } }
     var job: ClipJob? { model.clipJob?.section == section ? model.clipJob : nil }
@@ -40,6 +60,11 @@ struct ClipPanel: View {
                     .help("Ken Burns slowly pans and zooms the picture (the default and it is free). “Video clip” plays the generated video instead. Make a clip first to switch.")
             }
             clipOptions
+            ClipFirstFrameView(file: sec.selectedCandidate?.fullFile.flatMap { name in work?.appendingPathComponent(name) }, sharp: sec.clipOptions.sharp)
+            if let work, !Pipeline.pendingClipJobs(work: work).isEmpty {
+                HStack { Label("A paid clip is pending.", systemImage: "clock"); Button("Recover paid clips") { model.recoverClips() }.disabled(model.recoveringClips) }.font(.callout)
+                    .help("Checks existing accepted jobs without ordering or paying again.")
+            }
             if let j = job { jobView(j) }
             else if sec.clips.isEmpty { makeButtons }
             else { clipList }

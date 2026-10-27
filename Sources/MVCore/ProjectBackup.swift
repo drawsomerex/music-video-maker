@@ -14,6 +14,10 @@ public enum ProjectBackup {
         for s in media { for c in s.clips + s.retainedClips { files.insert(c.file); files.insert(c.lastFrame) } }
         for file in [plan.source, plan.subjectPicture, plan.castSheet].compactMap({ $0 }) { files.insert(file) }
         if !plan.audioFile.isEmpty { files.insert(plan.audioFile) }
+        for job in Pipeline.pendingClipJobs(work: work) {
+            let stamp = LoopVideo.stableSeed(job.job)
+            for name in ["clips/section_\(job.section + 1)_\(stamp).mp4", "frames/section_\(job.section + 1)_\(stamp)_last.jpg"] where FileManager.default.fileExists(atPath: work.appendingPathComponent(name).path) { files.insert(name) }
+        }
         for name in ["pending_video_jobs.json", "video_jobs.jsonl"] where FileManager.default.fileExists(atPath: work.appendingPathComponent(name).path) { files.insert(name) }
         return try write(kind: "music", files: files, work: work) { folder in
             if copy.audioFile.isEmpty {
@@ -30,6 +34,8 @@ public enum ProjectBackup {
     public static func create(loop: LoopProject, work: URL) throws -> URL {
         try LoopVideo.saveChecked(loop, work)
         var files = Set(loop.pictures + loop.clips + loop.tracks.map(\.file))
+        for job in LoopVideo.pendingLoopJobs(work) { let file = LoopVideo.clipFile(job: job.id); if FileManager.default.fileExists(atPath: work.appendingPathComponent(file).path) { files.insert(file) } }
+        if FileManager.default.fileExists(atPath: work.appendingPathComponent("pending_loop_jobs.json").path) { files.insert("pending_loop_jobs.json") }
         for name in [loop.songFile, loop.source ?? "", loop.subject ?? "", loop.castSheet ?? ""] where !name.isEmpty { files.insert(name) }
         return try write(kind: "loop", files: files, work: work) { folder in try LoopVideo.saveChecked(loop, folder) }
     }

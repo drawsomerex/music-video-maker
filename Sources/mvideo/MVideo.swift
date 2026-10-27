@@ -441,7 +441,7 @@ struct MVideo: AsyncParsableCommand {
                 try await LoopVideo.renderPreview(p, dir: dir, output: o, from: f, seconds: 40)
                 print(String(format: "✅ %@ (%.1fs)", o.path, Date().timeIntervalSince(t0))); return
             }
-            LoopVideo.checkIfNeeded(&p, dir: dir)
+            if LoopVideo.checkIfNeeded(&p, dir: dir) { try LoopVideo.saveChecked(p, dir) }
             if previewOnly {
                 let o = dir.appendingPathComponent("loop-preview.mp4")
                 try await LoopVideo.makePreview(clip: dir.appendingPathComponent(cl), output: o, trim: p.trim); print("✅ \(o.path)"); return

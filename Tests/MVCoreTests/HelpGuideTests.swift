@@ -5,6 +5,7 @@ final class HelpGuideTests: XCTestCase {
     func testCommonWorkflowQuestionsRetrieveTheActualTask() {
         let cases = [
             ("Are Shorts created automatically?", "shortsPolicy"),
+            ("How do I hide the song name and crop a looping Short full screen?", "loopShorts"),
             ("Why did my one hour loop become 74 minutes?", "loopMusic"),
             ("Can I make a 3 second clip?", "clipLength"),
             ("How do I recover a paid clip after Stop?", "clipRecovery"),

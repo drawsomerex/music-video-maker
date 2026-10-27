@@ -5,6 +5,12 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+- Looping Shorts can show the song name, custom words or no top text, with optional custom lower text. Full-screen portrait crop is now the default, with saved per-scene framing, a crop guide and a free five-second preview. Whole-scene fit over a blurred background remains available.
+
+- Review fixes: paid loop orders use an independent recovery ledger that survives Stop, Undo and ordinary saves. Recovery keeps music clips inactive until approval; live saves acknowledge completed jobs. Background media results merge into the latest saved project without overwriting newer edits.
+- Joined rows now apply trim, repeat and camera changes to the media actually rendered. Reassignment preserves distinct trims even when split halves share an asset ID. Shorts preserve boundary movie footage and check only media they use.
+
+
 - Added a free pre-export check for missing referenced media, low-resolution pictures and pending clip jobs. Native builds now use a complete dedicated dependency lockfile.
 
 - Both clip workflows offer 3-, 5-, 8- and 15-second motion with Standard/Sharp quality. Three seconds uses a five-second order with its full price disclosed. Short clips now receive a feasible loop search and show their repeat interval.

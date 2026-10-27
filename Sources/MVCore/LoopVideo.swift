@@ -112,8 +112,11 @@ public struct LoopProject: Codable, Equatable {
     public var picture: String?                 // the one the clip starts from
     public var clips: [String] = []             // every loop clip made or added
     public var clip: String?                    // the one in use
+    public var shortOptions = LoopShortOptions()
     public var clipLength: Int? = nil          // 3, 5, 8 or 15 seconds used; nil keeps older projects at 15
     public var motionByPicture: [String: String] = [:]
+    public var versionCosts: [String: Double] = [:]
+    public var versionQualities: [String: String] = [:]
     public var pendingOptions: ClipOptions? = nil
     public var sharpClip = false                // 2K instead of 768p (sharper, about three times the price)
     public var sceneClips: [String] = []        // the clips the long video changes between (empty or one = only the clip in use)
@@ -151,7 +154,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, clipLength, motionByPicture, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -170,8 +173,11 @@ public struct LoopProject: Codable, Equatable {
         about = try c.decodeIfPresent(String.self, forKey: .about) ?? ""
         pictures = try c.decodeIfPresent([String].self, forKey: .pictures) ?? []; picture = try c.decodeIfPresent(String.self, forKey: .picture)
         clips = try c.decodeIfPresent([String].self, forKey: .clips) ?? []; clip = try c.decodeIfPresent(String.self, forKey: .clip)
+        shortOptions = try c.decodeIfPresent(LoopShortOptions.self, forKey: .shortOptions) ?? LoopShortOptions()
         clipLength = try c.decodeIfPresent(Int.self, forKey: .clipLength)
         motionByPicture = try c.decodeIfPresent([String: String].self, forKey: .motionByPicture) ?? [:]
+        versionCosts = try c.decodeIfPresent([String: Double].self, forKey: .versionCosts) ?? [:]
+        versionQualities = try c.decodeIfPresent([String: String].self, forKey: .versionQualities) ?? [:]
         pendingOptions = try c.decodeIfPresent(ClipOptions.self, forKey: .pendingOptions)
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
         clearSky = try c.decodeIfPresent(Bool.self, forKey: .clearSky) ?? false
@@ -222,6 +228,7 @@ public enum LoopVideo {
     public static func load(_ dir: URL) throws -> LoopProject { try JSONDecoder().decode(LoopProject.self, from: Data(contentsOf: dir.appendingPathComponent(fileName))) }
     /// Checked boundary for UI changes, paid jobs and backups: callers can keep the project open and retry a failed write.
     public static func saveChecked(_ p: LoopProject, _ dir: URL) throws {
+        projectWriteLock.lock(); defer { projectWriteLock.unlock() }
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         try enc.encode(p).write(to: dir.appendingPathComponent(fileName), options: .atomic)
         SpendLedger.record(p.id, SpendLedger.Entry(title: p.title + " (looping video)", path: dir.path, imagesUSD: p.imagesUSD, videoUSD: p.videoUSD, pictures: p.pictureCount))
@@ -249,6 +256,7 @@ public enum LoopVideo {
     public static let maxTracks = 100
     /// Copies songs into the project (in "tracks"), named after their files; their names default to the file name.
     public static func addTracks(_ p: inout LoopProject, dir: URL, files: [URL]) async throws {
+        let taskBase = p
         let fm = FileManager.default
         let folder = dir.appendingPathComponent("tracks")
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -262,20 +270,21 @@ public enum LoopVideo {
             p.tracks.append(LoopTrack(file: "tracks/" + name, title: src.deletingPathExtension().lastPathComponent, seconds: secs))
         }
         if let f = p.tracks.first { p.songFile = f.file; p.songSeconds = f.seconds }
-        save(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
         if files.count > room { throw MVError("Only \(room) more song\(room == 1 ? "" : "s") could be added: a looping video can have at most \(maxTracks).") }
     }
 
     /// Listens to every song not listened to yet (where its sound starts and ends, its loudness, how it ends and begins). Returns true if any was new.
     @discardableResult
     public static func ensureAnalysis(_ p: inout LoopProject, dir: URL, progress: ((String, Double) -> Void)? = nil) throws -> Bool {
+        let taskBase = p
         let todo = p.tracks.filter { (p.analysis[$0.file]?.version ?? 0) < TrackAnalysis.currentVersion }       // new songs, and songs measured the old way
         for (k, t) in todo.enumerated() {
             try Task.checkCancellation()
             progress?("Listening to “\(t.title)” (\(k + 1) of \(todo.count))…", Double(k) / Double(max(1, todo.count)))
             p.analysis[t.file] = try LoopAudio.analyze(dir.appendingPathComponent(t.file))
         }
-        if !todo.isEmpty { save(p, dir) }
+        if !todo.isEmpty { try saveMediaResult(p, startedFrom: taskBase, dir: dir) }
         return !todo.isEmpty
     }
 
@@ -297,13 +306,13 @@ public enum LoopVideo {
 
     /// Replaces the song of an open project.
     public static func replaceSong(_ p: inout LoopProject, dir: URL, song: URL) async throws {
+        let taskBase = p
         let fm = FileManager.default
         let name = "song-\(Int(Date().timeIntervalSince1970))." + (song.pathExtension.isEmpty ? "mp3" : song.pathExtension.lowercased())
         try fm.copyItem(at: song, to: dir.appendingPathComponent(name))
-        if !p.songFile.isEmpty { try? fm.removeItem(at: dir.appendingPathComponent(p.songFile)) }
         p.songFile = name
         p.songSeconds = (try? await AVURLAsset(url: dir.appendingPathComponent(name)).load(.duration)).map(CMTimeGetSeconds) ?? 0
-        save(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
 
     // MARK: ideas, picture, clip
@@ -352,6 +361,7 @@ public enum LoopVideo {
     /// Draws the picture the clip starts from. Returns its cost.
     @discardableResult
     public static func makePicture(_ p: inout LoopProject, dir: URL, config: Config = .load()) async throws -> Double {
+        let taskBase = p
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !scene.isEmpty else { throw MVError("Describe the scene first (or press “Suggest scenes”).") }
         let cloudless = p.clearSky && !mentionsSky(scene) && (p.weather == .any || p.weather == .clear)
@@ -368,11 +378,12 @@ public enum LoopVideo {
                                                      quality: p.pictureQuality, rule: p.brightness.words)
         let stored = try await storePicture(gen, dir: dir)
         let name = stored.file; if stored.enlarged { p.enlarged.append(name) }
+        p.versionCosts[name] = gen.costUSD; p.versionQualities[name] = p.pictureQuality.name
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1; p.sceneDrawn = scene
         await checkPicture(&p, dir: dir, picture: name, idea: scene, config: config)
         if reference != nil, let s = p.source, let d = SubjectPicture.distance(dir.appendingPathComponent(s), dir.appendingPathComponent(name)), d < SubjectPicture.tooClose(focus) { p.subjectClose[name] = Double(d) }
-        save(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
         return gen.costUSD
     }
 
@@ -421,6 +432,7 @@ public enum LoopVideo {
     /// (make a clip from it and add it to "Scenes"). Returns the cost.
     @discardableResult
     public static func makeNextPicture(_ p: inout LoopProject, dir: URL, config: Config = .load()) async throws -> Double {
+        let taskBase = p
         // the source image: chosen once (the picture in use the first time) and kept, so every next scene starts from the same picture
         if p.source == nil || !FileManager.default.fileExists(atPath: dir.appendingPathComponent(p.source!).path) { p.source = p.picture }
         guard let pic = p.source else { throw MVError("Draw or add the first picture first.") }
@@ -447,12 +459,13 @@ public enum LoopVideo {
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, referenceJPEGs: refs, scene: idea.scene, quality: p.pictureQuality, rule: p.brightness.words)
         let stored = try await storePicture(gen, dir: dir)
         let name = stored.file; if stored.enlarged { p.enlarged.append(name) }
+        p.versionCosts[name] = gen.costUSD; p.versionQualities[name] = p.pictureQuality.name
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.pictures.append(name); p.picture = name; p.imagesUSD += gen.costUSD + idea.cost; p.pictureCount += 1
         p.scene = idea.scene; p.sceneDrawn = idea.scene
         await checkPicture(&p, dir: dir, picture: name, idea: idea.scene, config: config)
         if !idea.change.isEmpty { p.sceneChanges.append(idea.change) }
-        save(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
         return gen.costUSD + idea.cost
     }
 
@@ -501,30 +514,33 @@ public enum LoopVideo {
         return try await redraw(&p, dir: dir, picture: picture, prompt: Pipeline.highestQualityPrompt(idea: idea, style: p.style), enhance: true, config: config)
     }
     static func redraw(_ p: inout LoopProject, dir: URL, picture: String, prompt: String, enhance: Bool, config: Config) async throws -> Double {
+        let taskBase = p
         guard let img = loadImage(dir.appendingPathComponent(picture), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.92) else { throw MVError("The picture couldn't be read.") }
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, fallbackCostEstimate: enhance ? PictureQuality.enhanceEstimate : p.pictureQuality.estimate,
                                                      referenceJPEGs: [jpeg], quality: p.pictureQuality, enhance: enhance)
         let stored = try await storePicture(gen, dir: dir)
         let name = stored.file; if stored.enlarged { p.enlarged.append(name) }
+        p.versionCosts[name] = gen.costUSD; p.versionQualities[name] = p.pictureQuality.name
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         if let k = p.pictures.firstIndex(of: picture) { p.pictures.insert(name, at: k + 1) } else { p.pictures.append(name) }
         p.picture = name; p.imagesUSD += gen.costUSD; p.pictureCount += 1
-        if enhance { p.enhanced.append(name) }
+        if enhance { p.enhanced.append(name); p.versionQualities[name] = "Highest quality" }
         if p.source == picture { p.source = name }            // the picture next scenes are based on follows its better version
         await checkPicture(&p, dir: dir, picture: name, idea: p.sceneDrawn ?? p.scene, config: config)       // a fix can bring a new fault
-        save(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
         return gen.costUSD
     }
     /// The cast sheet: one picture of the recurring animals, objects and places, made once; every picture is drawn to match it.
     @discardableResult
     public static func makeCastSheet(_ p: inout LoopProject, dir: URL, config: Config = .load()) async throws -> Double {
+        let taskBase = p
         let cast = p.cast.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cast.isEmpty else { return 0 }
         let prompt = "A clean reference sheet for an illustrator: each recurring animal, object and landmark of this video shown once, side by side, on a plain light background, evenly and brightly lit, clearly separated. \(cast)\(StylePreset.styleClause(p.style)) No text, no labels, no lettering, no watermark."
         let gen = try await OpenRouter.generateImage(prompt: prompt, apiKey: config.openRouterKey, quality: p.pictureQuality)
         let name = "castsheet-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: dir.appendingPathComponent(name))
-        p.castSheet = name; p.imagesUSD += gen.costUSD; save(p, dir)
+        p.castSheet = name; p.imagesUSD += gen.costUSD; try saveMediaResult(p, startedFrom: taskBase, dir: dir)
         return gen.costUSD
     }
 
@@ -543,27 +559,30 @@ public enum LoopVideo {
 
     /// Uses a picture of your own as the source image for next scenes (copied in; it is not the picture in use).
     public static func setSource(_ p: inout LoopProject, dir: URL, file: URL) throws {
+        let taskBase = p
         let name = "source-\(Int(Date().timeIntervalSince1970)).\(file.pathExtension.lowercased())"
         try FileManager.default.copyItem(at: file, to: dir.appendingPathComponent(name))
-        p.source = name; save(p, dir)
+        p.source = name; try saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
 
     /// Uses a picture of your own.
     public static func addPicture(_ p: inout LoopProject, dir: URL, file: URL, config: Config = .load()) throws {
+        let taskBase = p
         let name = "picture-own-\(Int(Date().timeIntervalSince1970)).\(file.pathExtension.lowercased())"
         try FileManager.default.copyItem(at: file, to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
-        p.pictures.append(name); p.picture = name; save(p, dir)
+        p.pictures.append(name); p.picture = name; try saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
 
     /// Uses a video clip of your own as the loop.
     public static func addClip(_ p: inout LoopProject, dir: URL, file: URL, config: Config = .load()) throws {
+        let taskBase = p
         let name = "clip-own-\(Int(Date().timeIntervalSince1970)).\(file.pathExtension.lowercased())"
         try FileManager.default.copyItem(at: file, to: dir.appendingPathComponent(name))
         _ = PictureLibrary.save(dir.appendingPathComponent(name), title: p.title, config: config)
         p.clips.append(name); p.clip = name
         applyCheck(&p, clip: name, dir: dir)
-        try saveChecked(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
 
     /// The clip brief, written the way HeyGen recommends for its model: long and in labelled parts (camera, setting, look, light, action, exclusions,
@@ -618,39 +637,43 @@ public enum LoopVideo {
 
     /// Fills in "what moves" for the picture in use (replacing the description of an earlier picture). Never throws: without it the clip uses the general wording.
     public static func refreshMotion(_ p: inout LoopProject, dir: URL, config: Config = .load()) async {
+        let taskBase = p
         guard let pic = p.picture else { return }
         if let cached = p.motionByPicture[pic] { p.motion = cached; return }
         guard let r = await describeMotion(file: dir.appendingPathComponent(pic), config: config) else { return }
-        p.motion = r.text; p.motionByPicture[pic] = r.text; p.imagesUSD += r.cost; save(p, dir)
+        p.motion = r.text; p.motionByPicture[pic] = r.text; p.imagesUSD += r.cost; _ = try? saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
     public static func clipPrice(sharp: Bool, perSecond768: Double, seconds: Int? = nil) -> Double { ClipOptions(seconds: seconds, sharp: sharp).price(perSecond768: perSecond768) }
 
     /// Makes the selected loop clip from the picture in use. The order is recorded the moment it is placed, so a paid clip is never lost.
     public static func makeClip(_ p: inout LoopProject, dir: URL, config: Config = .load(), onPhase: ((String) -> Void)? = nil) async throws {
+        guard pendingLoopJobs(dir).allSatisfy({ p.clips.contains(clipFile(job: $0.id)) }), p.pendingJob == nil else { throw MVError("A paid clip is still pending. Reopen this project to recover it before ordering another clip.") }
         guard let pic = p.picture, let frame = Pipeline.firstFrameJPEG(file: dir.appendingPathComponent(pic), sharp: p.sharpClip) else { throw MVError("Make or add the picture first. The clip starts from it.") }
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         let options = ClipOptions(seconds: p.clipLength, sharp: p.sharpClip)
-        var saved = p; saved.pendingOptions = options
         let brief = await PromptCheck.fix(clipPrompt(scene: scene, motion: p.motion, style: p.style, seconds: options.generatedSeconds()), scene: scene, kind: .clip, apiKey: config.openRouterKey)
         let clip = try await OpenRouterVideo.generate(prompt: brief, firstFrameJPEG: frame, seconds: options.generatedSeconds(), apiKey: config.openRouterKey,
                                                       resolution: p.sharpClip ? "2K" : OpenRouterVideo.resolution, exactPrompt: true,
-                                                      onJob: { id in saved.pendingJob = id; try saveChecked(saved, dir) }, onPhase: onPhase)
+                                                      onJob: { id in try recordLoopJob(PendingLoopJob(id: id, options: options), dir: dir) }, onPhase: onPhase)
         p.pendingOptions = options
         try keepClip(&p, dir: dir, data: clip.data, cost: clip.costUSD ?? options.price(perSecond768: OpenRouterVideo.fallbackPricePerSecond), config: config, jobID: clip.jobID)
         if config.videoRealismCheck, let c = p.clip {
+            let checkBase = p
             onPhase?("Checking the clip looks physically believable…")
             let check = await Pipeline.realismWarning(clipFile: dir.appendingPathComponent(c), idea: p.scene, config: config)
             p.videoUSD += check.costUSD
             if let warning = check.warning { p.clipWarning = [p.clipWarning, warning].compactMap { $0 }.joined(separator: " ") }
-            try saveChecked(p, dir)
+            try saveMediaResult(p, startedFrom: checkBase, dir: dir)
         }
     }
 
     static func keepClip(_ p: inout LoopProject, dir: URL, data: Data, cost: Double, config: Config, jobID: String? = nil) throws {
+        let taskBase = p
         let name = "clip-" + (jobID.map { String(stableSeed($0)) } ?? UUID().uuidString) + ".mp4"
-        if p.clips.contains(name) { p.pendingJob = nil; p.pendingOptions = nil; try saveChecked(p, dir); return }
+        if p.clips.contains(name) { p.pendingJob = nil; p.pendingOptions = nil; try saveMediaResult(p, startedFrom: taskBase, dir: dir); return }
         try data.write(to: dir.appendingPathComponent(name))
         _ = PictureLibrary.saveClip(dir.appendingPathComponent(name), pictureName: nil, title: p.title, config: config)
+        p.versionCosts[name] = cost; p.versionQualities[name] = p.pendingOptions?.resolution ?? (p.sharpClip ? "2K" : "768p")
         p.clips.append(name); p.clip = name; p.videoUSD += cost; p.pendingJob = nil
         applyCheck(&p, clip: name, dir: dir)
         if p.pendingOptions?.seconds == 3 {
@@ -659,31 +682,49 @@ public enum LoopVideo {
             else { p.trims[name] = within; rateLoop(&p, clip: name, dir: dir) }
         }
         p.pendingOptions = nil
-        try saveChecked(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
 
     /// A clip that was ordered (and paid for) but not collected because the app was closed: fetch it now. Returns a sentence for the user, or nil.
-    public static func recoverClip(_ p: inout LoopProject, dir: URL, config: Config = .load()) async -> String? {
-        guard let job = p.pendingJob else { return nil }
-        switch await OpenRouterVideo.fetchFinished(jobID: job, apiKey: config.openRouterKey) {
-        case .finished(let data, let cost):
-            do { try keepClip(&p, dir: dir, data: data, cost: cost ?? (p.pendingOptions ?? ClipOptions(sharp: p.sharpClip)).price(perSecond768: OpenRouterVideo.fallbackPricePerSecond), config: config, jobID: job); return "The loop clip that was being made when the app closed has been collected and is now in use." }
-            catch { return nil }
-        case .failed: p.pendingJob = nil; save(p, dir); return "The loop clip that was being made when the app closed failed at HeyGen. Check your OpenRouter activity before trying again."
-        case .running: return "A loop clip ordered earlier is still being made by HeyGen; it is collected the next time you open this project."
-        case .unknown: return nil
+    public static func recoverClip(_ p: inout LoopProject, dir: URL, config: Config = .load(), fetch: ((String, String) async -> OpenRouterVideo.JobResult)? = nil) async -> String? {
+        var jobs = pendingLoopJobs(dir)
+        if let legacy = p.pendingJob, !jobs.contains(where: { $0.id == legacy }) {
+            let record = PendingLoopJob(id: legacy, options: p.pendingOptions ?? ClipOptions(sharp: p.sharpClip))
+            do { try recordLoopJob(record, dir: dir); jobs.append(record) } catch { return "Could not preserve paid clip recovery: " + error.localizedDescription }
         }
+        guard !jobs.isEmpty else { return nil }
+        var notes: [String] = []
+        for job in jobs {
+            let status: OpenRouterVideo.JobResult
+            if let fetch { status = await fetch(job.id, config.openRouterKey) } else { status = await OpenRouterVideo.fetchFinished(jobID: job.id, apiKey: config.openRouterKey) }
+            switch status {
+            case .finished(let data, let cost):
+                do {
+                    p.pendingOptions = job.options
+                    try keepClip(&p, dir: dir, data: data, cost: cost ?? job.options.price(perSecond768: OpenRouterVideo.fallbackPricePerSecond), config: config, jobID: job.id)
+                    // Live-state acknowledgement clears the ledger after the UI has retained this original.
+                    notes.append("The paid loop clip has been collected and is now in use.")
+                } catch { notes.append("The paid job is kept for recovery: " + error.localizedDescription) }
+            case .failed:
+                do { try removeLoopJob(job.id, dir: dir); notes.append("A pending loop clip failed at HeyGen. Check OpenRouter activity before ordering again.") } catch { notes.append(error.localizedDescription) }
+            case .running: notes.append("A paid loop clip is still being made. Open this project again to collect it.")
+            case .unknown: notes.append("A paid loop clip could not be checked yet. Its recovery record is kept.")
+            }
+        }
+        p.pendingJob = nil; p.pendingOptions = nil
+        do { var latest = try load(dir); latest.pendingJob = nil; latest.pendingOptions = nil; try saveChecked(latest, dir) } catch { notes.append("Could not save recovery status: " + error.localizedDescription) }
+        return notes.joined(separator: "\n")
     }
 
     /// Checks a clip that has not been checked yet (projects made before the check existed). Returns true when something changed.
     @discardableResult
     public static func checkIfNeeded(_ p: inout LoopProject, dir: URL) -> Bool {
         guard let c = p.clip, FileManager.default.fileExists(atPath: dir.appendingPathComponent(c).path) else { return false }
-        if p.trims[c] == nil { applyCheck(&p, clip: c, dir: dir, turning: false); save(p, dir); return true }
+        if p.trims[c] == nil { applyCheck(&p, clip: c, dir: dir, turning: false); return true }
         // clips from before the best-loop search: find it, unless you moved the markers yourself
-        if p.loopScores[c] == nil, p.clipWarning == nil, p.trims[c] == ClipTrim() { applyBestLoop(&p, clip: c, dir: dir); save(p, dir); return true }
+        if p.loopScores[c] == nil, p.clipWarning == nil, p.trims[c] == ClipTrim() { applyBestLoop(&p, clip: c, dir: dir); return true }
         // loops rated before the slow dissolve and the colour lock: rated again as they now look (the markers stay where they are)
-        if p.loopScores[c] != nil, p.loopDrift[c] == nil { rateLoop(&p, clip: c, dir: dir); save(p, dir); return true }
+        if p.loopScores[c] != nil, p.loopDrift[c] == nil { rateLoop(&p, clip: c, dir: dir); return true }
         return false
     }
 
@@ -849,6 +890,7 @@ public enum LoopVideo {
     /// The thumbnail and description for the long video `video` (it does not have to exist yet: they go where it is saved).
     /// The thumbnail uses the picture; with only your own clip, its first frame.
     public static func makeYouTubeFiles(_ p: inout LoopProject, dir: URL, video: URL, config: Config = .load()) async throws {
+        let taskBase = p
         var source = p.picture.map { dir.appendingPathComponent($0) }
         if source == nil, let c = p.clip {
             let g = AVAssetImageGenerator(asset: AVURLAsset(url: dir.appendingPathComponent(c))); g.appliesPreferredTrackTransform = true
@@ -863,7 +905,7 @@ public enum LoopVideo {
         let t = thumbWords(p)
         let f = try YouTubeKit.writeFiles(beside: video, picture: pic, thumbTitle: t.title, badge: t.badge, line: t.line, listing: listing)
         p.thumbnail = f.thumbnail.path; p.listing = f.description.path
-        save(p, dir)
+        try saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
 
     /// The automatic words for the thumbnail: the video's title, its length ("8 HOURS", "FULL ALBUM") and "Study · Focus · Relax".
@@ -952,8 +994,8 @@ public enum LoopVideo {
             let before = b?.before ?? 0, after = b?.after ?? 0
             origin = max(0, s - before)
             let end = s + P + max(f, after) + 1.0 / 30
-            late = VideoClipSource(url: clip, maxPixel: max(W, H), start: origin, end: end)
-            early = VideoClipSource(url: clip, maxPixel: max(W, H), start: origin, end: end)
+            late = VideoClipSource(url: clip, maxPixel: min(4096, max(W, H)), start: origin, end: end)
+            early = VideoClipSource(url: clip, maxPixel: min(4096, max(W, H)), start: origin, end: end)
             if let d = b?.drift, d != SIMD3(repeating: 1) {
                 let g: (Double) -> SIMD3<Float> = { t in LoopVideo.colourGain(d, at: t, start: s, period: P) }
                 late.gain = g; early.gain = g

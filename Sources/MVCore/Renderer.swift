@@ -95,18 +95,7 @@ public final class FrameComposer: @unchecked Sendable {
                                  focus: CGPoint(x: c?.focusX ?? 0.5, y: c?.focusY ?? 0.5), vertical: settings.vertical,
                                  shotInterval: dyn ? style.shotInterval : nil, shake: dyn && style.shake, calm: dyn && style.calm,
                                  video: repeatSource, beats: beats, preferredMode: candidateMode, camera: c?.cameraPath)
-            scene.sourceStart = i == 0 ? 0 : sec.start + off
-            scene.sourceTimeOffset = sec.playbackOffset
-            if hasTail {
-                scene.clipTrack = segs; scene.tail = true
-                if let l = segs.last { scene.kbStart = scene.sourceStart + l.offset + l.seconds - sec.playbackOffset }
-                scene.subjects = tailFocal; scene.subjectsOrdered = tailFocal.count == 2 && sec.clips.last?.focalAX != nil && sec.clips.last?.trimEnd == nil
-            } else if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
-                scene.subjects = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)]; scene.subjectsOrdered = true        // the picture's own two focal points, 1 → 2
-            } else {
-                let subjectFile = c?.thumbFile ?? c?.fullFile
-                scene.subjects = subjectFile.map { ImageScorer.subjects(fileURL: work.appendingPathComponent($0)) } ?? []
-            }
+            Self.configureScene(scene, section: sec, candidate: c, sourceStart: i == 0 ? 0 : sec.start + off, segments: segs, tailFocal: tailFocal, work: work)
             sc.append(scene)
         }
         scenes = sc
@@ -135,6 +124,26 @@ public final class FrameComposer: @unchecked Sendable {
         } else { hook = nil; cta = nil }
     }
 
+    // Keep scene configuration separate from the initializer: the Swift 6.3 release optimizer otherwise leaks a PhotoScene ownership value.
+    @inline(never) private static func configureScene(_ scene: PhotoScene, section sec: PhotoSection, candidate c: ImageCandidate?, sourceStart: Double, segments segs: [ClipSegment], tailFocal: [CGPoint], work: URL) {
+            scene.sourceStart = sourceStart
+            scene.sourceTimeOffset = sec.playbackOffset
+            if !segs.isEmpty {
+                scene.clipTrack = segs; scene.tail = true
+                if let l = segs.last { scene.kbStart = scene.sourceStart + l.offset + l.seconds - sec.playbackOffset }
+                scene.subjects = tailFocal; scene.subjectsOrdered = tailFocal.count == 2 && sec.clips.last?.focalAX != nil && sec.clips.last?.trimEnd == nil
+            } else if let c, let ax = c.focalAX, let ay = c.focalAY, let bx = c.focalBX, let by = c.focalBY {
+                scene.subjects = [CGPoint(x: ax, y: ay), CGPoint(x: bx, y: by)]; scene.subjectsOrdered = true        // the picture's own two focal points, 1 → 2
+            } else {
+                let subjectFile = c?.thumbFile ?? c?.fullFile
+                scene.subjects = subjectFile.map { ImageScorer.subjects(fileURL: work.appendingPathComponent($0)) } ?? []
+            }
+    }
+
+    private static func hasMovie(_ section: PhotoSection) -> Bool {
+        TimelineEditor.renderSections([section]).contains { ($0.useClips && !$0.clips.isEmpty) || $0.selectedCandidate?.videoFile != nil }
+    }
+
     /// The song cut to [start, end]: sections clipped and shifted, lyrics shifted, no title card.
     static func clip(_ p: Plan, to c: ShortClip) -> Plan {
         var q = p
@@ -145,8 +154,8 @@ public final class FrameComposer: @unchecked Sendable {
             return TimelineEditor.shifted(cropped, by: -c.start) }
         if q.sections.isEmpty { q.sections = [p.sections.first ?? p.intro] }
         // No picture change in the first/last 3 s: the title and the ending sit on one steady picture.
-        if q.sections.count > 1, q.sections[0].duration < 3.0 { q.sections.removeFirst(); q.sections[0].start = 0 }
-        if q.sections.count > 1, let l = q.sections.last, l.duration < 3.0 { q.sections.removeLast(); q.sections[q.sections.count - 1].end = c.duration }
+        if q.sections.count > 1, q.sections[0].duration < 3.0, !Self.hasMovie(q.sections[0]), !Self.hasMovie(q.sections[1]) { q.sections.removeFirst(); q.sections[0].start = 0 }
+        if q.sections.count > 1, let l = q.sections.last, l.duration < 3.0, !Self.hasMovie(l), !Self.hasMovie(q.sections[q.sections.count - 2]) { q.sections.removeLast(); q.sections[q.sections.count - 1].end = c.duration }
         return q
     }
 
@@ -259,7 +268,7 @@ extension LyricLayer {
 public enum VideoRenderer {
     public static func render(plan: Plan, work: URL, output: URL, settings: VideoSettings = .init(), short: ShortClip? = nil, progress: ProgressHandler? = nil) async throws {
         if let s = short, s.duration > ShortClip.maxDuration + 0.05 { throw MVError("A YouTube Short can't be longer than 3:00 (this clip is \(Int(s.duration / 60)):\(String(format: "%02d", Int(s.duration) % 60))). Shorten it, or use Whole song to split it into parts.") }
-        try ExportHealth.music(plan, work: work, height: settings.height).requireReady()
+        try ExportHealth.music(plan, work: work, height: settings.height, short: short).requireReady()
         progress?("Preparing frames", 0)
         let wantsBeats = short.map {
             let st = ShortStyle.make(seed: $0.styleSeed, clip: $0)

@@ -216,7 +216,7 @@ final class AppModel: ObservableObject {
     }
 
     // Projects
-    @Published var recents: [URL] = (UserDefaults.standard.stringArray(forKey: "recentProjects") ?? []).map { URL(fileURLWithPath: $0) }.filter { Pipeline.isProject($0) || LoopVideo.isLoopProject($0) }
+    @Published var recents: [URL] = (Updater.defaults.stringArray(forKey: "recentProjects") ?? []).map { URL(fileURLWithPath: $0) }.filter { Pipeline.isProject($0) || LoopVideo.isLoopProject($0) }
 
     // Shorts editor
     @Published var waveform: [Float] = []
@@ -266,6 +266,7 @@ final class AppModel: ObservableObject {
             plan = p; workDir = URL(fileURLWithPath: w); title = p.title; lyrics = Self.lyricsText(of: p); audioURL = Pipeline.audioURL(p, work: URL(fileURLWithPath: w)); audioDuration = p.songDuration; stage = .plan
             if let m = env["MV_DEMO_DONE"] { outputURL = URL(fileURLWithPath: m); stage = .done }
         }
+        if env["MV_EDITOR_SELFTEST"] != nil, let folder = env["MV_DEMO_LOOP"], let project = try? LoopVideo.load(URL(fileURLWithPath: folder)) { loopDir = URL(fileURLWithPath: folder); loopProject = project; stage = .loop }
         if hasOpenRouterKey && env["MV_EDITOR_SELFTEST"] == nil { refreshOpenRouterCredits(silent: true) }
     }
 
@@ -712,7 +713,8 @@ final class AppModel: ObservableObject {
         runBackground(initialPhase: "\(actionWord) \(label) with \(OpenRouter.imageModel)…") { [weak self] in
             guard let self, var p = self.plan else { return }
             let before = p
-            self.workingSection = section; defer { self.workingSection = nil }
+            let owner = self.backgroundID
+            self.workingSection = section; defer { if self.backgroundID == owner { self.workingSection = nil } }
             self.busyHandler("\(actionWord) \(label) (16:9 Medium)…", 0.25)
             let gen = try await Pipeline.generateSectionImage(section: section, plan: &p, work: w, config: self.config)
             self.mergeTaskResult(p, startedFrom: before, work: w, section: section, artwork: true)
@@ -803,7 +805,8 @@ final class AppModel: ObservableObject {
             var sessionSpent = 0.0
             var completed = 0
             var similar: [String] = []
-            defer { self.workingSection = nil }
+            let owner = backgroundID
+            defer { if self.backgroundID == owner { self.workingSection = nil } }
             for (idx, sec) in targets.enumerated() {
                 try Task.checkCancellation()
                 let label0 = sec < 0 ? "the title card" : "picture \(sec + 1)"
@@ -865,6 +868,7 @@ final class AppModel: ObservableObject {
         runBackground(initialPhase: "Writing image prompts from description…") { [weak self] in
             guard let self else { return }
             try await Pipeline.regeneratePrompts(plan: &p, keepStyle: keepStyle, config: self.config, progress: self.busyHandler)
+            try Task.checkCancellation()
             self.plan = p; self.persist(); self.notice = "Prompts rewritten from the description."
         }
     }
@@ -876,6 +880,7 @@ final class AppModel: ObservableObject {
             let bh = self.busyHandler
             try await Pipeline.redescribe(plan: &p, config: self.config) { ph, f in bh(ph, f * 0.35) }
             try await Pipeline.regeneratePrompts(plan: &p, keepStyle: true, config: self.config) { ph, f in bh(ph, 0.35 + f * 0.65) }
+            try Task.checkCancellation()
             self.plan = p; self.persist()
         }
     }
@@ -902,6 +907,7 @@ final class AppModel: ObservableObject {
                 let res = Pipeline.attachFolder(url, plan: &p, work: w, progress: handler)
                 return (p, res)
             }.value
+            try Task.checkCancellation()
             self.plan = updated; self.persist(); self.live.invalidate()
             self.notice = "Loaded \(r.loaded.count) picture(s)." + (r.warnings.isEmpty ? "" : "\n" + r.warnings.joined(separator: "\n"))
         }
@@ -946,11 +952,12 @@ final class AppModel: ObservableObject {
     // MARK: camera move chosen by hand (start point → end point)
     func updateCandidate(section: Int, _ f: (inout ImageCandidate) -> Void) {
         guard var p = plan else { return }
-        if section < 0 {
-            if p.intro.candidates.indices.contains(p.intro.selected) { f(&p.intro.candidates[p.intro.selected]) }
-        } else if p.sections.indices.contains(section), p.sections[section].candidates.indices.contains(p.sections[section].selected) {
-            f(&p.sections[section].candidates[p.sections[section].selected])
+        func apply(_ s: inout PhotoSection) {
+            guard let original = s.selectedCandidate else { return }
+            var updated = original; f(&updated)
+            TimelineEditor.replaceCandidate(original, with: updated, in: &s)
         }
+        if section < 0 { apply(&p.intro) } else if p.sections.indices.contains(section) { apply(&p.sections[section]) }
         plan = p; persist(); live.invalidate()
     }
     func chooseCameraMove(section: Int) {
@@ -998,6 +1005,8 @@ final class AppModel: ObservableObject {
     @Published var videoPricePerSecond = OpenRouterVideo.fallbackPricePerSecond
     var clipTask: Task<Void, Never>?
     var clipTaskID = UUID()
+    @Published var recoveringClips = false
+    @Published var recoveringLoop = false
     var clipDecision: CheckedContinuation<ClipDecision, Never>?
     @Published var showReport = false        // the "Report a problem" window
     var reportPrefill = ""
@@ -1033,7 +1042,8 @@ final class AppModel: ObservableObject {
         let before = p
         runBackground(initialPhase: "Writing another picture idea…") { [weak self] in
             guard let self else { return }
-            self.workingSection = section; defer { self.workingSection = nil }
+            let owner = self.backgroundID
+            self.workingSection = section; defer { if self.backgroundID == owner { self.workingSection = nil } }
             try await Pipeline.rewritePrompt(plan: &p, section: section, config: self.config, progress: self.busyHandler)
             self.mergeTaskResult(p, startedFrom: before, work: w, section: section, idea: true)
         }
@@ -1048,10 +1058,14 @@ final class AppModel: ObservableObject {
         func apply(_ s: inout PhotoSection) {
             guard let d else { return }
             if artwork {
+                let original = section < 0 ? before.intro : before.sections[section]
+                let selectionUnchanged = s.selectedCandidate?.id == original.selectedCandidate?.id
                 let selectedID = d.selectedCandidate?.id
                 for candidate in d.candidates { if let i = s.candidates.firstIndex(where: { $0.id == candidate.id }) { s.candidates[i] = candidate } else { s.candidates.append(candidate) } }
-                s.selected = selectedID.flatMap { id in s.candidates.firstIndex { $0.id == id } } ?? -1
-                s.mediaParts = nil; s.playbackOffset = 0; s.useClips = false
+                if !Task.isCancelled && selectionUnchanged {
+                    s.selected = selectedID.flatMap { id in s.candidates.firstIndex { $0.id == id } } ?? -1
+                    s.mediaParts = nil; s.playbackOffset = 0; s.useClips = false
+                }
             }
             if idea { s.prompt = d.prompt; s.promptManual = d.promptManual; s.logicNote = d.logicNote; s.focal = d.focal }
             s.retainedClips = TimelineEditor.uniqueClips(s.retainedClips + d.retainedClips)
@@ -1072,6 +1086,7 @@ final class AppModel: ObservableObject {
         runBackground(initialPhase: "Adding a picture for the music before the words…") { [weak self] in
             guard let self else { return }
             try await Pipeline.addInstrumentalIntro(plan: &p, config: self.config, progress: self.busyHandler)
+            try Task.checkCancellation()
             self.plan = p; self.selectedSection = 0; self.persist(); self.live.invalidate()
         }
     }
@@ -1222,7 +1237,7 @@ final class AppModel: ObservableObject {
     // MARK: Projects
     func remember(_ folder: URL) {
         recents.removeAll { $0 == folder }; recents.insert(folder, at: 0); recents = Array(recents.prefix(8))
-        UserDefaults.standard.set(recents.map(\.path), forKey: "recentProjects")
+        Updater.defaults.set(recents.map(\.path), forKey: "recentProjects")
     }
 
     func openProject(_ folder: URL) {
@@ -1259,6 +1274,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             defer { self.resyncing = false }
             let cov = try await Pipeline.resync(plan: &p, work: w, config: self.config, progress: self.busyHandler)
+            try Task.checkCancellation()
             self.plan = p; self.notice = String(format: "Lyrics re-synced with exact word timing (%.0f%% of words matched).", cov * 100)
             self.refreshPreview(at: 1)
         }

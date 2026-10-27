@@ -28,6 +28,7 @@ struct MusicVideoApp: App {
     var body: some Scene {
         WindowGroup("Music Video Maker") {
             RootView()
+                .defaultAppStorage(Updater.defaults)
                 .environmentObject(model)
                 .environmentObject(updater)
                 .task {

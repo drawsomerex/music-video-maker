@@ -41,6 +41,19 @@ public enum TimelineEditor {
         out.remove(at: index)
         return numbered(out)
     }
+    /// Apply a displayed media edit to the saved children a joined row actually renders.
+    public static func editMedia(_ section: inout PhotoSection, _ edit: (inout PhotoSection) -> Void) {
+        edit(&section)
+        if var parts = section.mediaParts {
+            for index in parts.indices { editMedia(&parts[index], edit) }
+            section.mediaParts = parts
+        }
+    }
+    public static func replaceCandidate(_ original: ImageCandidate, with replacement: ImageCandidate, in section: inout PhotoSection) {
+        editMedia(&section) { s in
+            for index in s.candidates.indices where s.candidates[index] == original { s.candidates[index] = replacement }
+        }
+    }
     public static func uniqueClips(_ clips: [SectionClip]) -> [SectionClip] {
         var seen = Set<String>(); return clips.filter { seen.insert($0.id).inserted }
     }
@@ -84,8 +97,8 @@ public enum TimelineEditor {
         var out = sections
         func put(_ media: PhotoSection, into target: inout PhotoSection) {
             if let c = media.selectedCandidate {
-                if let i = target.candidates.firstIndex(where: { $0.id == c.id }) { target.selected = i }
-                else { target.candidates.append(c); target.selected = target.candidates.count - 1 }
+                if let i = target.candidates.firstIndex(of: c) { target.selected = i }
+                else { var incoming = c; if target.candidates.contains(where: { $0.id == incoming.id }) { incoming.id += ":" + UUID().uuidString }; target.candidates.append(incoming); target.selected = target.candidates.count - 1 }
             } else { target.selected = -1 }
             target.clips = media.clips; target.useClips = media.useClips; target.repeatClips = media.repeatClips
             target.playbackOffset = media.playbackOffset

@@ -6,7 +6,7 @@ import CoreGraphics
 
 extension Pipeline {
     /// A picture cropped to fill 1366×768 (16:9) as JPEG: the first frame sent to the video model.
-    static func firstFrameJPEG(file: URL, sharp: Bool = false) -> Data? {
+    public static func firstFrameJPEG(file: URL, sharp: Bool = false) -> Data? {
         guard let img = loadImage(file, maxPixel: 2400) else { return nil }
         let W = sharp ? 2560 : 1366, H = sharp ? 1440 : 768
         guard let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
@@ -23,16 +23,28 @@ extension Pipeline {
     /// A clip that has been ordered (and so paid for) but not yet saved. It is written to disk the moment HeyGen accepts the order, so a clip is never lost
     /// if the app is closed while it is being made.
     public struct PendingClipJob: Codable { public var job: String; public var section: Int; public var seconds: Int; public var offset: Double; public var prompt: String; public var started: Date; public var usedSeconds: Int? = nil; public var sharp: Bool? = nil }
+    static let pendingVideoLock = NSRecursiveLock()
     static func pendingURL(_ work: URL) -> URL { work.appendingPathComponent("pending_video_jobs.json") }
     public static func pendingClipJobs(work: URL) -> [PendingClipJob] {
+        pendingVideoLock.lock(); defer { pendingVideoLock.unlock() }
         guard let d = try? Data(contentsOf: pendingURL(work)) else { return [] }
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
         return (try? dec.decode([PendingClipJob].self, from: d)) ?? []
     }
     static func savePending(_ jobs: [PendingClipJob], work: URL) throws {
+        pendingVideoLock.lock(); defer { pendingVideoLock.unlock() }
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
         if jobs.isEmpty { if FileManager.default.fileExists(atPath: pendingURL(work).path) { try FileManager.default.removeItem(at: pendingURL(work)) } }
         else { try enc.encode(jobs).write(to: pendingURL(work), options: .atomic) }
+    }
+
+    static func recordPending(_ job: PendingClipJob, work: URL) throws {
+        pendingVideoLock.lock(); defer { pendingVideoLock.unlock() }
+        let file = pendingURL(work)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        var jobs = FileManager.default.fileExists(atPath: file.path) ? try decoder.decode([PendingClipJob].self, from: Data(contentsOf: file)) : []
+        if !jobs.contains(where: { $0.job == job.job }) { jobs.append(job) }
+        try savePending(jobs, work: work)
     }
 
     /// Saves a finished clip into the project: the video, its last frame, the two most prominent features on that frame, and the cost.
@@ -40,6 +52,7 @@ extension Pipeline {
         guard index >= -1, index < plan.sections.count else { throw MVError("The original picture section is no longer available; the paid job is kept for recovery.") }
         let section = index < 0 ? plan.intro : plan.sections[index]
         if let existing = (section.clips + section.retainedClips).first(where: { $0.jobID == jobID }) { return existing }
+        let taskBase = plan
         let fm = FileManager.default
         try fm.createDirectory(at: work.appendingPathComponent("clips"), withIntermediateDirectories: true)
         try fm.createDirectory(at: work.appendingPathComponent("frames"), withIntermediateDirectories: true)
@@ -75,7 +88,7 @@ extension Pipeline {
         // Attach the original before removing the recovery record, even if the app closes before the approval screen appears.
         if index < 0 { plan.intro.retainedClips = TimelineEditor.uniqueClips(plan.intro.retainedClips + [c]) }
         else { plan.sections[index].retainedClips = TimelineEditor.uniqueClips(plan.sections[index].retainedClips + [c]) }
-        try savePlan(plan, work)
+        try saveMediaResult(plan, startedFrom: taskBase, section: index, work: work, artwork: false)
         return c
     }
 
@@ -84,38 +97,50 @@ extension Pipeline {
                                 onJob: ((String) -> Void)? = nil, onPhase: ((String) -> Void)? = nil, options: ClipOptions = ClipOptions()) async throws -> SectionClip {
         guard let frame = firstFrameJPEG(file: work.appendingPathComponent(firstFrame), sharp: options.sharp) else { throw MVError("Couldn't read the picture to start the clip from.") }
         let result = try await OpenRouterVideo.generate(prompt: prompt, firstFrameJPEG: frame, seconds: seconds, apiKey: config.openRouterKey, resolution: options.resolution, onJob: { id in
-            var jobs = pendingClipJobs(work: work); jobs.append(PendingClipJob(job: id, section: index, seconds: seconds, offset: offset, prompt: prompt, started: Date(), usedSeconds: options.seconds, sharp: options.sharp)); try savePending(jobs, work: work)
+            try recordPending(PendingClipJob(job: id, section: index, seconds: seconds, offset: offset, prompt: prompt, started: Date(), usedSeconds: options.seconds, sharp: options.sharp), work: work)
             onJob?(id)
         }, onPhase: onPhase)
         let c = try await finalizeClip(plan: &plan, section: index, data: result.data, costUSD: result.costUSD, jobID: result.jobID, seconds: seconds, prompt: prompt, offset: offset, work: work, config: config, usedSeconds: options.seconds, sharp: options.sharp)
-        try savePending(pendingClipJobs(work: work).filter { $0.job != result.jobID }, work: work)
         return c
     }
 
     /// Clips that were ordered but never saved (the app was closed or crashed while they were being made): collects every one that has finished and adds it to its section.
     /// Returns a plain sentence for each clip recovered. A section is not switched to video by this; the owner decides.
-    public static func recoverPendingClips(plan: inout Plan, work: URL, config: Config = .load()) async -> [String] {
+    public static func recoverPendingClips(plan: inout Plan, work: URL, config: Config = .load(), fetch: ((String, String) async -> OpenRouterVideo.JobResult)? = nil) async -> [String] {
         var notes: [String] = []
-        var left = pendingClipJobs(work: work)
-        for job in pendingClipJobs(work: work) {
-            switch await OpenRouterVideo.fetchFinished(jobID: job.job, apiKey: config.openRouterKey) {
+        let originalJobs = pendingClipJobs(work: work)
+        var left = originalJobs
+        for job in originalJobs {
+            let status: OpenRouterVideo.JobResult
+            if let fetch { status = await fetch(job.job, config.openRouterKey) } else { status = await OpenRouterVideo.fetchFinished(jobID: job.job, apiKey: config.openRouterKey) }
+            switch status {
             case .finished(let data, let cost):
                 guard job.section < plan.sections.count, let c = try? await finalizeClip(plan: &plan, section: job.section, data: data, costUSD: cost, jobID: job.job, seconds: job.seconds, prompt: job.prompt, offset: job.offset, work: work, config: config, usedSeconds: job.usedSeconds, sharp: job.sharp ?? false) else { continue }
-                if job.section < 0 { plan.intro.clips = TimelineEditor.uniqueClips(plan.intro.clips + [c]) } else { plan.sections[job.section].clips = TimelineEditor.uniqueClips(plan.sections[job.section].clips + [c]) }
-                guard (try? savePlan(plan, work)) != nil else { continue }
-                left.removeAll { $0.job == job.job }
+                // The UI acknowledges this job only after its live state has also saved the retained original.
                 notes.append("A video clip for picture \(job.section + 1) that was still being made when the app closed has been saved (\(OpenRouter.formatUSD(c.costUSD))). Choose “Video clip” under that picture to use it.")
             case .failed: left.removeAll { $0.job == job.job }
             case .running, .unknown: break // Never silently abandon an accepted paid job because a day has passed.
             }
         }
-        do { try savePending(left, work: work) } catch { notes.append("Could not save clip recovery status: \(error.localizedDescription). The job record is retained.") }
+        let failedIDs = Set(originalJobs.map(\.job)).subtracting(Set(left.map(\.job)))
+        pendingVideoLock.lock(); defer { pendingVideoLock.unlock() }
+        do { try savePending(pendingClipJobs(work: work).filter { !failedIDs.contains($0.job) }, work: work) } catch { notes.append("Could not save clip recovery status: \(error.localizedDescription). The job record is retained.") }
         return notes
+    }
+
+    /// Called after the live project save. A canceled task cannot erase its recovery record before the UI retained its original.
+    public static func acknowledgeClip(_ id: String, work: URL) throws {
+        projectWriteLock.lock(); defer { projectWriteLock.unlock() }
+        let saved = try loadPlan(work)
+        pendingVideoLock.lock(); defer { pendingVideoLock.unlock() }
+        guard TimelineEditor.allMediaSections([saved.intro] + saved.sections).flatMap({ $0.clips + $0.retainedClips }).contains(where: { $0.jobID == id && FileManager.default.fileExists(atPath: work.appendingPathComponent($0.file).path) }) else { return }
+        try savePending(pendingClipJobs(work: work).filter { $0.job != id }, work: work)
     }
 
     /// A cheap cloud vision check (about a tenth of a cent): five frames across the clip, looking only for physically impossible things.
     /// Returns a short warning, or nil when nothing looked wrong. Never throws and never redoes anything.
     public static func realismWarning(clipFile: URL, idea: String, config: Config = .load()) async -> (warning: String?, costUSD: Double) {
+        guard !config.effectiveOpenRouterKey.isEmpty else { return (nil, 0) }
         let asset = AVURLAsset(url: clipFile); let dur = max(1, CMTimeGetSeconds(asset.duration))
         let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true; gen.maximumSize = CGSize(width: 640, height: 640)
         var content: [[String: Any]] = [["type": "text", "text": "These are 5 frames spread evenly across one AI-generated video clip, in order. Do NOT compare it with any description: judge only whether it looks physically possible.\nDoes the clip contain PHYSICAL IMPOSSIBILITIES or obvious AI glitches: wrong number of limbs or fingers, duplicated or merging people or objects, things passing through solid things, floating or teleporting objects, liquids behaving wrongly, unnatural walking, clothing changing, the main subject changing identity, melting or warping shapes? Flag only clear impossibilities (angle changes and tiny facial details are fine). Reply with ONLY JSON: {\"ok\": true or false, \"problems\": \"one short sentence, or empty\"}"]]
@@ -143,6 +168,7 @@ extension Pipeline {
     /// Finds the two focal points in a finished picture with a cheap cloud vision call (about 0.03 cent). With `names` it locates those two things;
     /// without, it picks two clearly different focal points itself. Coordinates are fractions across and down (origin top-left). Never throws; nil when it could not.
     public static func locateFocalPoints(file: URL, names: [String], config: Config = .load()) async -> (points: [CGPoint], names: [String], cost: Double)? {
+        guard !config.effectiveOpenRouterKey.isEmpty else { return nil }
         if let r = await locateOnce(file: file, names: names, config: config) { return r }
         return await locateOnce(file: file, names: names, config: config)        // one more try: a cloud call can fail now and then
     }

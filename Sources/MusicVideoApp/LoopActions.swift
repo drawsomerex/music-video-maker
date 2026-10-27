@@ -84,7 +84,7 @@ extension AppModel {
                        if s > 0 { editLoop { q in if let i = q.tracks.firstIndex(where: { $0.id == t.id }) { q.tracks[i].seconds = s } } } }
             }
             refreshOpenRouterCredits(silent: true)
-            if p.pendingJob != nil { recoverLoopClip() }
+            if p.pendingJob != nil || !LoopVideo.pendingLoopJobs(dir).isEmpty { recoverLoopClip() }
             loopListen()
             // clips made before the checks, or rated before the slow dissolve and the colour lock, are checked once now (in the background)
             let check = Task.detached(priority: .userInitiated) { () -> LoopProject? in var q = p; return LoopVideo.checkIfNeeded(&q, dir: dir) ? q : nil }
@@ -136,17 +136,22 @@ extension AppModel {
                         for file in done.clips where !p0.clips.contains(file) && !cur.clips.contains(file) { cur.clips.append(file) }
                         cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += max(0, done.videoUSD - p0.videoUSD)
                         cur.pictureCount += max(0, done.pictureCount - p0.pictureCount)
-                        cur.motionByPicture.merge(done.motionByPicture) { old, _ in old }
+                        cur.versionCosts.merge(done.versionCosts) { _, new in new }; cur.versionQualities.merge(done.versionQualities) { _, new in new }
+                    cur.motionByPicture.merge(done.motionByPicture) { old, _ in old }
                         loopProject = cur; persistLoop()
                     }
                     return
                 }
                 if var cur = loopProject, cur.id == done.id {
-                    cur.pictures = done.pictures; cur.picture = done.picture; cur.clips = done.clips; cur.clip = done.clip
+                    for file in done.pictures where !cur.pictures.contains(file) { cur.pictures.append(file) }
+                    for file in done.clips where !cur.clips.contains(file) { cur.clips.append(file) }
+                    if cur.picture == p0.picture { cur.picture = done.picture }
+                    if cur.clip == p0.clip { cur.clip = done.clip }
                     if done.scene != p0.scene && cur.scene == p0.scene { cur.scene = done.scene }   // the next scene's description, unless you typed meanwhile
                     cur.sceneDrawn = done.sceneDrawn
                     cur.sceneChanges = done.sceneChanges; cur.subjectClose = done.subjectClose
                     if done.sceneClips != p0.sceneClips { cur.sceneClips = done.sceneClips; cur.sceneChange = done.sceneChange }
+                    cur.versionCosts.merge(done.versionCosts) { _, new in new }; cur.versionQualities.merge(done.versionQualities) { _, new in new }
                     cur.motionByPicture.merge(done.motionByPicture) { _, new in new }
                     cur.motion = done.motion != p0.motion ? done.motion : cur.motion
                     if done.style != p0.style && cur.style == p0.style { cur.style = done.style }
@@ -165,7 +170,7 @@ extension AppModel {
                     for (k, v) in done.trims where cur.trims[k] == nil || p0.trims[k] != v { cur.trims[k] = v }      // a new clip's check; your own trims made meanwhile stay
                     cur.imagesUSD += max(0, done.imagesUSD - p0.imagesUSD); cur.videoUSD += max(0, done.videoUSD - p0.videoUSD); cur.pictureCount += max(0, done.pictureCount - p0.pictureCount); cur.pendingJob = done.pendingJob; cur.pendingOptions = done.pendingOptions; cur.output = done.output
                     loopProject = cur; planRevision += 1; checkpointRevision = nil
-                    try LoopVideo.saveChecked(cur, d); saveStatus = "Saved"
+                    try LoopVideo.saveChecked(cur, d); try LoopVideo.acknowledgeLoopJobs(cur, dir: d); saveStatus = "Saved"
                 }
                 let spent = done.imagesUSD + done.videoUSD - spentBefore
                 if done.output == p0.output { doneNote = DoneNote(text: "Done — " + title.replacingOccurrences(of: "…", with: "") + (spent > 0.0001 ? " · cost \(OpenRouter.formatUSD(spent))" : "")) }   // a finished long video has its own note
@@ -360,11 +365,12 @@ extension AppModel {
         }
     }
     func recoverLoopClip() {
-        guard var p = loopProject, let d = loopDir else { return }
-        let cfg = Config.load()
+        guard !recoveringLoop, var p = loopProject, let d = loopDir else { return }
+        let cfg = Config.load(); recoveringLoop = true
         Task {
+            defer { recoveringLoop = false }
             if let note = await LoopVideo.recoverClip(&p, dir: d, config: cfg) {
-                if loopDir == d { loopProject = p }
+                if loopDir == d, loopProject?.id == p.id { loopProject = (try? LoopVideo.load(d)) ?? p; if let saved = loopProject { try? LoopVideo.acknowledgeLoopJobs(saved, dir: d) } }
                 notice = note
                 if let c = p.clip, let u = loopPreviewURL(for: c), !FileManager.default.fileExists(atPath: u.path) { loopMakePreview(c) }
             }
@@ -380,6 +386,22 @@ extension AppModel {
     }
     /// Where a looping video's Shorts go: a folder beside the long video.
     func loopShortsFolder(_ p: LoopProject) -> URL { loopOutputURL(p).deletingLastPathComponent().appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – Shorts") }
+    func setLoopShortFraming(clip: String, x: Double, y: Double) {
+        guard !clip.isEmpty, var p = loopProject else { return }
+        if !timelineDragging { checkpoint("Frame looping Short", coalesce: true) }
+        p.shortOptions.framing[clip] = ShortFraming(x: min(1, max(0, x)), y: min(1, max(0, y)))
+        loopProject = p; planRevision += 1; checkpointRevision = nil
+        if !timelineDragging { persistLoop() }
+    }
+    func loopPreviewShort() {
+        guard let dir = loopDir else { return }
+        let output = dir.appendingPathComponent("short-preview.mp4")
+        runLoop("Making a Short preview…") { [weak self] project, work in
+            try await LoopVideo.makeShortPreview(project, dir: work, output: output)
+            await MainActor.run { if self?.loopDir == work && self?.loopProject?.id == project.id { self?.loopSample = output } }
+            return project
+        }
+    }
     /// One YouTube Short per song (its liveliest 45 seconds, with its scene).
     func loopMakeShorts() {
         guard let p0 = loopProject else { return }

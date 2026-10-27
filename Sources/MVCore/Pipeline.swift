@@ -48,6 +48,7 @@ public enum Pipeline {
     public static func promptsURL(_ work: URL) -> URL { work.appendingPathComponent("prompts.md") }
 
     public static func loadPlan(_ work: URL) throws -> Plan {
+        projectWriteLock.lock(); defer { projectWriteLock.unlock() }
         let legacy = work.appendingPathComponent("plan.json")
         let url = FileManager.default.fileExists(atPath: planURL(work).path) ? planURL(work) : legacy
         var plan = try JSONDecoder().decode(Plan.self, from: Data(contentsOf: url))
@@ -68,9 +69,11 @@ public enum Pipeline {
             let src = URL(fileURLWithPath: plan.audioPath); let name = "audio." + (src.pathExtension.isEmpty ? "mp3" : src.pathExtension.lowercased())
             if (try? FileManager.default.copyItem(at: src, to: work.appendingPathComponent(name))) != nil || FileManager.default.fileExists(atPath: work.appendingPathComponent(name).path) { plan.audioFile = name }
         }
+        if plan.projectID.isEmpty { plan.projectID = UUID().uuidString; try savePlan(plan, work) }
         return plan
     }
     public static func savePlan(_ planIn: Plan, _ work: URL) throws {
+        projectWriteLock.lock(); defer { projectWriteLock.unlock() }
         var plan = planIn
         if plan.projectID.isEmpty {                                  // older song: keep the identity it already has on disk, or give it one now
             let onDisk = (try? Data(contentsOf: planURL(work))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["projectID"] as? String
@@ -244,6 +247,7 @@ public enum Pipeline {
         plan.lines = res.lines; plan.alignmentCoverage = res.coverage; plan.timing = "exact"
         plan.sections = plan.pictureBoundaries == nil ? Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration) : TimelineEditor.assignLines(plan.sections, lines: plan.lines)
         try? JSONEncoder().encode(WordCacheFile(key: "", words: words)).write(to: work.appendingPathComponent("transcript_words.json"))
+        try Task.checkCancellation()
         try savePlan(plan, work)
         progress?("Done", 1)
         return res.coverage
@@ -551,7 +555,7 @@ public enum Pipeline {
 
     /// Loads a picture into a section (−1 = title card). Copies it into the work folder, makes a thumbnail and finds its focal point for the Ken Burns move.
     @discardableResult
-    public static func attach(imageAt url: URL, section index: Int, plan: inout Plan, work: URL) throws -> String? {
+    public static func attach(imageAt url: URL, section index: Int, plan: inout Plan, work: URL, persist: Bool = true) throws -> String? {
         guard index == -1 || plan.sections.indices.contains(index) else { throw MVError("Choose an existing picture section first.") }
         if videoExtensions.contains(url.pathExtension.lowercased()) { return try attachVideo(url, section: index, plan: &plan, work: work) }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
@@ -571,8 +575,7 @@ public enum Pipeline {
         c.libraryName = PictureLibrary.save(dst, title: plan.title)
         if let a = ImageScorer.analyze(fileURL: work.appendingPathComponent(thumb)) { c.focusX = Double(a.focus.x); c.focusY = Double(a.focus.y) }
         if index < 0 { plan.intro.candidates.append(c); plan.intro.selected = plan.intro.candidates.count - 1; plan.intro.mediaParts = nil; plan.intro.playbackOffset = 0; plan.intro.useClips = false } else { plan.sections[index].candidates.append(c); plan.sections[index].selected = plan.sections[index].candidates.count - 1; plan.sections[index].mediaParts = nil; plan.sections[index].playbackOffset = 0; plan.sections[index].useClips = false }
-        cleanupUnreferencedImages(plan: plan, work: work)
-        try? savePlan(plan, work)
+        if persist { cleanupUnreferencedImages(plan: plan, work: work); try savePlan(plan, work) }
         let aspect = Double(w) / Double(h)
         if aspect < 1.5 { return "“\(url.lastPathComponent)” isn't widescreen (\(w)×\(h)); the video will crop it to 16:9." }
         if w < 1200 { return "“\(url.lastPathComponent)” is only \(w) px wide; it may look soft at 1080p." }
@@ -668,6 +671,7 @@ public enum Pipeline {
     /// attaches it to the project, and records the cost in `plan.totalGenerationCostUSD` (saved to `project.mvproj`).
     @discardableResult
     public static func generateSectionImage(section index: Int, plan: inout Plan, work: URL, config: Config = .load()) async throws -> OpenRouter.GeneratedImage {
+        let taskBase = plan
         var prompt = fullPrompt(plan, section: index)
         let est = plan.lastImageCostUSD ?? OpenRouter.defaultEstimatedCostPerImage
         // References: the picture this one starts from (the fixed source image, or else the picture before it), the subject photo, and the style guide.
@@ -719,7 +723,7 @@ public enum Pipeline {
         let sharp = FileManager.default.temporaryDirectory.appendingPathComponent("mv_\(UUID().uuidString)_sharp.jpg")
         defer { try? FileManager.default.removeItem(at: sharp) }
         let enlarged = await SuperRes.enlarge(tmpURL, to: sharp)
-        _ = try attach(imageAt: enlarged ? sharp : tmpURL, section: index, plan: &plan, work: work)
+        _ = try attach(imageAt: enlarged ? sharp : tmpURL, section: index, plan: &plan, work: work, persist: false)
         if index < 0 { plan.intro.candidates[plan.intro.selected].enlarged = enlarged } else { plan.sections[index].candidates[plan.sections[index].selected].enlarged = enlarged }
         // the automatic picture check (about a tenth of a cent): a fault gets a note and a one-click fix
         let drawn = index < 0 ? plan.intro : plan.sections[index]
@@ -776,7 +780,7 @@ public enum Pipeline {
         plan.totalGenerationCostUSD += gen.costUSD
         plan.imagesGeneratedCount += 1
         plan.lastImageCostUSD = gen.costUSD
-        try savePlan(plan, work)
+        try saveMediaResult(plan, startedFrom: taskBase, section: index, work: work, artwork: true)
         return gen
     }
 
@@ -803,6 +807,7 @@ public enum Pipeline {
 
     /// Redraws a part's picture with the picture itself attached as the guide; the camera move and focal points carry over.
     static func redrawFromPicture(section index: Int, plan: inout Plan, work: URL, prompt: String, quality: PictureQuality, enhance: Bool = false, label: String, config: Config) async throws -> OpenRouter.GeneratedImage {
+        let taskBase = plan
         let s = index < 0 ? plan.intro : plan.sections[index]
         guard let c = s.selectedCandidate, c.videoFile == nil, let file = c.fullFile,
               let img = loadImage(work.appendingPathComponent(file), maxPixel: 1536), let jpeg = PictureFit.jpegData(img, quality: 0.92) else { throw MVError("This part has no picture to redraw.") }
@@ -813,7 +818,7 @@ public enum Pipeline {
         defer { try? FileManager.default.removeItem(at: tmp); try? FileManager.default.removeItem(at: sharp) }
         try gen.data.write(to: tmp)
         let enlarged = await SuperRes.enlarge(tmp, to: sharp)
-        _ = try attach(imageAt: enlarged ? sharp : tmp, section: index, plan: &plan, work: work)
+        _ = try attach(imageAt: enlarged ? sharp : tmp, section: index, plan: &plan, work: work, persist: false)
         func carry(_ x: inout PhotoSection) {           // the camera and focal points stay as they were
             guard x.candidates.indices.contains(x.selected) else { return }
             var n = x.candidates[x.selected]
@@ -833,13 +838,14 @@ public enum Pipeline {
         }
         plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1
         if !enhance { plan.lastImageCostUSD = gen.costUSD }        // an enhancement's price is not what a new picture costs
-        try savePlan(plan, work)
+        try saveMediaResult(plan, startedFrom: taskBase, section: index, work: work, artwork: true)
         return gen
     }
 
     /// The cast sheet: one picture of the recurring people, animals and objects (made once from the director's plan); every picture is drawn to match it.
     @discardableResult
     public static func makeCastSheet(plan: inout Plan, work: URL, config: Config = .load()) async throws -> Double {
+        let taskBase = plan
         let cast = plan.cast.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cast.isEmpty else { return 0 }
         let prompt = "A clean reference sheet (character and prop sheet) for an illustrator: each recurring person, animal and object of this video shown once, side by side, full figure, facing the viewer, on a plain light background, evenly and brightly lit, clearly separated. \(cast)\(StylePreset.styleClause(plan.style)) No text, no labels, no lettering, no watermark."
@@ -847,7 +853,7 @@ public enum Pipeline {
         let name = "castsheet-\(Int(Date().timeIntervalSince1970)).\(gen.fileExtension)"
         try gen.data.write(to: work.appendingPathComponent(name))
         plan.castSheet = name; plan.totalGenerationCostUSD += gen.costUSD; plan.imagesGeneratedCount += 1
-        try savePlan(plan, work)
+        try saveMediaResult(plan, startedFrom: taskBase, section: -1, work: work, artwork: false)
         return gen.costUSD
     }
 
