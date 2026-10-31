@@ -44,17 +44,35 @@ struct LoopView: View {
         VStack(spacing: 0) {
             topBar
             Divider()
+            if let id = model.loopClipForSong, let t = p.tracks.first(where: { $0.id == id }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "link").foregroundStyle(.tint)
+                    Text("Making a clip for “\(t.title)”. Draw or choose its picture, then make its clip: the new clip is tied to this song.").font(.callout.weight(.semibold))
+                    Spacer()
+                    Button("Cancel") { model.loopClipForSong = nil }
+                }.padding(.horizontal, 20).padding(.vertical, 8).background(Color.accentColor.opacity(0.12))
+                Divider()
+            }
+            ScrollViewReader { scroller in
             ScrollView {
                 ViewThatFits(in: .horizontal) {
                     // full screen: song and picture on the left, the loop and the long video on the right
                     HStack(alignment: .top, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 18) { songCard; pictureCard }.frame(width: 760)
+                        VStack(alignment: .leading, spacing: 18) { songCard; pictureCard.id("pictureStep") }.frame(width: 760)
                         VStack(alignment: .leading, spacing: 18) { clipCard; longVideoCard }.frame(width: 760)
                     }
-                    VStack(alignment: .leading, spacing: 18) { songCard; pictureCard; clipCard; longVideoCard }.frame(maxWidth: 980)
+                    VStack(alignment: .leading, spacing: 18) { songCard; pictureCard.id("pictureStep"); clipCard; longVideoCard }.frame(maxWidth: 980)
                 }
                 .padding(24).frame(maxWidth: .infinity)
             }
+            .onChange(of: model.loopClipForSong) { _, v in if v != nil { withAnimation { scroller.scrollTo("pictureStep", anchor: .top) } } }
+            }
+        }
+        .onChange(of: p.clips) { old, new in
+            // the new clip made for a song is tied to it
+            guard let id = model.loopClipForSong, let made = new.last(where: { !old.contains($0) }) else { return }
+            model.editLoop { q in if let k = q.tracks.firstIndex(where: { $0.id == id }) { q.tracks[k].clip = made }; q.sceneChange = .songs }
+            model.loopClipForSong = nil
         }
         .task { model.refreshVideoPrice() }
         .onChange(of: model.loopAutoFinished) { _, v in if v { model.loopAutoFinished = false; model.loopPreview(.start) } }
@@ -150,10 +168,11 @@ struct LoopView: View {
             ForEach(Array(p.tracks.enumerated()), id: \.element.id) { i, t in
                 TrackRow(index: i, track: t, project: p, working: working)
             }
-            .onMove { from, to in model.editLoop { $0.tracks.move(fromOffsets: from, toOffset: to) } }
+            // each song keeps its clip when the order changes
+            .onMove { from, to in model.editLoop { LoopVideo.pinSongClips(&$0); $0.tracks.move(fromOffsets: from, toOffset: to) } }
         }
         .listStyle(.bordered(alternatesRowBackgrounds: true))
-        .frame(height: min(360, CGFloat(max(1, p.tracks.count)) * 34 + 12))
+        .frame(height: min(420, CGFloat(max(1, p.tracks.count)) * (p.tracks.count > 1 || (p.sceneChange == .songs && !p.clips.isEmpty) ? 54 : 34) + 12))
     }
 
     var transitionControls: some View {
@@ -412,19 +431,23 @@ struct LoopView: View {
 
     /// More than one scene: which clips, and when the picture changes (a slow cross-fade).
     var scenesRow: some View {
-        let have = LoopVideo.sceneClips(p).count
+        let have = model.loopPlan.map { Set(LoopVideo.sceneStarts(p, plan: $0).map(\.clip)).count } ?? LoopVideo.sceneClips(p).count
         let wanted = model.loopPlan.map { LoopVideo.scenesWanted(p, plan: $0) } ?? 1
         let changes = model.loopPlan.map { LoopVideo.sceneChangeTimes(p, plan: $0).count } ?? 0
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Text("Change the scene").font(.callout.weight(.semibold))
                 Picker("", selection: bind(\.sceneChange)) { ForEach(LoopSceneChange.allCases, id: \.self) { Text($0.name).tag($0) } }.labelsHidden().fixedSize()
-                if p.sceneChange == .time || p.sceneChange == .both {
+                if p.sceneChange == .time {
                     Stepper("every \(Int(p.sceneMinutes)) min", value: bind(\.sceneMinutes), in: 1...60, step: 1).fixedSize()
                 }
                 Spacer()
             }
-            .help("The picture changes to another scene with a slow cross-fade: every few minutes, when one song ends and the next begins, or both. The music never changes because of it.")
+            .help("One clip: the clip shown plays all through. At each song change: each song has its own clip (choose it in the song list). Every few minutes: the clips play in the order below. Changes are a slow cross-fade; the music never changes because of them.")
+            if p.sceneChange == .songs && !p.clips.isEmpty {
+                Label("Each song's clip is chosen in the song list under “The music”.", systemImage: "music.note.list").font(.caption).foregroundStyle(.secondary)
+            }
+            if p.sceneChange == .time && LoopVideo.sceneClips(p).count > 1 { clipOrder }
             if p.sceneChange != .never && p.clip != nil {
                 if have < wanted && changes > 0 {
                     // the reminder: the video changes scene, but there are not enough scenes yet
@@ -439,7 +462,7 @@ struct LoopView: View {
                     .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.yellow.opacity(0.14)))
                 } else {
                     HStack(spacing: 10) {
-                        Text(changes == 0 ? "No scene changes at this length." : "The scene changes \(changes) time\(changes == 1 ? "" : "s"), taking turns between \(have) scene\(have == 1 ? "" : "s").")
+                        Text(changes == 0 ? "No scene changes at this length." : p.sceneChange == .songs ? "\(p.tracks.count) songs, \(have) clip\(have == 1 ? "" : "s") in use." : "The scene changes \(changes) time\(changes == 1 ? "" : "s"), going through \(have) clip\(have == 1 ? "" : "s") in this order.")
                             .font(.caption).foregroundStyle(.secondary)
                         Button { confirmAddScene = true } label: { Label("Add another scene (≈ \(OpenRouter.formatUSD(model.loopAddScenePrice)))", systemImage: "plus.rectangle.on.rectangle") }.disabled(working)
                     }
@@ -454,6 +477,33 @@ struct LoopView: View {
         }
     }
 
+    /// Every few minutes: the clips in the order they play. Drag to change it; the order then repeats.
+    var clipOrder: some View {
+        let order = LoopVideo.sceneClips(p)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("The order they play (drag to change; it then starts again from 1)").font(.callout.weight(.semibold))
+            List {
+                ForEach(Array(order.enumerated()), id: \.element) { k, c in
+                    HStack(spacing: 10) {
+                        Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
+                        Text("\(k + 1)").font(.headline.monospacedDigit()).frame(width: 22)
+                        ZStack { Color.black; if let d = model.loopDir, let t = LoopVideo.clipThumbnail(c, dir: d) { Thumb(file: t) } }
+                            .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
+                        Text(LoopVideo.sceneName(p, c))
+                        Spacer()
+                        if k > 0 { Button { moveClip(c, to: k - 1) } label: { Image(systemName: "arrow.up") }.buttonStyle(.borderless).help("Move up") }
+                        if k < order.count - 1 { Button { moveClip(c, to: k + 1) } label: { Image(systemName: "arrow.down") }.buttonStyle(.borderless).help("Move down") }
+                    }
+                }
+                .onMove { from, to in model.editLoop { q in var l = LoopVideo.sceneClips(q); l.move(fromOffsets: from, toOffset: to); q.sceneClips = l } }
+            }
+            .listStyle(.bordered(alternatesRowBackgrounds: true)).frame(height: min(260, CGFloat(order.count) * 46 + 10))
+        }
+    }
+    func moveClip(_ c: String, to k: Int) {
+        model.editLoop { q in var l = LoopVideo.sceneClips(q); l.removeAll { $0 == c }; l.insert(c, at: min(k, l.count)); q.sceneClips = l }
+    }
+
     /// The clips as pictures: click one to look at it (and use it to start the video); the tick says whether it is one of the scenes in the video.
     var loopClipConfirmation: String {
         let quality = p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"
@@ -463,11 +513,12 @@ struct LoopView: View {
 
     var clipStrip: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Your scenes (click one to look at it)").font(.callout.weight(.semibold))
+            Text(p.sceneChange == .never ? "Your clips (click one to use it)" : "Your clips (click one to look at it)").font(.callout.weight(.semibold))
             ScrollView(.horizontal, showsIndicators: true) {
                 HStack(spacing: 10) {
                     ForEach(Array(p.clips.enumerated()), id: \.offset) { i, c in
                         let shown = c == p.clip, inVideo = LoopVideo.sceneClips(p).contains(c)
+                        let tied = p.sceneChange == .songs ? zip(p.tracks, LoopVideo.songClips(p)).filter { $0.1.clip == c }.map(\.0.title) : []
                         VStack(spacing: 4) {
                             Button {
                                 model.editLoop { $0.clip = c }
@@ -480,20 +531,26 @@ struct LoopView: View {
                                 .frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
                                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(shown ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: shown ? 3 : 1))
                             }.buttonStyle(.plain).disabled(working)
-                                .help((shown ? "Showing now. The video starts with this scene. " : "Look at this scene (the video then starts with it). ") + versionDetails(c))
+                                .help((p.sceneChange == .never ? (shown ? "The video uses this clip. " : "Use this clip in the video. ") : "Look at this clip. ") + versionDetails(c))
                             HStack {
                                 if let file = model.loopFile(c) { Button("View larger") { FullScreenPlayer.show(file, title: "Scene", loop: true, muted: true) }.font(.caption).help("Inspect the original clip full screen.") }
-                                Button(role: .destructive) { model.editLoop { q in q.clips.removeAll { $0 == c }; q.sceneClips.removeAll { $0 == c }; if q.clip == c { q.clip = q.clips.first } } } label: { Image(systemName: "trash") }
+                                Button(role: .destructive) { model.editLoop { q in q.clips.removeAll { $0 == c }; q.sceneClips.removeAll { $0 == c }; for k in q.tracks.indices where q.tracks[k].clip == c { q.tracks[k].clip = nil }; if q.clip == c { q.clip = q.clips.first } } } label: { Image(systemName: "trash") }
                                     .disabled(working).help("Remove this scene assignment. Its original stays on disk and Undo restores it.").accessibilityLabel("Remove scene \(i + 1)")
                             }
-                            Toggle(isOn: Binding(get: { inVideo }, set: { v in model.editLoop { q in
-                                guard c != q.clip else { return }                 // the scene shown always starts the video
-                                var list = LoopVideo.sceneClips(q)
-                                if v { if !list.contains(c) { list.append(c) } } else if list.count > 1 { list.removeAll { $0 == c } }
-                                q.sceneClips = list
-                            } })) { Text("Scene \(i + 1)").font(.caption) }
-                                .toggleStyle(.checkbox).disabled(working || shown)
-                                .help(shown ? "The scene shown is always in the video." : "Tick to use this scene in the video.")
+                            Text(LoopVideo.sceneName(p, c)).font(.caption.weight(.semibold))
+                            if p.sceneChange != .never {
+                                Toggle(isOn: Binding(get: { inVideo }, set: { v in model.editLoop { q in
+                                    var list = LoopVideo.sceneClips(q)
+                                    if v { if !list.contains(c) { list.append(c) } } else if list.count > 1 { list.removeAll { $0 == c } }
+                                    q.sceneClips = list
+                                } })) { Text(p.sceneChange == .songs ? "Auto can use" : "In the order").font(.caption) }
+                                    .toggleStyle(.checkbox).disabled(working || (inVideo && LoopVideo.sceneClips(p).count <= 1))
+                                    .help(p.sceneChange == .songs ? "Songs on Auto take turns with the ticked clips. Any clip can still be chosen for a song." : "Tick to play this clip in the order.")
+                            }
+                            if p.sceneChange == .songs {
+                                Text(tied.isEmpty ? "No song" : tied.joined(separator: ", ")).font(.caption2).foregroundStyle(tied.isEmpty ? .tertiary : .secondary)
+                                    .lineLimit(3).multilineTextAlignment(.center).frame(width: 128).help(tied.joined(separator: "\n"))
+                            }
                         }
                     }
                 }.padding(.vertical, 2)
@@ -707,6 +764,7 @@ struct TrackRow: View {
     let working: Bool
     @State private var renaming = false
     @State private var newName = ""
+    @State private var choosingClip = false
 
     func set(_ f: @escaping (inout LoopTrack) -> Void) {
         let id = track.id
@@ -715,6 +773,12 @@ struct TrackRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary).help("Drag to change the order.")
+            if project.tracks.count > 1 {
+                VStack(spacing: 0) {
+                    Button { move(-1) } label: { Image(systemName: "chevron.up").font(.callout.weight(.semibold)).frame(width: 24, height: 20).contentShape(Rectangle()) }.buttonStyle(.borderless).disabled(index == 0).help("Move this song up (its clip goes with it).").accessibilityLabel("Move up")
+                    Button { move(1) } label: { Image(systemName: "chevron.down").font(.callout.weight(.semibold)).frame(width: 24, height: 20).contentShape(Rectangle()) }.buttonStyle(.borderless).disabled(index >= project.tracks.count - 1).help("Move this song down (its clip goes with it).").accessibilityLabel("Move down")
+                }
+            }
             Button { newName = track.title; renaming = true } label: {
                 HStack(spacing: 5) {
                     Text(track.title.isEmpty ? "Untitled song" : track.title).lineLimit(1).truncationMode(.middle)
@@ -736,6 +800,11 @@ struct TrackRow: View {
                 }.padding(16)
             }
             Spacer(minLength: 6)
+            if !project.clips.isEmpty {
+                Button { model.loopPreviewSong(track.id) } label: { Image(systemName: "play.circle").font(.title3) }.buttonStyle(.borderless).disabled(working)
+                    .help("Preview this song with its clip, with sound (30 seconds, takes a moment to prepare).").accessibilityLabel("Preview this song")
+            }
+            if project.sceneChange == .songs && !project.clips.isEmpty { clipButton }
             repeatMenu
             if project.cards == .everySong {
                 Toggle("Card", isOn: Binding(get: { track.cardOn }, set: { v in set { $0.cardOn = v } })).toggleStyle(.checkbox).font(.caption)
@@ -751,10 +820,59 @@ struct TrackRow: View {
         }
         .padding(.vertical, 2)
     }
+    func move(_ by: Int) {
+        let id = track.id
+        model.editLoop { p in
+            guard let k = p.tracks.firstIndex(where: { $0.id == id }), p.tracks.indices.contains(k + by) else { return }
+            LoopVideo.pinSongClips(&p); p.tracks.swapAt(k, k + by)
+        }
+    }
     func save() {
         let v = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !v.isEmpty { set { $0.title = v } }
         renaming = false
+    }
+
+    /// The song's clip: click to choose another.
+    var clipButton: some View {
+        let tied = LoopVideo.songClips(project), mine = tied.indices.contains(index) ? tied[index] : (clip: nil, auto: true)
+        return Button { choosingClip = true } label: {
+            HStack(spacing: 6) {
+                thumb(mine.clip).frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 5))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(LoopVideo.sceneName(project, mine.clip)).font(.caption.weight(.semibold))
+                    Text(mine.auto ? "Auto" : "Chosen").font(.caption2).foregroundStyle(.secondary)
+                }.frame(width: 62, alignment: .leading)
+                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }.contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help("The clip shown while this song plays. Click to choose another. It stays with the song when you change the order.")
+        .popover(isPresented: $choosingClip, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Clip for “\(track.title)”").font(.headline)
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 136))], spacing: 10) {
+                        ForEach(project.clips, id: \.self) { c in
+                            Button { set { $0.clip = c }; choosingClip = false } label: {
+                                VStack(spacing: 3) {
+                                    thumb(c).frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 7))
+                                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(mine.clip == c && !mine.auto ? Color.accentColor : .clear, lineWidth: 3))
+                                    Text(LoopVideo.sceneName(project, c)).font(.caption)
+                                }.contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }.frame(width: 440).frame(maxHeight: 300)
+                HStack {
+                    Button("Auto (next clip in turn)") { set { $0.clip = nil }; choosingClip = false }.disabled(mine.auto)
+                    Spacer()
+                    Button { choosingClip = false; model.loopClipForSong = track.id } label: { Label("Make a new clip for this song", systemImage: "plus") }.disabled(working)
+                }
+            }.padding(16)
+        }
+    }
+    @ViewBuilder func thumb(_ c: String?) -> some View {
+        ZStack { Color.black; if let c, let d = model.loopDir, let t = LoopVideo.clipThumbnail(c, dir: d) { Thumb(file: t) } }
     }
 
     var repeatMenu: some View {

@@ -10,6 +10,7 @@ final class LoopScenesTests: XCTestCase {
     }
     func project(_ change: LoopSceneChange, minutes: Double = 10) -> LoopProject {
         var p = LoopProject(); p.clips = ["a.mp4", "b.mp4", "c.mp4"]; p.clip = "a.mp4"; p.sceneClips = p.clips; p.sceneChange = change; p.sceneMinutes = minutes
+        p.tracks = (0..<4).map { LoopTrack(file: "s\($0).mp3", title: "S\($0)", seconds: 180) }
         return p
     }
 
@@ -25,13 +26,9 @@ final class LoopScenesTests: XCTestCase {
         XCTAssertEqual(s.map(\.clip), ["a.mp4", "b.mp4", "c.mp4", "a.mp4"], "the clips take turns")
     }
 
-    func testScenesChangeByTimeAndBoth() {
+    func testScenesChangeByTime() {
         let t = LoopVideo.sceneStarts(project(.time, minutes: 4), plan: plan())
         XCTAssertEqual(t.map(\.t), [0, 240, 480])
-        // both: song changes at 3, 6 and 9 min, timed ones every 2 min; the timed one at 6 min falls on a song change and is left out
-        let b = LoopVideo.sceneStarts(project(.both, minutes: 2), plan: plan())
-        XCTAssertEqual(b.map(\.t), [0, 120, 180, 240, 360, 480, 540, 600])
-        for (x, y) in zip(b, b.dropFirst()) { XCTAssertGreaterThanOrEqual(y.t - x.t, 30) }
     }
 
     func testNoChangeDuringTheTitleOrTheEnding() {
@@ -101,5 +98,48 @@ final class StyleLightTests: XCTestCase {
         var p = LoopProject(); p.weather = .storm; p.timeOfDay = .dusk
         XCTAssertTrue(LoopVideo.conditions(p).contains("thunderstorm")); XCTAssertTrue(LoopVideo.conditions(p).contains("dusk"))
         XCTAssertEqual(LoopVideo.conditions(LoopProject()), "")
+    }
+}
+
+extension LoopScenesTests {
+    func testAClipBelongsToItsSongWhereverItMoves() {
+        var p = project(.songs)
+        p.tracks = (0..<4).map { LoopTrack(file: "s\($0).mp3", title: "S\($0)", seconds: 180) }
+        p.tracks[1].clip = "c.mp4"
+        XCTAssertEqual(LoopVideo.songClips(p).map(\.clip), ["a.mp4", "c.mp4", "c.mp4", "a.mp4"], "Auto goes by place in the list: choosing one song's clip leaves the others alone")
+        XCTAssertEqual(LoopVideo.songClips(p).map(\.auto), [true, false, true, true])
+        XCTAssertEqual(LoopVideo.sceneStarts(p, plan: plan()).map(\.clip), ["a.mp4", "c.mp4", "a.mp4"], "no change between two songs with the same clip")
+        // reorder as the song list does: everything is tied first, then moved
+        let before = Dictionary(uniqueKeysWithValues: zip(p.tracks.map(\.id), LoopVideo.songClips(p).map(\.clip)))
+        LoopVideo.pinSongClips(&p); p.tracks.append(p.tracks.removeFirst())
+        for (t, c) in zip(p.tracks, LoopVideo.songClips(p)) { XCTAssertEqual(c.clip, before[t.id]!) }
+        XCTAssertEqual(LoopVideo.usedClips(p), ["a.mp4", "c.mp4"])
+    }
+
+    func testARepeatedOrShuffledSongKeepsItsClip() {
+        var p = project(.songs); p.tracks = (0..<2).map { LoopTrack(file: "s\($0).mp3", title: "S\($0)", seconds: 180) }
+        p.tracks[0].clip = "b.mp4"; p.tracks[1].clip = "c.mp4"
+        var pl = plan(songs: 4); pl.plays[1].track = 0; pl.plays[1].rep = 1; pl.plays[2].track = 1; pl.plays[3].track = 0
+        XCTAssertEqual(LoopVideo.sceneStarts(p, plan: pl).map(\.clip), ["b.mp4", "c.mp4", "b.mp4"], "no change on a repeat; the clip follows the song")
+    }
+
+    func testTheOrderIsWhatPlaysAndLookingAtAClipChangesNothing() {
+        var p = project(.time, minutes: 4); p.sceneClips = ["c.mp4", "a.mp4"]; p.clip = "b.mp4"
+        XCTAssertEqual(LoopVideo.sceneStarts(p, plan: plan()).map(\.clip), ["c.mp4", "a.mp4", "c.mp4"])
+        p.sceneChange = .never
+        XCTAssertEqual(LoopVideo.sceneStarts(p, plan: plan()).map(\.clip), ["b.mp4"], "One clip: the clip shown")
+    }
+
+    func testOlderProjectsOpenInTheNewChoices() throws {
+        func read(_ tracks: Int, _ change: String) throws -> LoopProject {
+            var p = LoopProject(); p.clips = ["a.mp4", "b.mp4"]; p.clip = "b.mp4"; p.sceneClips = ["a.mp4"]
+            p.tracks = (0..<tracks).map { LoopTrack(file: "s\($0).mp3", title: "S", seconds: 100) }
+            var o = try JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as! [String: Any]
+            o["sceneChange"] = change; o.removeValue(forKey: "scenesV2")
+            return try JSONDecoder().decode(LoopProject.self, from: JSONSerialization.data(withJSONObject: o))
+        }
+        XCTAssertEqual(try read(3, "both").sceneChange, .songs); XCTAssertEqual(try read(1, "both").sceneChange, .time)
+        XCTAssertEqual(try read(3, "time").sceneChange, .time)
+        XCTAssertEqual(try read(3, "songs").sceneClips, ["b.mp4", "a.mp4"], "the clip in use stays in the list, as it played before")
     }
 }

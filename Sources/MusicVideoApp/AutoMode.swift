@@ -350,7 +350,7 @@ extension AppModel {
             try await self?.directorStep(4, "Making the loop preview")
             if let first = made.first {
                 q.clip = first; q.sceneClips = made
-                if made.count > 1 && q.sceneChange == .never { q.sceneChange = .both }
+                if made.count > 1 && q.sceneChange == .never { q.sceneChange = q.tracks.count > 1 ? .songs : .time }
                 LoopVideo.save(q, d)
                 await phase("Automatic: making the loop preview…")
                 try await LoopVideo.makePreview(clip: d.appendingPathComponent(first), output: d.appendingPathComponent("preview-" + (first as NSString).deletingPathExtension + ".mp4"), trim: q.trims[first] ?? ClipTrim())

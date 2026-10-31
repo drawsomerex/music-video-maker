@@ -7,9 +7,9 @@ import AVFoundation
 
 /// When the scene of a looping video changes.
 public enum LoopSceneChange: String, Codable, CaseIterable {
-    case never, time, songs, both
+    case never, songs, time
     public var name: String {
-        switch self { case .never: "Never (one scene)"; case .time: "Every few minutes"; case .songs: "At each song change"; case .both: "Both" }
+        switch self { case .never: "One clip"; case .songs: "At each song change"; case .time: "Every few minutes" }
     }
 }
 
@@ -17,20 +17,75 @@ extension LoopVideo {
     public static let sceneFade = 3.0                       // seconds of cross-fade between two scenes
     static let sceneMinGap = 30.0                            // never two scene changes closer than this
 
-    /// The clips the video changes between, in order (the clip in use first if it is not in the list).
+    /// The clips in the order they play (Every few minutes), and the clips songs on Auto take turns with (At each song change).
     public static func sceneClips(_ p: LoopProject) -> [String] {
-        var list = p.sceneClips.filter { p.clips.contains($0) }
-        if let c = p.clip, list.isEmpty || !list.contains(c) { list.insert(c, at: 0) }
-        return list
+        let list = p.sceneClips.filter { p.clips.contains($0) }
+        return list.isEmpty ? (p.clip.map { [$0] } ?? []) : list
     }
 
-    /// Where each scene starts (seconds into the long video) and which clip it shows. One scene unless changes are chosen and two or more clips are in the list.
+    /// The clip each song is shown with at song changes (one per song, in list order): the one you chose, or Auto: the clips in turn down the list
+    /// (by the song's place, so choosing a clip for one song never changes another's).
+    public static func songClips(_ p: LoopProject) -> [(clip: String?, auto: Bool)] {
+        let pool = sceneClips(p)
+        return p.tracks.enumerated().map { k, t in
+            if let c = t.clip, p.clips.contains(c) { return (c, false) }
+            return (pool.isEmpty ? p.clip : pool[k % pool.count], true)
+        }
+    }
+
+    /// Ties every song to the clip it shows now, so moving or removing a song never changes another song's clip.
+    public static func pinSongClips(_ p: inout LoopProject) {
+        guard p.sceneChange == .songs else { return }
+        let now = songClips(p)
+        for k in p.tracks.indices where p.tracks[k].clip == nil || now[k].auto { p.tracks[k].clip = now[k].clip }
+    }
+
+    /// Where to start a preview of a song: just after the change to its clip. Nil when the video ends before the song is reached.
+    public static func songPreviewStart(_ p: LoopProject, plan: LoopAudio.Plan, track: Int) -> Double? {
+        guard let play = plan.turns.first(where: { $0.track == track }) else { return nil }
+        return play.start == 0 ? 0 : play.start + play.fadeIn / 2 + sceneFade
+    }
+
+    /// Every clip the video needs.
+    public static func usedClips(_ p: LoopProject) -> [String] {
+        switch p.sceneChange {
+        case .never: return p.clip.map { [$0] } ?? []
+        case .time: return sceneClips(p)
+        case .songs: return Array(Set(songClips(p).compactMap(\.clip))).sorted()
+        }
+    }
+
+    /// A clip's name on screen: its place in the project's clips.
+    public static func sceneName(_ p: LoopProject, _ clip: String?) -> String {
+        guard let clip, let k = p.clips.firstIndex(of: clip) else { return "No clip" }
+        return "Scene \(k + 1)"
+    }
+
+    /// Where each scene starts (seconds into the long video) and which clip it shows.
     public static func sceneStarts(_ p: LoopProject, plan: LoopAudio.Plan) -> [(t: Double, clip: String)] {
-        let clips = sceneClips(p)
-        guard let first = clips.first else { return [] }
-        guard p.sceneChange != .never, clips.count > 1 else { return [(0, first)] }
-        let times = sceneChangeTimes(p, plan: plan)
-        return [(0, first)] + times.enumerated().map { ($0.element, clips[($0.offset + 1) % clips.count]) }
+        switch p.sceneChange {
+        case .never:
+            return (p.clip ?? p.clips.first).map { [(0, $0)] } ?? []
+        case .time:
+            let clips = sceneClips(p)
+            guard let first = clips.first else { return [] }
+            guard clips.count > 1 else { return [(0, first)] }
+            return [(0, first)] + sceneChangeTimes(p, plan: plan).enumerated().map { ($0.element, clips[($0.offset + 1) % clips.count]) }
+        case .songs:
+            // each song's clip belongs to the song, wherever it plays (order, shuffle, repeats)
+            let tied = songClips(p)
+            func clip(_ play: LoopAudio.Play) -> String? { tied.indices.contains(play.track) ? tied[play.track].clip : p.clip }
+            guard let opening = plan.plays.first.flatMap(clip) ?? p.clip else { return [] }
+            var out: [(t: Double, clip: String)] = [(0, opening)]
+            let earliest = titleScreenEnd + 5, latest = plan.songsEnd - 20
+            for (a, b) in zip(plan.plays, plan.plays.dropFirst()) where b.rep == 0 {
+                let t = (a.end + b.start) / 2
+                guard t >= earliest, t <= latest, let c = clip(b), c != out.last!.clip else { continue }
+                if out.count > 1, t - out.last!.t < sceneMinGap { continue }
+                out.append((t, c))
+            }
+            return out
+        }
     }
 
     /// When the scene changes (seconds), whatever the number of clips: song changes and/or every few minutes, never during the title or the ending,
@@ -39,16 +94,15 @@ extension LoopVideo {
         guard p.sceneChange != .never else { return [] }
         let earliest = titleScreenEnd + 5, latest = plan.songsEnd - 20
         var songs: [Double] = []
-        if p.sceneChange == .songs || p.sceneChange == .both {
+        if p.sceneChange == .songs {
             // between songs' turns (a song repeating itself is not a song change)
             for (a, b) in zip(plan.plays, plan.plays.dropFirst()) where b.rep == 0 { songs.append(b.start < a.end ? (a.end + b.start) / 2 : (a.end + b.start) / 2) }
         }
         var times: [Double] = []
-        if p.sceneChange == .time || p.sceneChange == .both {
+        if p.sceneChange == .time {
             let step = max(1, p.sceneMinutes) * 60
             var t = step
             while t < latest { times.append(t); t += step }
-            if p.sceneChange == .both { times = times.filter { t in !songs.contains { abs($0 - t) < 60 } } }      // a song change is close: that change is enough
         }
         let all = (songs + times).filter { $0 >= earliest && $0 <= latest }.sorted()
         var kept: [Double] = []

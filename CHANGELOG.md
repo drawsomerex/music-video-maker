@@ -4,6 +4,11 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Looping videos: it is now clear which song goes with which clip. "Change the scene" is One clip, At each song change, or Every few minutes ("Both" is gone; older projects open as At each song change, or Every few minutes with one song).
+- At each song change: every song shows its clip as a picture; click to choose another, or leave it on Auto. A clip stays tied to its song through reordering, shuffle and repeats, and each clip lists the songs using it. "Make a new clip for this song" ties the next clip made to that song.
+- Every few minutes: a numbered list of clips you can drag or move with arrows; that order is what plays.
+- Each song has up and down arrows, and a play button that previews it for 30 seconds with its clip and sound.
+- Clicking a clip to look at it no longer changes what plays, unless the video is set to One clip.
 
 ## [2.0.4] - 2026-10-27
 

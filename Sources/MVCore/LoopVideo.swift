@@ -120,7 +120,8 @@ public struct LoopProject: Codable, Equatable {
     public var pendingOptions: ClipOptions? = nil
     public var sharpClip = false                // 2K instead of 768p (sharper, about three times the price)
     public var sceneClips: [String] = []        // the clips the long video changes between (empty or one = only the clip in use)
-    public var sceneChange: LoopSceneChange = .both      // when the scene changes
+    public var sceneChange: LoopSceneChange = .songs     // when the scene changes
+    public var scenesV2 = true                  // false only while reading an older project ("Both", and the clip in use always joining the list)
     public var sceneMinutes = 10.0              // for a change by time: every this many minutes
     public var subjectClose: [String: Double] = [:]   // pictures drawn from the subject photo that came out too much like it (picture → distance), for a warning
     public var subjectKind: SubjectKind = .auto
@@ -154,7 +155,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -199,7 +200,8 @@ public struct LoopProject: Codable, Equatable {
         enlarged = try c.decodeIfPresent([String].self, forKey: .enlarged) ?? []
         checks = try c.decodeIfPresent([String: [String]].self, forKey: .checks) ?? [:]; enhanced = try c.decodeIfPresent([String].self, forKey: .enhanced) ?? []
         cast = try c.decodeIfPresent(String.self, forKey: .cast) ?? ""; castSheet = try c.decodeIfPresent(String.self, forKey: .castSheet)
-        sceneChange = try c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange) ?? .both
+        sceneChange = (try? c.decodeIfPresent(LoopSceneChange.self, forKey: .sceneChange)) ?? .songs     // "Both" (no longer offered) reads as nil
+        let wasBoth = (try? c.decodeIfPresent(String.self, forKey: .sceneChange)).flatMap { $0 } == "both" || !c.contains(.sceneChange)
         sceneMinutes = try c.decodeIfPresent(Double.self, forKey: .sceneMinutes) ?? 10
         hours = try c.decodeIfPresent(Double.self, forKey: .hours) ?? 1
         imagesUSD = try c.decodeIfPresent(Double.self, forKey: .imagesUSD) ?? 0; videoUSD = try c.decodeIfPresent(Double.self, forKey: .videoUSD) ?? 0
@@ -209,6 +211,10 @@ public struct LoopProject: Codable, Equatable {
         loopScores = try c.decodeIfPresent([String: Double].self, forKey: .loopScores) ?? [:]
         loopDrift = try c.decodeIfPresent([String: Double].self, forKey: .loopDrift) ?? [:]
         thumbText = try c.decodeIfPresent(ThumbnailText.self, forKey: .thumbText) ?? ThumbnailText()
+        if try c.decodeIfPresent(Bool.self, forKey: .scenesV2) != true {      // once, for a project from before 2.0.5
+            if wasBoth { sceneChange = tracks.count > 1 ? .songs : .time }
+            if let shown = clip, !sceneClips.isEmpty, !sceneClips.contains(shown) { sceneClips.insert(shown, at: 0) }     // it always played, so it stays in the list
+        }
     }
 }
 
@@ -248,6 +254,7 @@ public enum LoopVideo {
         while fm.fileExists(atPath: dir.path) { dir = config.projectsRoot.appendingPathComponent("\(base) – looping video \(n)"); n += 1 }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var p = LoopProject(); p.title = title.isEmpty ? base : title
+        p.sceneChange = songs.count > 1 ? .songs : .time        // one song has no song changes
         try await addTracks(&p, dir: dir, files: songs)
         return (p, dir)
     }

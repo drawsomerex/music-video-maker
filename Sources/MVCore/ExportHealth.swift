@@ -32,7 +32,7 @@ public struct ExportHealth {
     public static func loop(_ plan: LoopProject, work: URL) -> ExportHealth {
         var result = ExportHealth()
         for track in plan.tracks { result.check(track.file, work: work, label: "Song \(track.title)") }
-        for clip in LoopVideo.sceneClips(plan) { result.check(clip, work: work, label: "Loop scene") }
+        for clip in LoopVideo.usedClips(plan) { result.check(clip, work: work, label: "Loop scene") }
         if plan.clip == nil { result.errors.append("Make or add the loop clip first.") }
         if plan.pendingJob != nil || !LoopVideo.pendingLoopJobs(work).isEmpty { result.warnings.append("A paid clip is pending. This export uses the current scene list.") }
         return result

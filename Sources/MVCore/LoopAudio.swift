@@ -17,9 +17,10 @@ public struct LoopTrack: Codable, Equatable, Identifiable {
     public var seconds = 0.0
     public var cardOn = true              // its own title card (when cards are on for every song)
     public var lyrics: String? = nil      // its words, heard with Parakeet for the director (nil = not listened to yet; empty = no words)
+    public var clip: String? = nil        // the clip tied to this song at song changes (nil = Auto: the next clip in turn)
     public var repeatMode: TrackRepeat = .once   // play it once, a number of times, for a number of minutes, or as long as its scene
     public init(file: String, title: String, seconds: Double) { self.file = file; self.title = title; self.seconds = seconds }
-    enum CodingKeys: String, CodingKey { case id, file, title, seconds, cardOn, lyrics, repeatMode }
+    enum CodingKeys: String, CodingKey { case id, file, title, seconds, cardOn, lyrics, repeatMode, clip }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -27,6 +28,7 @@ public struct LoopTrack: Codable, Equatable, Identifiable {
         seconds = try c.decodeIfPresent(Double.self, forKey: .seconds) ?? 0; cardOn = try c.decodeIfPresent(Bool.self, forKey: .cardOn) ?? true
         lyrics = try c.decodeIfPresent(String.self, forKey: .lyrics)
         repeatMode = (try? c.decodeIfPresent(TrackRepeat.self, forKey: .repeatMode)) ?? .once
+        clip = try c.decodeIfPresent(String.self, forKey: .clip)
     }
 }
 

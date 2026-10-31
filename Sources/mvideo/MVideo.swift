@@ -346,6 +346,7 @@ struct MVideo: AsyncParsableCommand {
         @Option(help: "Search for a subject photo with these words and use the first result") var findSubject: String?
         @Flag(help: "Draw the picture now (costs a few cents), then stop") var draw = false
         @Flag(help: "Draw the next scene from the picture in use (same place, one major change, slightly different angle), then stop") var nextScene = false
+        @Option(help: "Make a 30-second preview with sound of this song (1 = the first) with its clip, then stop") var sampleSong: Int?
         @Flag(help: "Make the picture in use highest quality (about 7¢), then stop") var highestQuality = false
         @Option(help: "Weather for the pictures: any, clear, softClouds, overcast, rain, storm, snow, mist, clearingStorm") var weather: String?
         @Option(help: "Time of day for the pictures: any, dawn, morning, midday, goldenEvening, dusk, night") var timeOfDay: String?
@@ -435,6 +436,13 @@ struct MVideo: AsyncParsableCommand {
                 let t0 = Date()
                 let made = try await LoopVideo.makeShorts(p, dir: dir, folder: folder) { ph, _ in print(ph) }
                 print(String(format: "✅ %d Shorts in %@ (%.0fs)", made.count, folder.path, Date().timeIntervalSince(t0))); return
+            }
+            if let n = sampleSong {
+                try LoopVideo.ensureAnalysis(&p, dir: dir)
+                guard let pl = LoopVideo.plan(p), let f = LoopVideo.songPreviewStart(p, plan: pl, track: n - 1) else { throw MVError("The video ends before that song plays.") }
+                let o = dir.appendingPathComponent("sample-song-\(n).mp4")
+                try await LoopVideo.renderPreview(p, dir: dir, output: o, from: f, seconds: 30)
+                print("✅ \(o.path)  from \(Int(f)) s  scene: \(LoopVideo.sceneName(p, LoopVideo.sceneStarts(p, plan: pl).last { $0.t <= f + 1 }?.clip))"); return
             }
             if let f = sampleFrom {
                 let o = dir.appendingPathComponent("sample.mp4"), t0 = Date()

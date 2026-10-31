@@ -52,7 +52,7 @@ extension AppModel {
             loopListen()
         }
     }
-    func loopRemoveSong(_ id: String) { editLoop { p in if p.tracks.count > 1 { p.tracks.removeAll { $0.id == id } } } }
+    func loopRemoveSong(_ id: String) { editLoop { p in if p.tracks.count > 1 { LoopVideo.pinSongClips(&p); p.tracks.removeAll { $0.id == id } } } }
 
     /// Listens to every song not listened to yet, a song at a time, without holding up anything else on the screen.
     func loopListen() {
@@ -261,7 +261,7 @@ extension AppModel {
                 var list = LoopVideo.sceneClips(p)
                 if !list.contains(new) { list.append(new) }
                 q.sceneClips = list
-                if q.sceneChange == .never { q.sceneChange = .both }
+                if q.sceneChange == .never { q.sceneChange = q.tracks.count > 1 ? .songs : .time }
                 if let f = first { q.clip = f }                      // the video still starts with the first scene
                 LoopVideo.save(q, d)
                 try await LoopVideo.makePreview(clip: d.appendingPathComponent(new), output: d.appendingPathComponent("preview-" + (new as NSString).deletingPathExtension + ".mp4"), trim: q.trims[new] ?? ClipTrim())
@@ -447,6 +447,20 @@ extension AppModel {
             return q
         }
         _ = p
+    }
+    /// A short preview with sound of one song with its clip, as it plays in the video.
+    func loopPreviewSong(_ id: String) {
+        guard let d = loopDir else { return }
+        let out = d.appendingPathComponent("sample-\(Int(Date().timeIntervalSince1970)).mp4")
+        for f in (try? FileManager.default.contentsOfDirectory(atPath: d.path)) ?? [] where f.hasPrefix("sample-") { try? FileManager.default.removeItem(at: d.appendingPathComponent(f)) }
+        runLoop("Making a preview of this song…") { [weak self] p, d in
+            var q = p; try LoopVideo.ensureAnalysis(&q, dir: d)
+            guard let k = q.tracks.firstIndex(where: { $0.id == id }), let plan = LoopVideo.plan(q) else { throw MVError("Add a song and the loop clip first.") }
+            guard let from = LoopVideo.songPreviewStart(q, plan: plan, track: k) else { throw MVError("The video ends before this song plays. Choose a longer length under “The long video”.") }
+            try await LoopVideo.renderPreview(q, dir: d, output: out, from: from, seconds: 30) { f in Task { @MainActor in self?.loopJob?.progress = f } }
+            await MainActor.run { self?.loopSample = out }
+            return q
+        }
     }
     func loopRender() {
         guard let p = loopProject else { return }

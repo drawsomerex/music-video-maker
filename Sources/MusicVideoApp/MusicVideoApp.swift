@@ -52,6 +52,7 @@ struct MusicVideoApp: App {
                         NSApplication.shared.terminate(nil); return
                     }
                     if Snapshots.directory != nil { FileHandle.standardError.write(Data("[snapshots] task start\n".utf8)); try? await Task.sleep(nanoseconds: 1_500_000_000); Snapshots.render(model: model); return }
+                    if let d = Updater.env["MV_OPEN_LOOP"] { model.openLoop(URL(fileURLWithPath: d)) }      // test hook: open a looping project
                     Updater.log("task started; enabled=\(Updater.enabled) current=\(Updater.current)")
                     Task.detached(priority: .background) { Updater.cleanUpOldDownloads() }
                     if Updater.env["MV_UPDATE_SELFTEST"] != nil {            // test hook: check, then install without asking
