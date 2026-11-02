@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [2.0.6] - 2026-11-02
 - Updates are safer: your previous version is kept until the new one has started and kept running for 15 seconds. If it doesn't, the previous version is put back and the app tells you.
 - What you type on the first screen is saved as you go and comes back after quitting or a crash.
 - A brief network or server problem no longer stops the wait for a paid video clip. When OpenRouter is busy, the app waits and tries again before reporting a plain message.
