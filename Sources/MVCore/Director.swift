@@ -70,8 +70,9 @@ public enum Director {
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "temperature": 0.8, "response_format": ["type": "json_object"], "usage": ["include": true],
                                                                    "messages": [["role": "user", "content": prompt]]] as [String: Any])
-        let (d, resp) = try await URLSession.shared.data(for: req)
+        let (d, resp) = try await OpenRouterRetry.data(for: req)
         if (resp as? HTTPURLResponse)?.statusCode == 402 { throw MVError(OpenRouter.creditMessage) }
+        if OpenRouterRetry.isBriefProblem(status: (resp as? HTTPURLResponse)?.statusCode ?? 0) { throw MVError(OpenRouterRetry.busyMessage) }
         guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
               var msg = (ch["message"] as? [String: Any])?["content"] as? String else { throw MVError("The director didn't answer. Check your OpenRouter key and credit, then try again.") }
         msg = msg.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -629,6 +629,7 @@ struct OpenRouterKeySheet: View {
 
 /// Big drop target / preview for the current section's picture, with interactive focal-point reticle and 9:16 Short crop preview.
 struct DropWell: View {
+    @State private var confirmRemovePicture = false
     @EnvironmentObject var model: AppModel
     let section: Int
     var maxPictureHeight: CGFloat = .infinity       // the picture never grows taller than this (it scales with the window)
@@ -813,8 +814,12 @@ struct DropWell: View {
                     Spacer()
                     Button("Choose a different file…") { choose() }
                         .help("Replaces this picture with another file from your Mac.")
-                    Button("Remove picture", role: .destructive) { model.removeImage(section: section) }
+                    Button("Remove picture", role: .destructive) { confirmRemovePicture = true }
                         .help("Takes this picture away. That part of the video will show a plain colour until you add another.")
+                        .confirmationDialog("Remove this picture?", isPresented: $confirmRemovePicture, titleVisibility: .visible) {
+                            Button("Remove it", role: .destructive) { model.removeImage(section: section) }
+                            Button("Keep it", role: .cancel) {}
+                        } message: { Text("That part of the video will show a plain colour until you add another. Undo brings it back.") }
                 }.frame(maxWidth: 640)
             }
         }

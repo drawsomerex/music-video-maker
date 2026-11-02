@@ -134,11 +134,12 @@ public enum OpenRouter {
         if !referenceJPEGs.isEmpty { payload["input_references"] = referenceJPEGs.map { ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + $0.base64EncodedString()]] } }
         req.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await OpenRouterRetry.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
 
         if !(200..<300).contains(status) {
             if status == 402 { throw MVError(creditMessage) }
+            if OpenRouterRetry.isBriefProblem(status: status) { throw MVError(OpenRouterRetry.busyMessage) }
             let errBody = String(data: data, encoding: .utf8) ?? "HTTP \(status)"
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errObj = json["error"] as? [String: Any],

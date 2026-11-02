@@ -357,7 +357,7 @@ public enum LoopVideo {
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]
         req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.9, "messages": [["role": "user", "content": content]]] as [String: Any])
-        let (d, resp) = try await URLSession.shared.data(for: req)
+        let (d, resp) = try await OpenRouterRetry.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
               let msg = (ch["message"] as? [String: Any])?["content"] as? String else { throw MVError("No scene ideas came back. Try again.") }
         let lines = msg.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " -•*\"0123456789.)")) }.filter { $0.count > 20 }
@@ -426,7 +426,7 @@ public enum LoopVideo {
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]
         req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.9, "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
-        let (d, resp) = try await URLSession.shared.data(for: req)
+        let (d, resp) = try await OpenRouterRetry.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200, let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
               let msg = (ch["message"] as? [String: Any])?["content"] as? String else { throw MVError("No idea for the next scene came back. Try again.") }
         let lines = msg.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"“”*")) }.filter { !$0.isEmpty }

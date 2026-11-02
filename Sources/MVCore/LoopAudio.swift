@@ -226,7 +226,8 @@ public enum LoopAudio {
         guard !analyses.isEmpty, minimum.isFinite, minimum > 0 else { return Plan(plays: [], total: 0, songsEnd: 0) }
         func gain(_ a: TrackAnalysis) -> Double {
             guard evenVolume, analyses.count > 1, a.loudness > -60 else { return 1 }
-            return min(4, max(0.1, pow(10, (targetLUFS - a.loudness) / 20)))
+            let ceiling = a.peak > 0 ? 0.98 / a.peak : 4      // never raised so far that its loudest moment distorts
+            return min(4, ceiling, max(0.1, pow(10, (targetLUFS - a.loudness) / 20)))
         }
         var rng = SeededRNG(seed)
         var plays: [Play] = []

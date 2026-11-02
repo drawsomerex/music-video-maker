@@ -252,6 +252,14 @@ struct SetupView: View {
             .padding(.vertical, 20)
 
             Divider()
+            if !model.hasOpenRouterKey && !model.hasProject {
+                HStack(spacing: 10) {
+                    Image(systemName: "key.fill").foregroundStyle(.secondary)
+                    Text("Drawing pictures and “Do it all automatically” need your OpenRouter key.")
+                    Spacer(minLength: 8)
+                    Button("Add my key…") { openSettings() }
+                }.padding(.horizontal, 24).padding(.top, 10)
+            }
             ViewThatFits(in: .horizontal) {                     // roomy → squeezed → two rows, so nothing ever overlaps on a small screen
                 HStack(spacing: 14) { intervalControl(compact: false); Spacer(minLength: 8); utilityButtons(compact: false); primaryButton }
                 HStack(spacing: 10) { intervalControl(compact: true); Spacer(minLength: 6); utilityButtons(compact: true); primaryButton }

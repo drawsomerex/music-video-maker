@@ -4,6 +4,15 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Updates are safer: your previous version is kept until the new one has started and kept running for 15 seconds. If it doesn't, the previous version is put back and the app tells you.
+- What you type on the first screen is saved as you go and comes back after quitting or a crash.
+- A brief network or server problem no longer stops the wait for a paid video clip. When OpenRouter is busy, the app waits and tries again before reporting a plain message.
+- The first screen of both video types now says on screen when the OpenRouter key is missing, with a button to add it.
+- "Remove picture" asks first, in both music and looping videos.
+- Styles keep their art medium: "light linework" is no longer mistaken for lighting, and removing a lighting phrase no longer removes the medium beside it.
+- Music videos with a cast sheet also use the previous picture and varied camera views, as looping videos do. Each such picture costs slightly more.
+- "Even out the volume" never raises a song so far that its loudest moment distorts.
+- Help guide: corrected button names and added "Make the long video".
 
 ## [2.0.5] - 2026-10-31
 - Looping videos: it is now clear which song goes with which clip. "Change the scene" is One clip, At each song change, or Every few minutes ("Both" is gone; older projects open as At each song change, or Every few minutes with one song).

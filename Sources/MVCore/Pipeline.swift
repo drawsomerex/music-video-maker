@@ -413,7 +413,7 @@ public enum Pipeline {
         req.httpBody = try JSONSerialization.data(withJSONObject: ["model": "google/gemini-2.5-flash-lite", "temperature": 0.2, "response_format": ["type": "json_object"], "usage": ["include": true], "messages": [["role": "user", "content": content]]] as [String: Any])
         var got: (r: (mainly: NextFocus, sentence: String), j: [String: Any])? = nil
         for _ in 0..<2 where got == nil {                    // one more try when the answer can't be read
-            let (d, resp) = try await URLSession.shared.data(for: req)
+            let (d, resp) = try await OpenRouterRetry.data(for: req)
             if (resp as? HTTPURLResponse)?.statusCode == 200, let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let ch = (j["choices"] as? [[String: Any]])?.first,
                let msg = (ch["message"] as? [String: Any])?["content"] as? String, let r = readSourceReply(msg) { got = (r, j) }
         }
@@ -689,7 +689,7 @@ public enum Pipeline {
             if uses == false { fromSource = nil; skipPrevious = true }
         }
         let castRef = plan.castSheet.flatMap { f -> Data? in loadImage(work.appendingPathComponent(f), maxPixel: 1024).flatMap { PictureFit.jpegData($0, quality: 0.85) } }
-        let base = fromSource ?? (castRef != nil || skipPrevious ? nil : previousPictureJPEG(plan: plan, for: index, work: work))
+        let base = fromSource ?? (skipPrevious ? nil : previousPictureJPEG(plan: plan, for: index, work: work))
         let guide = styleGuideJPEG(plan: plan, for: index, work: work, skippingPrevious: base != nil)
         let refs = [base, castRef, guide].compactMap { $0 }
         let view = base != nil && plan.shot == .any ? chooseCameraView(plan: plan, for: index) : nil      // a chosen type of shot replaces the varied views

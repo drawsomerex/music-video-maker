@@ -31,13 +31,13 @@ public enum OpenRouterVideo {
         guard (minSeconds...maxSeconds).contains(seconds) else { throw MVError("HeyGen orders must be between 5 and 15 seconds.") }
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw MVError("Enter your OpenRouter API key first.") }
-        func request(_ method: String, _ url: String, body: [String: Any]? = nil) async throws -> (Int, Data) {
+        func request(_ method: String, _ url: String, body: [String: Any]? = nil, retrying: Set<Int> = []) async throws -> (Int, Data) {
             guard let endpoint = URL(string: url), trustedAPI(endpoint) else { throw MVError("The video service returned an untrusted polling address. Your paid job is kept for recovery.") }
             var r = URLRequest(url: endpoint); r.httpMethod = method; r.timeoutInterval = 120
             r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization"); r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.setValue("Music Video Maker", forHTTPHeaderField: "X-Title")
             if let body { r.httpBody = try JSONSerialization.data(withJSONObject: body) }
-            let (d, resp) = try await URLSession.shared.data(for: r)
+            let (d, resp) = try await OpenRouterRetry.data(for: r, retrying: retrying)
             return ((resp as? HTTPURLResponse)?.statusCode ?? 0, d)
         }
         func message(_ d: Data) -> String {
@@ -50,7 +50,7 @@ public enum OpenRouterVideo {
         if let seed { body["seed"] = seed }
         if exactPrompt { body["provider"] = ["options": ["heygen": ["parameters": ["prompt_enhancement": "disabled"]]]] }
         onPhase?("Sending the picture to HeyGen…")
-        let (st, d) = try await request("POST", "https://openrouter.ai/api/v1/videos", body: body)
+        let (st, d) = try await request("POST", "https://openrouter.ai/api/v1/videos", body: body, retrying: [429])
         guard (200..<300).contains(st), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let id = j["id"] as? String else {
             if st == 402 { throw MVError(OpenRouter.creditMessage) }
             throw MVError("The clip request did not complete. Check OpenRouter activity before ordering again: \(message(d))")
@@ -61,7 +61,12 @@ public enum OpenRouterVideo {
         while true {
             try Task.checkCancellation()
             try await Task.sleep(nanoseconds: 8_000_000_000)
-            let (statusCode, pd) = try await request("GET", poll)
+            if Date().timeIntervalSince(started) > 1200 { throw MVError("The clip is taking too long (job \(id)). It may still finish; check your OpenRouter activity.") }
+            // A brief network or server problem says nothing about the paid job: keep checking.
+            let statusCode: Int, pd: Data
+            do { (statusCode, pd) = try await request("GET", poll) }
+            catch where OpenRouterRetry.isBriefProblem(error) { continue }
+            if OpenRouterRetry.isBriefProblem(status: statusCode) { continue }
             guard (200..<300).contains(statusCode) else { throw MVError("Could not check paid job \(id) (HTTP \(statusCode)). It remains available for recovery; do not order it again.") }
             guard let pj = try? JSONSerialization.jsonObject(with: pd) as? [String: Any] else { continue }
             let status = pj["status"] as? String ?? ""
@@ -74,7 +79,6 @@ public enum OpenRouterVideo {
                 let data = try await download(location.url, authenticated: location.authenticated, apiKey: key)
                 return Clip(data: data, costUSD: cost, jobID: id)
             }
-            if Date().timeIntervalSince(started) > 1200 { throw MVError("The clip is taking too long (job \(id)). It may still finish; check your OpenRouter activity.") }
         }
     }
 

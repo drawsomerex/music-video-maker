@@ -25,6 +25,7 @@ struct LoopingPlayer: NSViewRepresentable {
 }
 
 struct LoopView: View {
+    @State private var confirmRemoveVersion: String?
     @EnvironmentObject var model: AppModel
     @State private var ideas: [String] = []
     @State private var ideasBusy = false
@@ -680,8 +681,12 @@ struct LoopView: View {
                     }.buttonStyle(.plain).help((f == selected ? "In use now. " : "Use this picture again (free). ") + versionDetails(f))
                     .overlay(alignment: .topTrailing) {
                         if p.pictures.contains(f) {
-                            Button { model.editLoop { q in q.pictures.removeAll { $0 == f }; if q.picture == f { q.picture = q.pictures.last } } } label: { Image(systemName: "xmark.circle.fill").padding(3).background(.black.opacity(0.6)).foregroundStyle(.white) }
+                            Button { confirmRemoveVersion = f } label: { Image(systemName: "xmark.circle.fill").padding(3).background(.black.opacity(0.6)).foregroundStyle(.white) }
                                 .buttonStyle(.plain).disabled(working).help("Remove this picture version. Undo restores it; the file stays on disk.").accessibilityLabel("Remove picture version")
+                                .confirmationDialog("Remove this picture?", isPresented: Binding(get: { confirmRemoveVersion == f }, set: { if !$0 { confirmRemoveVersion = nil } }), titleVisibility: .visible) {
+                                    Button("Remove it", role: .destructive) { model.editLoop { q in q.pictures.removeAll { $0 == f }; if q.picture == f { q.picture = q.pictures.last } } }
+                                    Button("Keep it", role: .cancel) {}
+                                } message: { Text("Undo brings it back.") }
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
@@ -710,6 +715,7 @@ struct LoopView: View {
 
 /// The front page when "Looping long music video" is chosen: pick the song and a title, then start.
 struct LoopStartView: View {
+    @Environment(\.openSettings) private var openSettings
     @EnvironmentObject var model: AppModel
     @State private var songs: [URL] = []
     var song: URL? { songs.first }
@@ -735,6 +741,14 @@ struct LoopStartView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Name of this video").font(.callout.weight(.semibold))
                 TextField("e.g. Rainy Library", text: $title).textFieldStyle(.roundedBorder)
+            }
+            if !model.hasOpenRouterKey {
+                HStack(spacing: 10) {
+                    Image(systemName: "key.fill").foregroundStyle(.secondary)
+                    Text("Drawing pictures and “Do it all automatically” need your OpenRouter key.")
+                    Spacer(minLength: 8)
+                    Button("Add my key…") { openSettings() }
+                }
             }
             HStack {
                 Spacer()

@@ -2,6 +2,7 @@
 import SwiftUI
 import AVFoundation
 import CryptoKit
+import Combine
 import MVCore
 #if NATIVE_MLX
 import MVNative
@@ -237,6 +238,24 @@ final class AppModel: ObservableObject {
     var playTimer: Timer?
     var previewTask: Task<Void, Never>?
     var willQuit: NSObjectProtocol?
+    private var draftSaver: AnyCancellable?
+    private var savesDrafts: Bool { let e = ProcessInfo.processInfo.environment; return e["MV_EDITOR_SELFTEST"] == nil && e["MV_DEMO_PLAN"] == nil && e["MV_DEMO_MODE"] == nil && e["MV_SNAPSHOT_DIR"] == nil }
+    /// Saves the Song screen's text while no project exists yet; once a project exists, the project holds it.
+    private func saveSongDraft() {
+        guard savesDrafts, plan == nil, stage == .setup else { return }
+        SongDraft(title: title, subject: subject, notes: songNotes, setting: settingTheme, lyrics: lyrics, audioPath: audioURL?.path).save()
+    }
+    private func startDraftSaving() {
+        guard savesDrafts else { return }
+        if plan == nil, let d = SongDraft.load() {
+            title = d.title; subject = d.subject; songNotes = d.notes; settingTheme = d.setting; lyrics = d.lyrics
+            if let path = d.audioPath, FileManager.default.fileExists(atPath: path) { setAudio(URL(fileURLWithPath: path)) }
+        }
+        draftSaver = Publishers.CombineLatest4($title, $subject, $songNotes, $lyrics).map { _ in () }
+            .merge(with: $settingTheme.map { _ in () }, $audioURL.map { _ in () })
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] in self?.saveSongDraft() }
+    }
 
     // OpenRouter image generation & credits
     @Published var selectedSection = -1
@@ -259,7 +278,10 @@ final class AppModel: ObservableObject {
 
     init() {
         // Stop the hidden oMLX engine (if we started one) when the app quits.
-        willQuit = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in OMLXServer.shared.shutdown() }
+        willQuit = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            OMLXServer.shared.shutdown()
+            MainActor.assumeIsolated { self?.saveSongDraft() }
+        }
         // Test hooks: MV_DEMO_PLAN=<work folder> opens the plan screen; MV_DEMO_DONE=<mp4> opens the finished screen.
         let env = ProcessInfo.processInfo.environment
         if let root = env["MV_TEST_ROOT"], env["MV_EDITOR_SELFTEST"] != nil { config = Config(); config.projectsFolder = root; showGuide = false }
@@ -269,6 +291,7 @@ final class AppModel: ObservableObject {
         }
         if env["MV_EDITOR_SELFTEST"] != nil, let folder = env["MV_DEMO_LOOP"], let project = try? LoopVideo.load(URL(fileURLWithPath: folder)) { loopDir = URL(fileURLWithPath: folder); loopProject = project; stage = .loop }
         if hasOpenRouterKey && env["MV_EDITOR_SELFTEST"] == nil { refreshOpenRouterCredits(silent: true) }
+        startDraftSaving()
     }
 
     var canStart: Bool { !isRecording && !busy && audioURL != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty && !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -647,6 +670,7 @@ final class AppModel: ObservableObject {
                 if FileManager.default.fileExists(atPath: cached.path) { try? FileManager.default.copyItem(at: cached, to: work.appendingPathComponent("transcript_words.json")) }
                 var made = try await Pipeline.plan(audioPath: audio.path, title: t, subject: s, lyrics: l, work: work, imageInterval: every, preferredStyle: presetPrompt, setting: theme, notes: notes, pictureBoundaries: boundaries, shorts: shorts, config: config, progress: handler)
                 plan = made
+                if savesDrafts { SongDraft.clear() }
                 draftSections = nil; draftShorts = []; draftKey = ""; editUndo = []; editRedo = []
                 projectBaseline = nil; outputURL = nil; renderedShorts = []
                 stage = .plan; remember(work); loadWaveform(); refreshOpenRouterCredits(silent: true)

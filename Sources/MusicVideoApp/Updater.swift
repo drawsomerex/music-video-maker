@@ -1,5 +1,6 @@
 import SwiftUI
 import CryptoKit
+import MVCore
 
 @MainActor
 final class Updater: ObservableObject {
@@ -30,6 +31,14 @@ final class Updater: ObservableObject {
         didSet { Self.defaults.set(skippedVersions, forKey: "skippedAppVersions") }
     }
     var beforeInstall: (() async throws -> Void)?
+    nonisolated static var failedUpdateNote: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MusicVideo/update-failed.txt") }
+    init() {
+        // The last update did not start, so the swap script put this version back: say so, and don't offer that version again.
+        guard let version = try? String(contentsOf: Self.failedUpdateNote, encoding: .utf8), !version.isEmpty else { return }
+        try? FileManager.default.removeItem(at: Self.failedUpdateNote)
+        skip(version)
+        message = "Version \(version) did not start, so your previous version was put back. Your projects were not changed."
+    }
     var isInstalling: Bool { restartPending || (busy && progress != nil) }
     var statusText: String {
         if isInstalling { return phase }
@@ -173,24 +182,9 @@ final class Updater: ObservableObject {
             let rollback = Self.isNewer(Self.current, than: r.version)
             phase = "Installing and restarting…"; progress = 0.97
             let script = work.appendingPathComponent("swap.sh")
-            try """
-            #!/bin/sh
-            PID="$1"; NEW="$2"; DEST="$3"; BACKUP="$4"; WORK="$5"; TESTROOT="$6"; TESTPREFS="$7"
-            launch() {
-              if [ -n "$TESTROOT" ]; then
-                open -n "$DEST" --env "MV_EDITOR_SELFTEST=ui" --env "MV_TEST_ROOT=$TESTROOT" --env "MV_TEST_PREFS=$TESTPREFS" --env "MV_DEMO_PLAN=$TESTROOT/project"
-              else open "$DEST"; fi
-            }
-            while kill -0 "$PID" 2>/dev/null; do sleep 0.2; done
-            if mv "$DEST" "$BACKUP"; then
-              if mv "$NEW" "$DEST"; then
-                if launch; then rm -rf "$BACKUP"; else mv "$DEST" "$WORK/failed.app"; mv "$BACKUP" "$DEST"; launch; fi
-              else mv "$BACKUP" "$DEST"; launch; fi
-            else launch; fi
-            rm -rf "$WORK"
-            """.write(to: script, atomically: true, encoding: .utf8)
+            try UpdateSwap.script.write(to: script, atomically: true, encoding: .utf8)
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
-            p.arguments = [script.path, "\(ProcessInfo.processInfo.processIdentifier)", newApp.path, dest.path, dest.path + ".backup-" + UUID().uuidString, work.path, Self.env["MV_EDITOR_SELFTEST"] != nil ? (Self.env["MV_TEST_ROOT"] ?? "") : "", Self.env["MV_TEST_PREFS"] ?? ""]
+            p.arguments = [script.path, "\(ProcessInfo.processInfo.processIdentifier)", newApp.path, dest.path, dest.path + ".backup-" + UUID().uuidString, work.path, Self.env["MV_EDITOR_SELFTEST"] != nil ? (Self.env["MV_TEST_ROOT"] ?? "") : "", Self.env["MV_TEST_PREFS"] ?? "", Self.env["MV_EDITOR_SELFTEST"] != nil ? "" : Self.failedUpdateNote.path, r.version]
             p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
             try p.run()
             if rollback || !heldVersion.isEmpty {

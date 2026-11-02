@@ -505,9 +505,22 @@ public struct StylePreset: Identifiable, Hashable, Sendable, Codable {
     /// A style is only the medium and technique: any part of it about lighting, time of day or weather is left out, so the scene decides those
     /// (a stormy scene must never be turned into a golden-hour one by the style).
     public static func withoutLighting(_ style: String) -> String {
-        let words = #"\b(light|lights|lighting|lit|sunlight|sunlit|sunbeams?|sun|sunset|sunrise|golden[- ]hour|dawn|dusk|night|night-time|nighttime|moon|moonlit|moonlight|glow|glows|glowing|backlit|backlight|spotlights?|chiaroscuro|daylight|twilight|evening|morning)\b"#
+        // "light" as in light linework or a light wash describes the medium, not the lighting
+        let words = #"\b(light(?![- ](?:line|lines|linework|pencil|pencils|brush|brushwork|strokes?|wash|washes|colou?rs?|pastels?|ink|inks|grain|texture|textures|sketch|sketching|shading))|lights|lighting|lit|sunlight|sunlit|sunbeams?|sun|sunset|sunrise|golden[- ]hour|dawn|dusk|night|night-time|nighttime|moon|moonlit|moonlight|glow|glows|glowing|backlit|backlight|spotlights?|chiaroscuro|daylight|twilight|evening|morning)\b"#
         let parts = style.components(separatedBy: CharacterSet(charactersIn: ",;"))
-        let kept = parts.filter { $0.range(of: words, options: [.regularExpression, .caseInsensitive]) == nil }
+        // judge "A and B" and "A with B" piece by piece, so a lighting word costs only its own piece and the medium beside it stays
+        let kept = parts.map { part -> String in
+            var pieces: [String] = [], joins: [String] = [], rest = Substring(part)
+            while let r = rest.range(of: #"\s+(and|with)\s+"#, options: [.regularExpression, .caseInsensitive]) {
+                pieces.append(String(rest[..<r.lowerBound])); joins.append(String(rest[r])); rest = rest[r.upperBound...]
+            }
+            pieces.append(String(rest))
+            var out = ""
+            for (i, piece) in pieces.enumerated() where piece.range(of: words, options: [.regularExpression, .caseInsensitive]) == nil {
+                out += (out.isEmpty ? "" : joins[i - 1]) + piece
+            }
+            return out
+        }
         var out = kept.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: ", ")
         out = out.replacingOccurrences(of: #"\s+and\s*$"#, with: "", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
         if !out.isEmpty && !out.hasSuffix(".") { out += "." }
