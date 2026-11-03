@@ -17,6 +17,7 @@ for n in sorted(set(needles), key=len, reverse=True):
 open(p, "wb").write(b)
 PY
 cp "$ROOT/scripts/word_timing.py" "$APP/Contents/Resources/word_timing.py"
+mkdir -p "$APP/Contents/Resources/Fonts" && cp "$ROOT"/Resources/Fonts/* "$APP/Contents/Resources/Fonts/"   # the New Design fonts (open licence, see the OFL files)
 for b in "$BIN"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 if [ ! -f "$ROOT/AppIcon.icns" ]; then swift "$ROOT/scripts/make_icon.swift" /tmp/mv-AppIcon.iconset && iconutil -c icns /tmp/mv-AppIcon.iconset -o "$ROOT/AppIcon.icns"; fi
 cp "$ROOT/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"

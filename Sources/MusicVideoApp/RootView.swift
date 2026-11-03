@@ -592,6 +592,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Design") {
+                Toggle("Use the New Design", isOn: Binding(get: { Updater.defaults.bool(forKey: NewDesign.key) }, set: { Updater.defaults.set($0, forKey: NewDesign.key) }))
+                    .help("A calmer look with one workspace for both kinds of video. Your projects and settings are the same in either design, and you can switch back at any time.")
+            }
             Section("Where things are saved") {
                 folderRow("Main folder", model.config.projectsFolder, defaultText: "~/Movies/Music Videos") { model.config.projectsFolder = $0 }
                     .help("Every song gets its own folder inside this one, holding the MP3, lyrics, pictures, the save file, the finished video and Shorts.")

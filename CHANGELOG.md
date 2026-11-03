@@ -4,6 +4,7 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- New Design (in progress, off by default): turn it on in Settings or File ▸ Use the New Design. A calm book-like look with a Projects home and one bar on top. Your projects and settings are the same in both designs.
 
 ## [2.0.6] - 2026-11-02
 - Updates are safer: your previous version is kept until the new one has started and kept running for 15 seconds. If it doesn't, the previous version is put back and the app tells you.

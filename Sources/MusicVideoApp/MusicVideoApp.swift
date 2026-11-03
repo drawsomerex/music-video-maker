@@ -25,9 +25,10 @@ struct MusicVideoApp: App {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
+    @AppStorage(NewDesign.key, store: Updater.defaults) private var newDesign = false
     var body: some Scene {
         WindowGroup("Music Video Maker") {
-            RootView()
+            Group { if newDesign { NewRootView() } else { RootView() } }
                 .defaultAppStorage(Updater.defaults)
                 .environmentObject(model)
                 .environmentObject(updater)
@@ -93,6 +94,7 @@ struct MusicVideoApp: App {
             }
             CommandGroup(after: .newItem) {
                 Button("Projects…") { model.showProjects = true }.keyboardShortcut("o")
+                Toggle("Use the New Design", isOn: $newDesign)
             }
             CommandGroup(replacing: .help) {
                 Button("Help & Questions…") { model.helpScreen = model.screenName; model.showHelp = true }.keyboardShortcut("?", modifiers: .command)
