@@ -1,6 +1,6 @@
 // Stage 2 · Scenes for a looping video (design 2g): a scene list, the scene on a canvas, and the same kind of inspector as a music video's pictures.
-// A scene is one loop clip. Nothing about how a looping project is saved changes: the list, the songs under each scene and the order
-// are the project's existing clips, sceneClips and each song's clip.
+// The list is the scenes in playing order (see LoopSlots.swift): one per song at each song change, as many as you add every few minutes, one for a single clip.
+// A scene that has no picture or clip yet is a blank window. The selected scene's idea, picture and clip are the project's own, so every button works on it.
 import SwiftUI
 import MVCore
 
@@ -9,11 +9,13 @@ struct NewScenesStage: View {
     @EnvironmentObject var nd: NewDesignState
     @AppStorage("sceneTab") private var tab = "idea"
     @State private var showLook = false
-    @State private var confirmAdd = false
     @State private var confirmRemove: String?
+    @State private var confirmClear: String?
     var p: LoopProject { model.loopProject ?? LoopProject() }
     var working: Bool { model.loopJob != nil }
-    var shown: String? { p.clip ?? p.clips.first }
+    var slots: [LoopSlot] { LoopVideo.slots(p) }
+    var selected: LoopSlot? { slots.first { $0.id == model.loopSlot } ?? slots.first }
+    var selectedIndex: Int { slots.firstIndex { $0.id == selected?.id } ?? 0 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,16 +36,17 @@ struct NewScenesStage: View {
                 CFooter { Text("Same Look panel, versions and picture check as music videos.").font(Classical.body(11)).foregroundStyle(Classical.neutral600) } right: { Button("Done") { showLook = false }.buttonStyle(.classicalPrimary).keyboardShortcut(.defaultAction) }
             }.frame(width: 640, height: 720).background(Classical.bg).environment(\.colorScheme, .light).environmentObject(model)
         }
-        .confirmationDialog("Add another scene?", isPresented: $confirmAdd, titleVisibility: .visible) {
-            Button("Add it (≈ \(OpenRouter.formatUSD(model.loopAddScenePrice)))") { model.loopAddScene() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The app draws the next picture (about \(OpenRouter.formatUSD(model.perImageCostUSD))), then HeyGen makes its clip (about \(OpenRouter.formatUSD(model.loopClipPrice)) at list price). It takes a few minutes; you can keep working. The new scene joins the video automatically.")
-        }
-        .confirmationDialog("Remove this scene?", isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } }), titleVisibility: .visible) {
-            Button("Remove it", role: .destructive) { if let c = confirmRemove { removeScene(c) } }
+        .onAppear { model.slotSync(adopt: true) }
+        .onChange(of: model.loopProject) { _, _ in model.slotSync() }
+        .onDisappear { model.slotLeave() }
+        .confirmationDialog("Take this scene out?", isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } }), titleVisibility: .visible) {
+            Button("Take it out", role: .destructive) { if let id = confirmRemove { model.slotEdit { LoopVideo.removeSlot(&$0, id: id, focus: $1) } } }
             Button("Keep it", role: .cancel) {}
-        } message: { Text("Its songs go back to Auto. The clip file stays on disk, and Undo brings the scene back.") }
+        } message: { Text("The scenes after it move up. Its picture and clip stay in the project folder, and Undo brings the scene back.") }
+        .confirmationDialog("Make this scene blank again?", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } }), titleVisibility: .visible) {
+            Button("Make it blank", role: .destructive) { if let id = confirmClear { model.slotEdit { LoopVideo.clearSlot(&$0, id: id, focus: $1) } } }
+            Button("Keep it", role: .cancel) {}
+        } message: { Text("Its songs borrow the other scenes. The picture and clip stay in the project folder, and Undo brings them back.") }
     }
 
     // MARK: toolbar
@@ -60,69 +63,72 @@ struct NewScenesStage: View {
             Rectangle().fill(Classical.divider).frame(width: 1, height: 18)
             Text("Scenes change").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
             Menu {
-                ForEach(LoopSceneChange.allCases, id: \.self) { c in Button(c.name) { model.editLoop { $0.sceneChange = c } } }
+                ForEach(LoopSceneChange.allCases, id: \.self) { c in Button(c.name) { model.slotEdit { q, f in LoopVideo.syncSlots(&q, focus: f); q.sceneChange = c } } }
             } label: { Text(p.sceneChange.name).font(Classical.body(12, weight: .semibold)) }
-                .menuStyle(.borderlessButton).menuIndicator(.visible).fixedSize()
-                .help("One clip: the clip shown plays all through. At each song change: each song has its own scene. Every few minutes: the scenes play in the order shown. Changes are a slow cross-fade; the music never changes because of them.")
+                .menuStyle(.borderlessButton).menuIndicator(.visible).fixedSize().disabled(working)
+                .help("At each song change: one scene for each song, in the songs' order. Every few minutes: the scenes you add, played in this order and then again. One clip: a single scene. Changes are a slow cross-fade; the music never changes because of them.")
             if p.sceneChange == .time {
                 Stepper("every \(Int(p.sceneMinutes)) min", value: Binding(get: { p.sceneMinutes }, set: { v in model.editLoop { $0.sceneMinutes = v } }), in: 1...60, step: 1).fixedSize().font(Classical.body(12))
             }
             Spacer()
-            Button { confirmAdd = true } label: { Text("+ Add a scene  ≈ \(OpenRouter.formatUSD(model.loopAddScenePrice))") }.buttonStyle(.classicalSmall)
-                .disabled(working || p.picture == nil || p.clip == nil).help(p.clip == nil ? "Make the first scene's clip first." : "Draws the next picture (the same place, building or subject, something new), makes its clip, and adds it to the video. You see the price first.")
+            switch p.sceneChange {
+            case .time:
+                Text("\(slots.count) scene\(slots.count == 1 ? "" : "s")").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+                Button { if let s = selected { confirmRemove = s.id } } label: { Text("− Take out") }.buttonStyle(.classicalSmall).disabled(working || slots.count <= 1 || selected == nil)
+                    .help("Takes the selected scene out of the list.")
+                Button { model.slotEdit { LoopVideo.addSlot(&$0, focus: $1) } } label: { Text("+ Add a scene") }.buttonStyle(.classicalSmall).disabled(working)
+                    .help("Adds a blank scene at the end. It is free; you draw its picture and make its clip on the right.")
+            case .songs: Text("One scene for each of the \(p.tracks.count) song\(p.tracks.count == 1 ? "" : "s")").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+            case .never: EmptyView()
+            }
         }.padding(.horizontal, 20).padding(.vertical, 9).background(Classical.bg)
     }
 
     // MARK: the scene list
     var sceneList: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    if p.clips.isEmpty { emptyRow }
-                    ForEach(Array(p.clips.enumerated()), id: \.element) { i, c in row(i, c); Hairline() }
-                }
-            }
-            if let hint = changeHint {
-                Hairline()
-                Text(hint).font(Classical.body(11)).foregroundStyle(Classical.accent800).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(Classical.accent100)
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(Array(slots.enumerated()), id: \.element.id) { i, s in row(i, s); Hairline() }
             }
         }.background(Classical.bg)
     }
-    var emptyRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Scene 1").font(Classical.heading(18))
-            Text("No clip yet. Describe the scene, draw its picture, then make its clip (right).").font(Classical.body(11)).foregroundStyle(Classical.neutral700)
-        }.padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Classical.accent100)
-            .overlay(alignment: .leading) { Rectangle().fill(Classical.accent).frame(width: 3) }
-    }
-    func row(_ i: Int, _ c: String) -> some View {
-        let selected = c == shown
-        let order = LoopVideo.sceneClips(p), inVideo = order.contains(c)
-        return Button { select(c) } label: {
+    func row(_ i: Int, _ s: LoopSlot) -> some View {
+        let isSel = s.id == selected?.id
+        return Button { model.slotSelect(s.id) } label: {
             HStack(spacing: 10) {
-                ZStack { Color.black; if let d = model.loopDir, let t = LoopVideo.clipThumbnail(c, dir: d) { Thumb(file: t) } }
-                    .frame(width: 80, height: 45).clipShape(RoundedRectangle(cornerRadius: 3))
+                thumb(s).frame(width: 80, height: 45).clipShape(RoundedRectangle(cornerRadius: 3))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(LoopVideo.sceneName(p, c)).font(Classical.heading(18))
-                    Text(subtitle(c, inVideo: inVideo, order: order)).font(Classical.body(11)).foregroundStyle(inVideo || p.sceneChange == .never ? Classical.neutral700 : Classical.neutral500).lineLimit(2)
+                    Text("Scene \(i + 1)").font(Classical.heading(18))
+                    Text(subtitle(i, s)).font(Classical.body(11)).foregroundStyle(s.clip == nil ? Classical.neutral500 : Classical.neutral700).lineLimit(2)
                 }
                 Spacer(minLength: 0)
             }.padding(.horizontal, 12).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(working)
-            .background(selected ? Classical.accent100 : Color.clear)
-            .overlay(alignment: .leading) { Rectangle().fill(selected ? Classical.accent : .clear).frame(width: 3) }
-            .help("Look at this scene.")
+            .background(isSel ? Classical.accent100 : Color.clear)
+            .overlay(alignment: .leading) { Rectangle().fill(isSel ? Classical.accent : .clear).frame(width: 3) }
+            .help("Select this scene. Drag it to move it\(p.sceneChange == .songs ? " (its songs move with it)" : "").")
+            .draggable(s.id)
+            .dropDestination(for: String.self) { ids, _ in
+                guard let id = ids.first, id != s.id, !working else { return false }
+                model.slotEdit { LoopVideo.moveSlot(&$0, id: id, to: i, focus: $1) }; return true
+            }
     }
-    /// "songs 1–3", "plays 2nd", or "not used".
-    func subtitle(_ c: String, inVideo: Bool, order: [String]) -> String {
+    /// The scene's clip, else its picture, else a blank window.
+    @ViewBuilder func thumb(_ s: LoopSlot) -> some View {
+        if let c = s.clip, let d = model.loopDir, let t = LoopVideo.clipThumbnail(c, dir: d) { Thumb(file: t) }
+        else if let pic = s.picture, let u = model.loopFile(pic) { Thumb(file: u) }
+        else { ZStack { Classical.surface; Image(systemName: "photo").font(.system(size: 14)).foregroundStyle(Classical.neutral500) }.overlay(Rectangle().strokeBorder(Classical.neutral300, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))) }
+    }
+    /// "song 3 · Title", "songs 2–3", "2nd of 5", or "blank".
+    func subtitle(_ i: Int, _ s: LoopSlot) -> String {
+        let what = s.clip != nil ? "" : (s.picture != nil ? " · picture only" : " · blank")
         switch p.sceneChange {
         case .songs:
-            let n = zip(p.tracks.indices, LoopVideo.songClips(p)).filter { $0.1.clip == c }.map { $0.0 + 1 }
-            return n.isEmpty ? "no song · Auto may use it" : "under " + Self.songWords(n)
-        case .time:
-            guard let k = order.firstIndex(of: c) else { return "not in the order" }
-            return "plays \(Self.ordinal(k + 1)) of \(order.count)"
-        case .never: return c == p.clip ? "the clip the video uses" : "not used"
+            let n = s.songs.compactMap { id in p.tracks.firstIndex { $0.id == id } }.map { $0 + 1 }.sorted()
+            if n.count == 1, let t = p.tracks.first(where: { $0.id == s.songs.first }) { return "song \(n[0]) · \(t.title)" + what }
+            return Self.songWords(n) + what
+        case .time: return "\(Self.ordinal(i + 1)) of \(slots.count)" + what
+        case .never: return "plays all through" + what
         }
     }
     static func ordinal(_ n: Int) -> String { n == 1 ? "1st" : n == 2 ? "2nd" : n == 3 ? "3rd" : "\(n)th" }
@@ -135,50 +141,30 @@ struct NewScenesStage: View {
         }
         return (n.count == 1 ? "song " : "songs ") + parts.joined(separator: ", ")
     }
-    var changeHint: String? {
-        guard p.sceneChange != .never, p.clip != nil, let plan = model.loopPlan else { return nil }
-        let have = Set(LoopVideo.sceneStarts(p, plan: plan).map(\.clip)).count, wanted = LoopVideo.scenesWanted(p, plan: plan)
-        let changes = LoopVideo.sceneChangeTimes(p, plan: plan).count
-        if changes == 0 { return "No scene changes at this length." }
-        if have < wanted { return have <= 1 ? "This video changes scene \(changes) time\(changes == 1 ? "" : "s") but has one scene, so it stays the same picture. Add another scene." : "This video changes scene \(changes) times and has \(have) scenes. \(wanted) would look best." }
-        return nil
-    }
-
-    func select(_ c: String) {
-        model.editLoop { q in
-            // looking at another scene must not change what plays: a video with no list yet plays the clip that was in use, so keep it in the list
-            if q.sceneChange != .never, q.sceneClips.isEmpty, let cur = q.clip { q.sceneClips = [cur] }
-            q.clip = c
-        }
-        if let u = model.loopPreviewURL(for: c), !FileManager.default.fileExists(atPath: u.path) { model.loopMakePreview(c) }
-    }
-    func removeScene(_ c: String) {
-        model.editLoop { q in
-            q.clips.removeAll { $0 == c }; q.sceneClips.removeAll { $0 == c }
-            for k in q.tracks.indices where q.tracks[k].clip == c { q.tracks[k].clip = nil }
-            if q.clip == c { q.clip = q.clips.first }
-        }
-    }
 
     // MARK: canvas
     var canvas: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(shown.map { LoopVideo.sceneName(p, $0) } ?? "Scene 1").font(Classical.heading(26))
-                    if let c = shown { Text(subtitle(c, inVideo: LoopVideo.sceneClips(p).contains(c), order: LoopVideo.sceneClips(p))).font(Classical.body(12)).foregroundStyle(Classical.neutral600) }
+                    Text("Scene \(selectedIndex + 1)").font(Classical.heading(26))
+                    if let s = selected { Text(subtitle(selectedIndex, s)).font(Classical.body(12)).foregroundStyle(Classical.neutral600) }
                     Spacer()
-                    if let c = shown, p.clips.contains(c) { CLink(title: "Remove scene") { confirmRemove = c }.disabled(working) }
+                    if let s = selected, !s.isBlank { CLink(title: "Make blank") { confirmClear = s.id }.disabled(working) }
                 }
                 player
-                Text(p.clip != nil ? "loop clip · plays seamlessly" : (p.picture != nil ? "picture · the clip starts from it" : "")).font(Classical.italic(11)).foregroundStyle(Classical.neutral600)
+                Text(p.clip != nil ? "loop clip · plays seamlessly" : (p.picture != nil ? "picture · make its clip on the right" : "a blank scene · describe it on the right, then draw its picture")).font(Classical.italic(11)).foregroundStyle(Classical.neutral600)
                 HStack(spacing: 8) {
                     Button { model.loopPreview(.start) } label: { Text("▷ Watch the start").fixedSize() }.buttonStyle(.classicalSmall)
                     Button { model.loopPreview(.change) } label: { Text("▷ The change").fixedSize() }.buttonStyle(.classicalSmall)
                     Button { model.loopPreview(.end) } label: { Text("▷ The end").fixedSize() }.buttonStyle(.classicalSmall)
                     Spacer()
-                }.disabled(working || p.clip == nil || p.tracks.isEmpty)
-                if let c = shown, p.clips.contains(c) { placement(c) }
+                }.disabled(working || !slots.contains { $0.clip != nil } || p.tracks.isEmpty)
+                if p.picture == nil, selectedIndex > 0, slots[..<selectedIndex].contains(where: { $0.picture != nil }) {
+                    CLink(title: "Draw it as the next scene of the one before  ≈ \(OpenRouter.formatUSD(model.perImageCostUSD))") { model.slotDrawFromPrevious() }.disabled(working || !model.hasOpenRouterKey)
+                        .help("Keeps the same place, building or subject as the scene before and changes one thing, with a slightly different angle.")
+                }
+                if let s = selected { placement(s) }
             }.padding(20)
         }.background(Classical.bg)
     }
@@ -193,67 +179,36 @@ struct NewScenesStage: View {
             } else if let u = model.loopFile(p.picture) {
                 Thumb(file: u).onTapGesture { FullScreenPlayer.showImage(u, title: "Picture") }.help("Click to see the picture full screen and zoom in.")
             } else {
-                Text("Describe the scene on the right, then draw its picture.").font(Classical.body(12)).foregroundStyle(.white.opacity(0.7))
+                VStack(spacing: 6) { Image(systemName: "photo.badge.plus").font(.system(size: 26)); Text("Blank scene").font(Classical.body(12)) }.foregroundStyle(.white.opacity(0.6))
             }
         }.aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 3)).overlay(RoundedRectangle(cornerRadius: 3).stroke(Classical.divider, lineWidth: 1))
     }
-    /// Where this scene plays: the songs under it, or its place in the order.
-    @ViewBuilder func placement(_ c: String) -> some View {
-        let order = LoopVideo.sceneClips(p), k = order.firstIndex(of: c)
+    /// Where this scene plays and how to move it.
+    @ViewBuilder func placement(_ s: LoopSlot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Hairline()
             switch p.sceneChange {
             case .songs:
-                Text("Plays under").font(Classical.body(12, weight: .semibold)).foregroundStyle(Classical.neutral800)
-                if p.tracks.isEmpty { Text("Add songs on the Music stage.").font(Classical.body(11)).foregroundStyle(Classical.neutral600) }
-                else {
-                    let tied = LoopVideo.songClips(p)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6)], alignment: .leading, spacing: 6) {
-                        ForEach(Array(p.tracks.enumerated()), id: \.element.id) { n, t in
-                            let mine = tied.indices.contains(n) && tied[n].clip == c, auto = tied.indices.contains(n) && tied[n].auto
-                            Button { assign(n, to: c, on: !mine) } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: mine ? "checkmark.square.fill" : "square").foregroundStyle(mine ? Classical.accent : Classical.neutral500)
-                                    Text("\(n + 1)  \(t.title)").font(Classical.body(11)).lineLimit(1).truncationMode(.tail)
-                                    if !mine, !auto, tied.indices.contains(n), let other = tied[n].clip { Text(LoopVideo.sceneName(p, other)).font(Classical.body(10)).foregroundStyle(Classical.neutral500) }
-                                }.padding(.horizontal, 8).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
-                                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(mine ? Classical.accent : Classical.divider, lineWidth: 1))
-                            }.buttonStyle(.plain).disabled(working)
-                                .help(mine ? "Click to take this song off the scene (it goes back to Auto)." : "Show this scene under “\(t.title)”.")
-                        }
-                    }
+                Text(s.songs.count > 1 ? "Plays under these songs" : "Plays under").font(Classical.body(12, weight: .semibold)).foregroundStyle(Classical.neutral800)
+                ForEach(s.songs, id: \.self) { id in
+                    if let k = p.tracks.firstIndex(where: { $0.id == id }) { Text("\(k + 1)  \(p.tracks[k].title)").font(Classical.body(12)).foregroundStyle(Classical.neutral700) }
                 }
+                HStack(spacing: 14) {
+                    CLink(title: "Move earlier (with its song)") { model.slotEdit { LoopVideo.moveSlot(&$0, id: s.id, to: selectedIndex - 1, focus: $1) } }.disabled(selectedIndex == 0 || working)
+                    CLink(title: "Move later") { model.slotEdit { LoopVideo.moveSlot(&$0, id: s.id, to: selectedIndex + 1, focus: $1) } }.disabled(selectedIndex >= slots.count - 1 || working)
+                    if s.songs.count > 1 { CLink(title: "Give each song its own scene") { model.slotEdit { LoopVideo.separateSlot(&$0, id: s.id, focus: $1) } }.disabled(working) }
+                }
+                Text("The scene and its song are tied together, so moving one moves the other. A blank scene borrows the other scenes, taking turns, until you fill it.").font(Classical.body(11)).foregroundStyle(Classical.neutral600).fixedSize(horizontal: false, vertical: true)
             case .time:
-                HStack(spacing: 12) {
-                    Toggle(isOn: Binding(get: { k != nil }, set: { v in setInOrder(c, v) })) { Text("In the order").font(Classical.body(12)) }.toggleStyle(.checkbox)
-                        .disabled(working || (k != nil && order.count <= 1))
-                    if let k {
-                        CLink(title: "Move earlier") { moveScene(c, to: k - 1) }.disabled(k == 0 || working)
-                        CLink(title: "Move later") { moveScene(c, to: k + 1) }.disabled(k >= order.count - 1 || working)
-                    }
+                HStack(spacing: 14) {
+                    CLink(title: "Move earlier") { model.slotEdit { LoopVideo.moveSlot(&$0, id: s.id, to: selectedIndex - 1, focus: $1) } }.disabled(selectedIndex == 0 || working)
+                    CLink(title: "Move later") { model.slotEdit { LoopVideo.moveSlot(&$0, id: s.id, to: selectedIndex + 1, focus: $1) } }.disabled(selectedIndex >= slots.count - 1 || working)
                 }
+                Text("The scenes play in this order, then start again. A blank scene is skipped until you fill it.").font(Classical.body(11)).foregroundStyle(Classical.neutral600)
             case .never:
-                Text(c == p.clip ? "This is the clip the whole video uses." : "Pick this scene to use it for the whole video.").font(Classical.body(11)).foregroundStyle(Classical.neutral600)
+                Text("This is the clip the whole video uses.").font(Classical.body(11)).foregroundStyle(Classical.neutral600)
             }
         }
-    }
-    func assign(_ n: Int, to c: String, on: Bool) {
-        model.editLoop { q in
-            LoopVideo.pinSongClips(&q)
-            guard q.tracks.indices.contains(n) else { return }
-            q.tracks[n].clip = on ? c : nil
-            if on { var l = LoopVideo.sceneClips(q); if !l.contains(c) { l.append(c); q.sceneClips = l } }
-        }
-    }
-    func setInOrder(_ c: String, _ on: Bool) {
-        model.editLoop { q in
-            var l = LoopVideo.sceneClips(q)
-            if on { if !l.contains(c) { l.append(c) } } else if l.count > 1 { l.removeAll { $0 == c } }
-            q.sceneClips = l
-        }
-    }
-    func moveScene(_ c: String, to k: Int) {
-        model.editLoop { q in var l = LoopVideo.sceneClips(q); l.removeAll { $0 == c }; l.insert(c, at: max(0, min(k, l.count))); q.sceneClips = l }
     }
 
     // MARK: inspector
@@ -275,10 +230,10 @@ struct NewScenesStage: View {
     // MARK: footer
     var footer: some View {
         CFooter {
-            let n = p.clips.count
-            Text(n == 0 ? "No scene has a clip yet" : "\(n) scene\(n == 1 ? "" : "s") with a clip").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+            let b = LoopVideo.blankSlots(p)
+            Text(b.blank == 0 ? "\(b.total) scene\(b.total == 1 ? "" : "s"), every one has a clip" : "\(b.blank) of \(b.total) scene\(b.total == 1 ? " has" : "s have") no clip yet").font(Classical.body(12)).foregroundStyle(b.blank == 0 ? Classical.neutral700 : Classical.accent800)
         } right: {
-            Button { model.loopPreview(.start) } label: { Text("▷ Preview") }.buttonStyle(.classical).disabled(working || p.clip == nil || p.tracks.isEmpty)
+            Button { model.loopPreview(.start) } label: { Text("▷ Preview") }.buttonStyle(.classical).disabled(working || !slots.contains { $0.clip != nil } || p.tracks.isEmpty)
             Button("Continue to Shorts →") { nd.route = .shorts }.buttonStyle(.classicalPrimary)
         }
     }

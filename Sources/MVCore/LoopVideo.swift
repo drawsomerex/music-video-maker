@@ -127,6 +127,7 @@ public struct LoopProject: Codable, Equatable {
     public var subjectKind: SubjectKind = .auto
     public var nextFocus: NextFocus? = nil      // what "Next scene" keeps (nil = decided from the subject: a creature → the subject, a building → the building, none → the place)
     public var sceneChanges: [String] = []
+    public var sceneSlots: [String: [LoopSlot]] = [:]   // the New Design's scenes in playing order, for each way of changing scene (see LoopSlots.swift)
     public var pictureQuality: PictureQuality = .high   // how the pictures are drawn
     public var brightness: Brightness = .bright        // bright unless you approve otherwise
     public var source: String?                  // the source image every "Next scene" starts from (stays the same however many pictures are drawn)
@@ -155,7 +156,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -187,6 +188,7 @@ public struct LoopProject: Codable, Equatable {
         subjectClose = try c.decodeIfPresent([String: Double].self, forKey: .subjectClose) ?? [:]
         subjectKind = try c.decodeIfPresent(SubjectKind.self, forKey: .subjectKind) ?? .auto
         sceneChanges = try c.decodeIfPresent([String].self, forKey: .sceneChanges) ?? []
+        sceneSlots = (try? c.decodeIfPresent([String: [LoopSlot]].self, forKey: .sceneSlots)) ?? [:]
         nextFocus = try c.decodeIfPresent(NextFocus.self, forKey: .nextFocus)
         sceneDrawn = try c.decodeIfPresent(String.self, forKey: .sceneDrawn)
         weather = try c.decodeIfPresent(LoopWeather.self, forKey: .weather) ?? .any

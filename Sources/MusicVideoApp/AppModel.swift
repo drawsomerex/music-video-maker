@@ -73,6 +73,7 @@ final class AppModel: ObservableObject {
     var loopTask: Task<Void, Never>?
     var loopPreviewTask: Task<Void, Never>?
     var loopListenTask: Task<Void, Never>?
+    @Published var loopSlot: String?                 // the New Design's selected scene of a looping video (see LoopSlots.swift)
     @Published var loopClipForSong: String?         // a looping video: the song (its id) the next new clip gets tied to
     @Published var directorRun: DirectorRun?        // the director at work: its steps, where it is, paused or not
     @Published var directorReview: DirectorReview?  // the director's plan, waiting for you to approve its choices
