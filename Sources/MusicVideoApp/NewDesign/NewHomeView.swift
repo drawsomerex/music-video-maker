@@ -150,8 +150,7 @@ struct NewHomeView: View {
 }
 
 // MARK: stages not yet redone wrap the original screens (replaced one by one)
-struct NewSongStage: View { var body: some View { SetupView() } }
-struct NewPicturesStage: View { @EnvironmentObject var model: AppModel; var body: some View { if model.stage == .loop { LoopView() } else if model.plan != nil { PlanView() } else { SetupView() } } }
-struct NewShortsStage: View { var body: some View { ShortsView() } }
-struct NewExportStage: View { @EnvironmentObject var model: AppModel; var body: some View { if model.stage == .rendering || model.stage == .working { ProgressStage() } else { DoneView() } } }
+struct NewPicturesStage: View { @EnvironmentObject var model: AppModel; var body: some View { if model.stage == .loop { LoopView(part: .scenes) } else if model.plan != nil { PlanView() } else { NewMusicSongStage() } } }
+struct NewShortsStage: View { @EnvironmentObject var model: AppModel; var body: some View { if model.stage == .loop { LoopView(part: .shorts) } else { ShortsView() } } }
+struct NewExportStage: View { @EnvironmentObject var model: AppModel; var body: some View { if model.stage == .loop { LoopView(part: .export) } else if model.stage == .rendering || model.stage == .working { ProgressStage() } else { DoneView() } } }
 struct NewSetupView: View { var body: some View { NativeSetupView() } }

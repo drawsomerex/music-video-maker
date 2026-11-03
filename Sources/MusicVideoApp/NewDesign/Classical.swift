@@ -89,3 +89,55 @@ struct ClassicalHeading: View {
         }
     }
 }
+
+// MARK: shared form parts
+
+/// A labelled text field drawn as a hairline box on white.
+struct CField: View {
+    let label: String; var note: String? = nil; let prompt: String; @Binding var text: String; var axis: Axis = .horizontal; var lines: ClosedRange<Int> = 1...1
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(label).font(Classical.body(12, weight: .semibold)).foregroundStyle(Classical.neutral800)
+                if let note { Text(note).font(Classical.body(11)).foregroundStyle(Classical.neutral600) }
+            }
+            TextField(prompt, text: $text, axis: axis).textFieldStyle(.plain).font(Classical.body(13)).lineLimit(lines)
+                .padding(.horizontal, 9).padding(.vertical, 7).background(Classical.paper)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.divider, lineWidth: 1))
+        }
+    }
+}
+
+/// The bar along the bottom of a stage: status on the left, the next step on the right. One primary per screen.
+struct CFooter<L: View, R: View>: View {
+    @ViewBuilder var left: L; @ViewBuilder var right: R
+    var body: some View {
+        VStack(spacing: 0) {
+            Hairline()
+            HStack(spacing: 14) { left; Spacer(minLength: 8); right }
+                .padding(.horizontal, 20).padding(.vertical, 12).background(Classical.bg)
+        }
+    }
+}
+
+/// A small linked-looking action: gold text, underlined on hover.
+struct CLink: View {
+    let title: String; let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) { Text(title).font(Classical.body(12)).foregroundStyle(hover ? Classical.accent600 : Classical.accent700).underline(hover) }
+            .buttonStyle(.plain).onHover { hover = $0 }
+    }
+}
+
+/// A bordered panel with a Cormorant title.
+struct CPanel<Content: View>: View {
+    var title: String? = nil; var note: String? = nil
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let title { ClassicalHeading(text: title, note: note, size: 20) }
+            content
+        }
+    }
+}

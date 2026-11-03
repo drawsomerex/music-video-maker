@@ -25,6 +25,9 @@ struct LoopingPlayer: NSViewRepresentable {
 }
 
 struct LoopView: View {
+    /// The original design shows all four cards on one screen; the New Design shows them one stage at a time.
+    enum Part { case all, music, scenes, shorts, export }
+    var part: Part = .all
     @State private var confirmRemoveVersion: String?
     @EnvironmentObject var model: AppModel
     @State private var ideas: [String] = []
@@ -43,8 +46,7 @@ struct LoopView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar
-            Divider()
+            if part == .all { topBar; Divider() }
             if let id = model.loopClipForSong, let t = p.tracks.first(where: { $0.id == id }) {
                 HStack(spacing: 10) {
                     Image(systemName: "link").foregroundStyle(.tint)
@@ -56,6 +58,13 @@ struct LoopView: View {
             }
             ScrollViewReader { scroller in
             ScrollView {
+                if part != .all {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if part == .music { songCard }
+                        if part == .scenes { pictureCard.id("pictureStep"); clipCard }
+                        if part == .export || part == .shorts { longVideoCard }
+                    }.frame(maxWidth: 980).padding(24).frame(maxWidth: .infinity)
+                } else {
                 ViewThatFits(in: .horizontal) {
                     // full screen: song and picture on the left, the loop and the long video on the right
                     HStack(alignment: .top, spacing: 18) {
@@ -65,6 +74,7 @@ struct LoopView: View {
                     VStack(alignment: .leading, spacing: 18) { songCard; pictureCard.id("pictureStep"); clipCard; longVideoCard }.frame(maxWidth: 980)
                 }
                 .padding(24).frame(maxWidth: .infinity)
+                }
             }
             .onChange(of: model.loopClipForSong) { _, v in if v != nil { withAnimation { scroller.scrollTo("pictureStep", anchor: .top) } } }
             }
@@ -589,10 +599,13 @@ struct LoopView: View {
     // MARK: 4 long video
     var longVideoCard: some View {
         card(4, "The long video", "The scene with the music for exactly the length you choose, including a gentle final fade. A YouTube thumbnail and a description written for search are made with it.") {
+            if part != .shorts {
             Button("Check before export") {
                 if let dir = model.loopDir { let health = ExportHealth.loop(p, work: dir); model.notice = health.text.isEmpty ? "Referenced songs and scenes are ready for export." : health.text }
             }.help("Checks referenced songs, scenes and pending paid clips. The export also checks disk space.")
+            }
             VStack(alignment: .leading, spacing: 10) {
+                if part != .shorts {
                 HStack(spacing: 10) {
                     Text("Length").font(.callout.weight(.semibold))
                     Picker("", selection: Binding(get: { p.playOnce ? -2 : ([1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1) }, set: { v in
@@ -628,6 +641,8 @@ struct LoopView: View {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o)]) } label: { Label("Show the last video in Finder", systemImage: "folder") }
                     }
                 }
+                }
+                if part == .all || part == .shorts {
                 LoopShortsOptionsView(project: p)
                 HStack(spacing: 10) {
                     Button { model.loopMakeShorts() } label: { Label(p.tracks.count > 1 ? "Make Shorts (one per song, \(p.tracks.count))" : "Make a Short", systemImage: "rectangle.portrait.on.rectangle.portrait") }
@@ -638,11 +653,14 @@ struct LoopView: View {
                         Button { NSWorkspace.shared.open(shorts) } label: { Label("Show the Shorts", systemImage: "folder") }
                     }
                 }
+                }
+                if part != .shorts {
                 YouTubeFilesRow(files: p.thumbnail.flatMap { t in p.listing.map { (URL(fileURLWithPath: t), URL(fileURLWithPath: $0)) } }.flatMap { FileManager.default.fileExists(atPath: $0.0.path) ? $0 : nil },
                                 busy: model.loopJob?.title.hasPrefix("Writing the YouTube") == true,
                                 text: Binding(get: { p.thumbText }, set: { model.setLoopThumbText($0) }),
                                 auto: { let a = LoopVideo.thumbAuto(p); return (a.title, a.badge, a.line) }(), revision: model.thumbRevision) { model.loopMakeYouTube() }
                     .disabled(working && model.loopJob?.title.hasPrefix("Writing the YouTube") != true)
+                }
             }
         }
     }
