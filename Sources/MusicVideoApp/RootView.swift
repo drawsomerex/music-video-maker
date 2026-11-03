@@ -580,6 +580,7 @@ struct DoneView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
+    @AppStorage(NewDesign.key, store: Updater.defaults) private var newDesign = false
     @State private var status = "Checking…"
     @State private var ids: [String] = []
 
@@ -681,7 +682,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped).frame(width: 640, height: 600)
+        .formStyle(.grouped).frame(width: 640, height: 600).newDesignSettings(newDesign)
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.videoRealismCheck) { save() }

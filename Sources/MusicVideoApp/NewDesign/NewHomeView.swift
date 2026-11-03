@@ -150,4 +150,3 @@ struct NewHomeView: View {
 }
 
 // MARK: stages not yet redone wrap the original screens (replaced one by one)
-struct NewSetupView: View { var body: some View { NativeSetupView() } }

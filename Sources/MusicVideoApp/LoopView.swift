@@ -134,6 +134,20 @@ struct LoopView: View {
     }
 
     func card<C: View>(_ n: Int, _ title: String, _ subtitle: String, @ViewBuilder _ content: () -> C) -> some View {
+        if part != .all { return AnyView(classicalCard(title, subtitle, content)) }
+        return AnyView(oldCard(n, title, subtitle, content))
+    }
+    /// The New Design's card: a Cormorant title over a hairline, no filled number or panel.
+    func classicalCard<C: View>(_ title: String, _ subtitle: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(Classical.heading(26))
+                Text(subtitle).font(Classical.body(12)).foregroundStyle(Classical.neutral700).fixedSize(horizontal: false, vertical: true)
+            }
+            content()
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    func oldCard<C: View>(_ n: Int, _ title: String, _ subtitle: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("\(n)").font(.headline.monospacedDigit()).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color.accentColor))

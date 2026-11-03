@@ -37,6 +37,7 @@ struct NewRootView: View {
         .environmentObject(nd)
         .environment(\.colorScheme, .light)
         .tint(Classical.accent)
+        .font(Classical.body(13))
         .background(NewWindowStyle())
         .onAppear { if model.stage == .plan || model.stage == .loop { nd.route = .pictures } else if model.stage == .done || model.stage == .rendering { nd.route = .export } }
         .onChange(of: model.hasActivity) { _, on in if on { nd.activityOpen = true } }
