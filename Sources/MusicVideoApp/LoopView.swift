@@ -26,7 +26,7 @@ struct LoopingPlayer: NSViewRepresentable {
 
 struct LoopView: View {
     /// The original design shows all four cards on one screen; the New Design shows them one stage at a time.
-    enum Part { case all, music, scenes, shorts, export, look }
+    enum Part { case all, music, scenes, shorts, export, look, sceneIdea, sceneClip, sceneVersions }
     var part: Part = .all
     @State private var confirmRemoveVersion: String?
     @EnvironmentObject var model: AppModel
@@ -59,6 +59,15 @@ struct LoopView: View {
             ScrollViewReader { scroller in
             ScrollView {
                 if part == .look { lookPanel.padding(28).frame(maxWidth: .infinity, alignment: .leading) }
+                else if part == .sceneIdea { pictureCard.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading) }
+                else if part == .sceneVersions {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Every picture made or added, oldest first. Click one to base the clip on it again (free).").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+                        if p.pictures.isEmpty { Text("No pictures yet.").font(Classical.body(12)).foregroundStyle(Classical.neutral600) }
+                        else { LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) { ForEach(p.pictures, id: \.self) { f in pictureVersion(f) } } }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                else if part == .sceneClip { clipCard.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading) }
                 else if part == .scenes {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 28) { pictureCard.id("pictureStep").frame(maxWidth: .infinity); VHairline(); clipCard.frame(maxWidth: .infinity) }.frame(maxWidth: 1400).padding(24).frame(maxWidth: .infinity)
@@ -376,21 +385,21 @@ struct LoopView: View {
     var clipCard: some View {
         card(3, "The loop clip", "A short clip made by HeyGen from the picture: a still camera with gentle, repeating motion. Its end blends into its start, so it loops without a seam.") {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("Clip length", selection: Binding(get: { p.clipLength ?? 15 }, set: { length in model.editLoop { $0.clipLength = length } })) {
+                choice("Clip length", selection: Binding(get: { p.clipLength ?? 15 }, set: { length in model.editLoop { $0.clipLength = length } })) {
                     Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("8 seconds").tag(8); Text("15 seconds").tag(15)
-                }.pickerStyle(.segmented).frame(maxWidth: 540).disabled(working)
+                }.disabled(working)
                     .help("Choose how much motion to loop. A 3-second choice uses part of a 5-second order; you pay for 5 seconds.")
-                Text(ClipOptions(seconds: p.clipLength).durationExplanation).font(.callout).foregroundStyle(.secondary)
-                Picker("Clip quality", selection: bind(\.sharpClip)) {
+                Text(ClipOptions(seconds: p.clipLength).durationExplanation).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                choice("Clip quality", selection: bind(\.sharpClip)) {
                     Text("Standard 768p → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: false, perSecond768: model.videoPricePerSecond, seconds: p.clipLength))))").tag(false)
                     Text("Sharp 2K → 1080p (≈ \(OpenRouter.formatUSD(LoopVideo.clipPrice(sharp: true, perSecond768: model.videoPricePerSecond, seconds: p.clipLength))))").tag(true)
-                }.pickerStyle(.segmented).frame(maxWidth: 540)
+                }
                     .help("HeyGen makes clips at 768p or 2K (it has no 1080p setting). Prices are HeyGen's list estimates; the actual billed cost is shown afterwards.")
                 Text("Either way the long video is 1080p. Standard is made at 768p and scaled up, so it's a little soft; Sharp is made at 2K and scaled down, so it has full 1080p detail.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ClipFirstFrameView(file: model.loopFile(p.picture), sharp: p.sharpClip)
                 HStack(alignment: .top, spacing: 14) {
-                    clipWell
+                    if part != .sceneClip { clipWell }      // the New Design's Scenes stage shows the loop on its canvas
                     VStack(alignment: .leading, spacing: 8) {
                         Button { confirmClip = true } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
                             .buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
@@ -443,6 +452,11 @@ struct LoopView: View {
         } message: {
             Text(loopClipConfirmation)
         }
+    }
+    /// A choice of a few: a segmented control, or a menu in the New Design's narrow inspector.
+    @ViewBuilder func choice<V: Hashable, C: View>(_ title: String, selection: Binding<V>, @ViewBuilder _ content: () -> C) -> some View {
+        if part == .sceneClip { Picker(title, selection: selection, content: content).pickerStyle(.menu).fixedSize() }
+        else { Picker(title, selection: selection, content: content).pickerStyle(.segmented).frame(maxWidth: 540) }
     }
     /// The picture to base the pictures on (optional), what to keep from it, the weather and time of day: the same rows as a music video's.
     var referenceRows: some View {
@@ -771,6 +785,23 @@ struct LoopView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// One picture version in the New Design's Versions tab: click to use it again; the cross removes it.
+    func pictureVersion(_ f: String) -> some View {
+        Button { model.loopSelectPicture(f) } label: {
+            Group { if let u = model.loopFile(f) { Thumb(file: u) } else { Color.secondary.opacity(0.2) } }
+                .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 3))
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(f == p.picture ? Classical.accent : Classical.divider, lineWidth: f == p.picture ? 2 : 1))
+        }.buttonStyle(.plain).help((f == p.picture ? "In use now. " : "Use this picture again (free). ") + versionDetails(f))
+        .overlay(alignment: .topTrailing) {
+            Button { confirmRemoveVersion = f } label: { Image(systemName: "xmark.circle.fill").padding(2).foregroundStyle(.white, .black.opacity(0.6)) }
+                .buttonStyle(.plain).disabled(working).help("Remove this picture version. Undo restores it; the file stays on disk.").accessibilityLabel("Remove picture version")
+                .confirmationDialog("Remove this picture?", isPresented: Binding(get: { confirmRemoveVersion == f }, set: { if !$0 { confirmRemoveVersion = nil } }), titleVisibility: .visible) {
+                    Button("Remove it", role: .destructive) { model.editLoop { q in q.pictures.removeAll { $0 == f }; if q.picture == f { q.picture = q.pictures.last } } }
+                    Button("Keep it", role: .cancel) {}
+                } message: { Text("Undo brings it back.") }
         }
     }
 
