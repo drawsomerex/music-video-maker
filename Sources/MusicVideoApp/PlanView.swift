@@ -634,6 +634,9 @@ struct DropWell: View {
     let section: Int
     var maxPictureHeight: CGFloat = .infinity       // the picture never grows taller than this (it scales with the window)
     var pictureMaxWidth: CGFloat { maxPictureHeight.isFinite ? min(1000, maxPictureHeight * 16.0 / 9.0) : 1000 }
+    /// The New Design shows just the picture here (its other controls live in the inspector) and owns the "show the aim" switch.
+    var pictureOnly = false
+    var aim: Binding<Bool>? = nil
     @State private var targeted = false
     @State private var showShortCrop = true
     @State private var dragEnd: Bool?           // while dragging a camera dot: false = start dot, true = end dot
@@ -644,7 +647,7 @@ struct DropWell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) { dropHeader; dropHeader.labelStyle(.iconOnly) }
+            if !pictureOnly { ViewThatFits(in: .horizontal) { dropHeader; dropHeader.labelStyle(.iconOnly) } }
             dropWell
         }
     }
@@ -701,7 +704,7 @@ struct DropWell: View {
                             .clipped()
                         if let cam = c.cameraPath {
                             cameraOverlay(cam, c, w, h)
-                        } else if showShortCrop {
+                        } else if (aim?.wrappedValue ?? showShortCrop) {
                             let fx = CGFloat(c.focusX)
                             let fy = CGFloat(c.focusY)
                             // 9:16 vertical crop box inside a 16:9 frame has width = h * (9/16)
@@ -765,6 +768,7 @@ struct DropWell: View {
             .dropDestination(for: URL.self) { urls, _ in
                 guard let u = urls.first else { return false }; model.load(u, section: section); return true
             } isTargeted: { targeted = $0 }
+            if !pictureOnly {
             if sec.candidates.count > 1 { EarlierVersions(section: section).frame(maxWidth: 1000, alignment: .leading) }
             if let c = sec.selectedCandidate {
                 if c.videoFile == nil, c.fullFile != nil { ClipPanel(section: section).frame(maxWidth: 1000, alignment: .leading) }
@@ -821,6 +825,7 @@ struct DropWell: View {
                             Button("Keep it", role: .cancel) {}
                         } message: { Text("That part of the video will show a plain colour until you add another. Undo brings it back.") }
                 }.frame(maxWidth: 640)
+            }
             }
         }
     }
