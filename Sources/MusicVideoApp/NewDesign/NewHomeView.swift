@@ -150,5 +150,4 @@ struct NewHomeView: View {
 }
 
 // MARK: stages not yet redone wrap the original screens (replaced one by one)
-struct NewShortsStage: View { @EnvironmentObject var model: AppModel; var body: some View { if model.stage == .loop { LoopView(part: .shorts) } else { ShortsView() } } }
 struct NewSetupView: View { var body: some View { NativeSetupView() } }
