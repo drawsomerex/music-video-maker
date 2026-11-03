@@ -27,7 +27,10 @@ struct NewRootView: View {
                 VStack(spacing: 0) {
                     NewTopBar()
                     Hairline()
-                    content.disabled(updater.isInstalling)
+                    HStack(spacing: 0) {
+                        content.disabled(updater.isInstalling)
+                        if nd.activityOpen { NewActivityPanel() }
+                    }
                 }
             }
         }
@@ -35,6 +38,7 @@ struct NewRootView: View {
         .environment(\.colorScheme, .light)
         .tint(Classical.accent)
         .background(NewWindowStyle())
+        .onChange(of: model.hasActivity) { _, on in if on { nd.activityOpen = true } }
         .onChange(of: model.stage) { _, s in
             switch s {
             case .plan where nd.route == .home || nd.route == .song: nd.route = .pictures
@@ -89,6 +93,10 @@ struct NewTopBar: View {
             Spacer(minLength: 8)
             if nd.route != .home { stageTabs }
             Spacer(minLength: 8)
+            if model.hasActivity {
+                Button { nd.activityOpen.toggle() } label: { Text("\(max(1, model.activityItems.count + (model.directorRun == nil ? 0 : 1))) running") }.buttonStyle(.classicalSmall)
+                    .help("Show or hide Activity: everything that is running.")
+            }
             costPill
             if let r = updater.available, nd.route == .home || true {
                 Button { updater.showAvailable = true } label: { Text("Update \(r.version)") }.buttonStyle(.classicalSmall).help("A new version is ready. Updating takes about a minute and keeps all your work.")
