@@ -69,7 +69,7 @@ struct MusicVideoApp: App {
                     try await model.backupForVersionChange()
                 } }
                 .sheet(isPresented: $updater.showVersions) { VersionsSheet().environmentObject(updater) }
-                .sheet(isPresented: $updater.showAvailable) { UpdateSheet().environmentObject(updater) }
+                .sheet(isPresented: $updater.showAvailable) { if newDesign { NewUpdateSheet().environmentObject(updater) } else { UpdateSheet().environmentObject(updater) } }
                 .alert("Updates", isPresented: Binding(get: { updater.message != nil }, set: { if !$0 { updater.message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(updater.message ?? "") }
                 .sheet(isPresented: $model.showGuide) { QuickGuideView() }
                 .sheet(isPresented: $model.showHelp) { HelpCenterView().environmentObject(model) }

@@ -26,7 +26,7 @@ struct LoopingPlayer: NSViewRepresentable {
 
 struct LoopView: View {
     /// The original design shows all four cards on one screen; the New Design shows them one stage at a time.
-    enum Part { case all, music, scenes, shorts, export }
+    enum Part { case all, music, scenes, shorts, export, look }
     var part: Part = .all
     @State private var confirmRemoveVersion: String?
     @EnvironmentObject var model: AppModel
@@ -58,10 +58,16 @@ struct LoopView: View {
             }
             ScrollViewReader { scroller in
             ScrollView {
-                if part != .all {
+                if part == .look { lookPanel.padding(28).frame(maxWidth: .infinity, alignment: .leading) }
+                else if part == .scenes {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 28) { pictureCard.id("pictureStep").frame(maxWidth: .infinity); VHairline(); clipCard.frame(maxWidth: .infinity) }.frame(maxWidth: 1400).padding(24).frame(maxWidth: .infinity)
+                        VStack(alignment: .leading, spacing: 18) { pictureCard.id("pictureStep"); clipCard }.frame(maxWidth: 980).padding(24).frame(maxWidth: .infinity)
+                    }
+                }
+                else if part != .all {
                     VStack(alignment: .leading, spacing: 18) {
                         if part == .music { songCard }
-                        if part == .scenes { pictureCard.id("pictureStep"); clipCard }
                         if part == .export || part == .shorts { longVideoCard }
                     }.frame(maxWidth: 980).padding(24).frame(maxWidth: .infinity)
                 } else {
@@ -615,6 +621,31 @@ struct LoopView: View {
     }
 
     // MARK: 4 long video
+    /// The New Design's Look window for a looping video: the same choices as a music video's, plus what only a loop needs.
+    var lookPanel: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 4) {
+                ClassicalHeading(text: "Look", size: 28)
+                Text("Used for every picture drawn from now on. Pictures you already have stay as they are.").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+            }
+            Hairline(); ClassicalHeading(text: "Art style", size: 20)
+            FlowLayout(spacing: 6) {
+                ForEach(Array(StylePreset.all.prefix(8))) { st in
+                    Button { model.editLoop { $0.style = st.prompt } } label: { Text(st.name).font(Classical.body(12)).foregroundStyle(p.style == st.prompt ? Classical.accent700 : Classical.neutral800).padding(.horizontal, 10).padding(.vertical, 5).background(p.style == st.prompt ? Classical.accent100 : .clear).overlay(RoundedRectangle(cornerRadius: 4).stroke(p.style == st.prompt ? Classical.accent : Classical.neutral300, lineWidth: 1)) }.buttonStyle(.plain)
+                }
+                Menu { ForEach(StylePreset.all) { st in Button(st.name) { model.editLoop { $0.style = st.prompt } } } } label: { Text("All \(StylePreset.all.count) styles…").font(Classical.body(12)).foregroundStyle(Classical.accent700) }.menuStyle(.borderlessButton).fixedSize()
+            }
+            CField(label: "In your own words", prompt: "optional, e.g. soft watercolor", text: bind(\.style), axis: .vertical, lines: 1...3)
+            Hairline(); ClassicalHeading(text: "Setting", size: 20)
+            CField(label: "About the music", prompt: "e.g. Gentle acoustic guitar for rainy afternoons of reading", text: bind(\.about), axis: .vertical, lines: 1...3)
+            Hairline(); ClassicalHeading(text: "Pictures", size: 20)
+            referenceRows
+            Hairline(); ClassicalHeading(text: "Loops add", size: 20)
+            Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky))
+            CField(label: "What moves", prompt: "e.g. rain on the glass; the rest stays still", text: bind(\.motion), axis: .vertical, lines: 1...3)
+        }
+    }
+
     /// How long the video is: the length choice and the exact length once the songs are measured.
     var lengthBlock: some View {
         VStack(alignment: .leading, spacing: 10) {

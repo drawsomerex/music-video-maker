@@ -133,8 +133,3 @@ struct NewBoardLayout: View {
     }
 }
 
-/// Stage 2 for a looping video (design 2g): its scenes, with the same Look and inspector rules. (Built on the loop's own scene actions.)
-struct NewScenesStage: View {
-    @EnvironmentObject var model: AppModel
-    var body: some View { LoopView(part: .scenes) }
-}

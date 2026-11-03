@@ -43,3 +43,33 @@ struct NewSettingsStyle: ViewModifier {
     }
 }
 extension View { @ViewBuilder func newDesignSettings(_ on: Bool) -> some View { if on { modifier(NewSettingsStyle()) } else { self } } }
+
+/// The update dialog (design 3j): what's new, then Later, Skip this version or Install & restart.
+struct NewUpdateSheet: View {
+    @EnvironmentObject var updater: Updater
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let r = updater.available {
+                ClassicalHeading(text: "Update \(r.version)", note: "You have \(Updater.current)", size: 30)
+                Text("What's new").font(Classical.body(12, weight: .semibold)).foregroundStyle(Classical.neutral700)
+                ScrollView { Text(r.notes.isEmpty ? "Improvements and fixes." : r.notes).font(Classical.body(13)).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
+                    .frame(height: 220).padding(12).background(Classical.paper).overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.divider, lineWidth: 1))
+                if updater.isInstalling {
+                    VStack(alignment: .leading, spacing: 6) { Text(updater.phase).font(Classical.body(12, weight: .semibold)); ProgressView(value: updater.progress ?? 0).tint(Classical.accent) }
+                } else {
+                    Text("Updating takes about a minute and keeps your songs, pictures and settings. The open project is backed up first, and the app restarts by itself.").font(Classical.body(12)).foregroundStyle(Classical.neutral700).fixedSize(horizontal: false, vertical: true)
+                }
+                HStack {
+                    Button("Later") { dismiss() }.buttonStyle(.classical).disabled(updater.isInstalling).help("Keep using this version. The Update tag stays at the top.")
+                    Button("Skip this version") { updater.skip(r.version); dismiss() }.buttonStyle(.classicalGhost).help("Do not prompt for this release again. Later versions are still offered.")
+                    Spacer()
+                    Button("Install & restart") { Task { await updater.install(r) } }.buttonStyle(.classicalPrimary).keyboardShortcut(.defaultAction).disabled(updater.isInstalling)
+                }
+            } else {
+                ClassicalHeading(text: "You're up to date", size: 30)
+                HStack { Spacer(); Button("OK") { dismiss() }.buttonStyle(.classicalPrimary).keyboardShortcut(.defaultAction) }
+            }
+        }.padding(26).frame(width: 540).background(Classical.bg).environment(\.colorScheme, .light)
+    }
+}
