@@ -131,7 +131,7 @@ struct NewTopBar: View {
                             if done { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Classical.accent700) }
                             else { Text("\(i + 1)").font(Classical.body(10)).foregroundStyle(current ? Classical.accent700 : Classical.neutral600) }
                         }
-                        Text(name).font(Classical.body(13, weight: current ? .semibold : .regular)).foregroundStyle(current ? Classical.text : Classical.neutral600)
+                        Text(name).font(Classical.body(13, weight: current ? .semibold : .regular)).foregroundStyle(current ? Classical.text : Classical.neutral600).lineLimit(1).fixedSize()
                     }
                     .padding(.vertical, 4)
                     .overlay(alignment: .bottom) { Rectangle().fill(current ? Classical.accent : .clear).frame(height: 2).offset(y: 9) }

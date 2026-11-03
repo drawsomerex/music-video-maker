@@ -77,7 +77,9 @@ struct NewExportStage: View {
             if model.plan?.timing != "exact" { CLink(title: "Fix it") { model.resync() } }
             line(model.clipJob == nil, model.clipJob == nil ? "No paid clips waiting" : "A paid clip is still being made")
             line(true, "Nothing to pay. Rendering runs on this Mac.")
-            ForEach(h?.warnings ?? [], id: \.self) { w in Text("Note: " + w).font(Classical.body(12)).foregroundStyle(Classical.accent800) }
+            let notes = h?.warnings ?? []
+            ForEach(Array(notes.prefix(2)), id: \.self) { w in Text("Note: " + w).font(Classical.body(12)).foregroundStyle(Classical.accent800) }
+            if notes.count > 2 { Text("…and \(notes.count - 2) more notes like these. Pictures below the video's height are enlarged, which is fine for most videos.").font(Classical.body(12)).foregroundStyle(Classical.neutral600) }
             if !model.missing.isEmpty { line(false, "\(model.missing.count) picture\(model.missing.count == 1 ? " is" : "s are") still blank") }
         }
     }

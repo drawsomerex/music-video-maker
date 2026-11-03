@@ -123,6 +123,7 @@ struct NewListLayout: View {
     @EnvironmentObject var model: AppModel
     @State private var showAim = true
     @State private var dropSection: Int?
+    @AppStorage("inspectorTab") private var inspectorTab = "idea"
     var plan: Plan { model.plan! }
     var sel: Int { model.selectedSection }
 
@@ -132,7 +133,7 @@ struct NewListLayout: View {
             VHairline()
             ScrollView { canvas.padding(20) }.frame(maxWidth: .infinity)
             VHairline()
-            NewInspector(section: sel).frame(width: 330)
+            NewInspector(section: sel).frame(width: inspectorTab == "clip" ? 430 : 330)
         }
     }
 

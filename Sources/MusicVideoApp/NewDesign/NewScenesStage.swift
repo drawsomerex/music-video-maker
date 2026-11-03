@@ -22,7 +22,6 @@ struct NewScenesStage: View {
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().font(Classical.body(12)).padding(.horizontal, 10).padding(.vertical, 4)
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.neutral300, lineWidth: 1)).disabled(working || p.tracks.isEmpty)
                 Spacer()
-                Text("Scenes change with each song, or every few minutes. The picture and the loop clip are made here.").font(Classical.body(11)).foregroundStyle(Classical.neutral600)
             }.padding(.horizontal, 20).padding(.vertical, 9).background(Classical.bg)
             Hairline()
             LoopView(part: .scenes)

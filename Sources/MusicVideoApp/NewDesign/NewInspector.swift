@@ -5,7 +5,7 @@ import MVCore
 struct NewInspector: View {
     @EnvironmentObject var model: AppModel
     let section: Int
-    @State private var tab = "idea"
+    @AppStorage("inspectorTab") private var tab = "idea"
     @State private var confirmRemove = false
     var plan: Plan { model.plan! }
     var sec: PhotoSection { section < 0 ? plan.intro : plan.sections[min(max(section, 0), plan.sections.count - 1)] }
