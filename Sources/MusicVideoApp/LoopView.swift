@@ -183,12 +183,13 @@ struct LoopView: View {
                 Divider()
                 cardControls
                 titleField
+                if part == .music { Divider(); lengthBlock }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in let a = urls.filter { ["mp3", "wav", "m4a", "aac", "aif", "aiff", "flac", "caf"].contains($0.pathExtension.lowercased()) }; guard !a.isEmpty else { return false }; model.loopAddSongs(a); return true }
     }
 
-    var trackList: some View {
+    var trackRows: some View {
         List {
             ForEach(Array(p.tracks.enumerated()), id: \.element.id) { i, t in
                 TrackRow(index: i, track: t, project: p, working: working)
@@ -196,8 +197,11 @@ struct LoopView: View {
             // each song keeps its clip when the order changes
             .onMove { from, to in model.editLoop { LoopVideo.pinSongClips(&$0); $0.tracks.move(fromOffsets: from, toOffset: to) } }
         }
-        .listStyle(.bordered(alternatesRowBackgrounds: true))
-        .frame(height: min(420, CGFloat(max(1, p.tracks.count)) * (p.tracks.count > 1 || (p.sceneChange == .songs && !p.clips.isEmpty) ? 54 : 34) + 12))
+    }
+    @ViewBuilder var trackList: some View {
+        let h = min(420, CGFloat(max(1, p.tracks.count)) * (p.tracks.count > 1 || (p.sceneChange == .songs && !p.clips.isEmpty) ? 54 : 34) + 12)
+        if part == .all { trackRows.listStyle(.bordered(alternatesRowBackgrounds: true)).frame(height: h) }
+        else { trackRows.listStyle(.plain).scrollContentBackground(.hidden).frame(height: h).overlay(Rectangle().stroke(Classical.divider, lineWidth: 1)) }
     }
 
     var transitionControls: some View {
@@ -611,15 +615,9 @@ struct LoopView: View {
     }
 
     // MARK: 4 long video
-    var longVideoCard: some View {
-        card(4, "The long video", "The scene with the music for exactly the length you choose, including a gentle final fade. A YouTube thumbnail and a description written for search are made with it.") {
-            if part != .shorts {
-            Button("Check before export") {
-                if let dir = model.loopDir { let health = ExportHealth.loop(p, work: dir); model.notice = health.text.isEmpty ? "Referenced songs and scenes are ready for export." : health.text }
-            }.help("Checks referenced songs, scenes and pending paid clips. The export also checks disk space.")
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                if part != .shorts {
+    /// How long the video is: the length choice and the exact length once the songs are measured.
+    var lengthBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Text("Length").font(.callout.weight(.semibold))
                     Picker("", selection: Binding(get: { p.playOnce ? -2 : ([1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1) }, set: { v in
@@ -635,6 +633,19 @@ struct LoopView: View {
                     }
                 }
                 lengthLine
+        }
+    }
+
+    var longVideoCard: some View {
+        card(4, "The long video", "The scene with the music for exactly the length you choose, including a gentle final fade. A YouTube thumbnail and a description written for search are made with it.") {
+            if part != .shorts {
+            Button("Check before export") {
+                if let dir = model.loopDir { let health = ExportHealth.loop(p, work: dir); model.notice = health.text.isEmpty ? "Referenced songs and scenes are ready for export." : health.text }
+            }.help("Checks referenced songs, scenes and pending paid clips. The export also checks disk space.")
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                if part != .shorts {
+                if part == .all { lengthBlock }
                 scenesRow
                 let need = LoopVideo.estimatedBytes(seconds: model.loopPlan?.total ?? p.hours * 3600), out = model.loopOutputURL(p)
                 let free = LoopVideo.freeBytes(at: out.deletingLastPathComponent())
