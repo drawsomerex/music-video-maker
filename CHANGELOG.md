@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [2.0.7] - 2026-11-03
 - New Design (off by default): turn it on in Settings or File ▸ Use the New Design. A calm, book-like look with a Projects home, one bar on top and numbered stages (Song, Pictures, Shorts, Export; for looping videos Music, Scenes, Shorts, Export). Pictures come in three layouts: a list with an inspector, a storyboard and a board. One Look window holds every song-wide picture choice, Activity lists everything that is running, and "Direct it for me" and "Step by step" replace the old start buttons. A looping video's Scenes stage lists the scenes in playing order: one tied to each song at each song change (12 songs, 12 scenes), or as many as you add every few minutes, each with its own idea, picture and clip, blank until you fill it, and an Idea / Clip / Versions inspector. Your projects and settings are the same in both designs, and you can switch back at any time.
 
 ## [2.0.6] - 2026-11-02
