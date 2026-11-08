@@ -609,6 +609,8 @@ struct SettingsView: View {
                     .help("Paste your OpenRouter key here to let the app draw the pictures for you. Without a key you can still drag in pictures you made yourself. The key is saved privately on this Mac (in a file only your account can read) and is only ever sent to OpenRouter.")
                 Toggle("Check each video clip for impossible physics (about 0.1 cent)", isOn: $model.config.videoRealismCheck)
                     .help("After a video clip is made, a small cloud AI looks at five frames and warns you if something looks physically impossible. It only warns; it never redoes a clip or spends anything else.")
+                Toggle("Ask Jev for quick advice before paid clips, to choose Shorts and to explain errors (a few thousandths of a cent)", isOn: $model.config.useDecisionModel)
+                    .help("Jev is a small, fast decision model on OpenRouter that only answers yes/no and multiple-choice questions. It warns you when a scene may not animate well before a clip is paid for, picks the best stretch of each song for a looping video's Short, and adds a plain sentence to error messages. It never writes text and never blocks anything. Turn it off to go back to fixed rules.")
                 LabeledContent("Credit left") {
                     HStack(spacing: 8) {
                         if model.checkingCredits {
@@ -686,6 +688,7 @@ struct SettingsView: View {
         .task { await check(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.openRouterKey) { save(); model.refreshOpenRouterCredits(silent: true) }
         .onChange(of: model.config.videoRealismCheck) { save() }
+        .onChange(of: model.config.useDecisionModel) { save() }
         .onChange(of: model.config.website) { save() }.onChange(of: model.config.tipJar) { save() }
         .onChange(of: model.config.omlxKey) { save() }.onChange(of: model.config.omlxURL) { save() }
         .onChange(of: model.config.sttModel) { save() }.onChange(of: model.config.llmModel) { save() }

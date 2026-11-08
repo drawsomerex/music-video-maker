@@ -10,9 +10,8 @@ import AppKit
 extension LoopVideo {
     public static let shortSeconds = 45.0
 
-    /// Where each song's Short starts in the song (seconds) and how long it is: the loudest stretch, after the first tenth of the song,
-    /// moved to the quietest moment within two seconds so it starts on a breath, not mid-phrase.
-    public static func shortWindow(_ url: URL, seconds want: Double = shortSeconds) -> (start: Double, length: Double)? {
+    /// Half-second loudness of a song (nil if it cannot be read).
+    static func shortEnergy(_ url: URL) -> [Float]? {
         let asset = AVURLAsset(url: url)
         guard let track = asset.tracks(withMediaType: .audio).first, let r = try? AVAssetReader(asset: asset) else { return nil }
         let out = AVAssetReaderTrackOutput(track: track, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 8000, AVNumberOfChannelsKey: 1,
@@ -27,6 +26,16 @@ extension LoopVideo {
                 for i in 0..<(len / 4) { acc += f[i] * f[i]; n += 1; if n == 4000 { energy.append(sqrt(acc / 4000)); acc = 0; n = 0 } }    // half a second each
             }
         }
+        return energy
+    }
+
+    /// Where each song's Short starts in the song (seconds) and how long it is: the loudest stretch, after the first tenth of the song,
+    /// moved to the quietest moment within two seconds so it starts on a breath, not mid-phrase.
+    public static func shortWindow(_ url: URL, seconds want: Double = shortSeconds) -> (start: Double, length: Double)? {
+        guard let energy = shortEnergy(url) else { return nil }
+        return shortWindow(energy: energy, seconds: want)
+    }
+    static func shortWindow(energy: [Float], seconds want: Double) -> (start: Double, length: Double)? {
         let total = Double(energy.count) / 2
         guard total > 5 else { return nil }
         let length = min(want, total - 1), w = Int(length * 2)
@@ -42,6 +51,64 @@ extension LoopVideo {
         let lo = max(0, best - 4), hi = min(energy.count - w, best + 4)
         let start = (lo...max(lo, hi)).min { energy[$0] < energy[$1] } ?? best
         return (Double(start) / 2, length)
+    }
+
+    /// One stretch of a song that could be its Short, described in words for Jev. The first is always the loudest, which is what the Short used before.
+    public struct ShortCandidate: Equatable { public var start: Double; public var length: Double; public var words: String }
+
+    static func shortCandidates(energy: [Float], seconds want: Double, count: Int = 5) -> [ShortCandidate] {
+        let total = Double(energy.count) / 2
+        guard total > 5 else { return [] }
+        let length = min(want, total - 1), w = Int(length * 2)
+        guard energy.count > w + 2 else { return [] }
+        let first = Int(Double(energy.count) * 0.1)
+        guard first + w <= energy.count else { return [] }
+        var sums: [(i: Int, s: Float)] = []
+        var sum = energy[first..<(first + w)].reduce(0, +), i = first
+        while i + w <= energy.count { sums.append((i, sum)); if i + w < energy.count { sum += energy[i + w] - energy[i] }; i += 1 }
+        let ranked = sums.sorted { $0.s != $1.s ? $0.s > $1.s : $0.i < $1.i }
+        guard let top = ranked.first, top.s > 0 else { return [] }
+        var chosen: [(i: Int, s: Float)] = []
+        for c in ranked where !chosen.contains(where: { abs($0.i - c.i) < w }) { chosen.append(c); if chosen.count == count { break } }
+        func mean(_ a: ArraySlice<Float>) -> Float { a.isEmpty ? 0 : a.reduce(0, +) / Float(a.count) }
+        return chosen.enumerated().map { n, c in
+            let lo = max(0, c.i - 4), hi = min(energy.count - w, c.i + 4)
+            let st = (lo...max(lo, hi)).min { energy[$0] < energy[$1] } ?? c.i
+            let win = energy[st..<(st + w)], avg = mean(win)
+            let q = max(1, w / 4), head = mean(win.prefix(q)), tail = mean(win.suffix(q))
+            let trend = tail > head * 1.25 ? "builds up as it goes" : (tail < head * 0.8 ? "fades away towards the end" : "stays steady")
+            let lead: String
+            if st == 0 { lead = "starts at the very beginning" } else {
+                let before = mean(energy[max(0, st - 12)..<st])
+                lead = before < avg * 0.6 ? "starts after a quieter moment" : (before > avg * 1.1 ? "carries on from something just as loud" : "starts from a similar level")
+            }
+            let place = Double(st) / Double(energy.count - w) < 0.33 ? "early in the song" : (Double(st) / Double(energy.count - w) > 0.66 ? "late in the song" : "in the middle of the song")
+            let at = Int(Double(st) / 2), loud = Int((Double(c.s / top.s) * 100).rounded())
+            return ShortCandidate(start: Double(st) / 2, length: length, words: "Starts at \(at / 60):\(String(format: "%02d", at % 60)), \(place). Loudness \(loud)% of the loudest stretch. It \(trend), and it \(lead).")
+        }
+    }
+
+    /// The stretch of a song used for its Short. Jev chooses between the few loudest stretches (it is told, in words, how each starts and develops); the loudest is used
+    /// when Jev is off, unsure or not reachable. The choice is remembered beside the project, so the preview and the Short always use the same stretch.
+    public static func shortWindowChosen(_ url: URL, dir: URL, title: String, about: String, seconds want: Double = shortSeconds, config: Config = .load()) async -> (start: Double, length: Double)? {
+        guard let energy = shortEnergy(url) else { return nil }
+        let fallback = shortWindow(energy: energy, seconds: want)
+        guard config.useDecisionModel, !config.effectiveOpenRouterKey.isEmpty else { return fallback }
+        let cacheURL = dir.appendingPathComponent("short-picks.json")
+        var cache = (try? JSONDecoder().decode([String: Double].self, from: Data(contentsOf: cacheURL))) ?? [:]
+        let key = url.lastPathComponent
+        let cands = shortCandidates(energy: energy, seconds: want)
+        if let at = cache[key], let c = cands.first(where: { $0.start == at }) ?? cands.first(where: { abs($0.start - at) < 0.01 }) { return (c.start, c.length) }
+        guard cands.count >= 2 else { return fallback }
+        var options: [String: String] = [:]
+        for (n, c) in cands.enumerated() { options["stretch\(n + 1)"] = c.words }
+        let q = JevQuestion(id: "pick", instructions: "Which stretch of this song makes the best \(Int(want))-second YouTube Short? Prefer one that starts at a natural moment (after a quieter lead-in is ideal) and gives a clear, pleasing build or peak, rather than one that fades away.", kind: .choice(options))
+        var state = ["song": title]; if !about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { state["about the music"] = about }
+        guard let a = await Jev.decide(state: state, [q], apiKey: config.effectiveOpenRouterKey, timeout: 6)?["pick"], let id = a.choice, id.hasPrefix("stretch"),
+              let n = Int(id.dropFirst(7)), cands.indices.contains(n - 1), (a.probabilities[id] ?? a.confidence ?? 0) >= 0.4 else { return fallback }
+        cache[key] = cands[n - 1].start
+        if let d = try? JSONEncoder().encode(cache) { try? d.write(to: cacheURL, options: .atomic) }
+        return (cands[n - 1].start, cands[n - 1].length)
     }
 
     /// The clip each song is shown with: the scene playing in the middle of its first play.
@@ -64,7 +131,7 @@ extension LoopVideo {
             try Task.checkCancellation()
             progress?("Making Short \(k + 1) of \(p.tracks.count): \(t.title)…", Double(k) / Double(p.tracks.count))
             let song = dir.appendingPathComponent(t.file)
-            guard let win = shortWindow(song), let clip = shortClip(p, plan: plan, track: k) else { continue }
+            guard let win = await shortWindowChosen(song, dir: dir, title: songName(t.title, k), about: p.about), let clip = shortClip(p, plan: plan, track: k) else { continue }
             let label = songName(t.title, k)
             let name = String(format: "%02d ", k + 1) + label.replacingOccurrences(of: "/", with: "-")
             let out = folder.appendingPathComponent(name + ".mp4")
@@ -79,7 +146,7 @@ extension LoopVideo {
 
     public static func makeShortPreview(_ p: LoopProject, dir: URL, output: URL) async throws {
         guard let song = p.tracks.first, let file = p.clip else { throw MVError("Add a song and scene first.") }
-        let start = shortWindow(dir.appendingPathComponent(song.file))?.start ?? 0
+        let start = await shortWindowChosen(dir.appendingPathComponent(song.file), dir: dir, title: songName(song.title, 0), about: p.about)?.start ?? 0
         try await renderShort(song: dir.appendingPathComponent(song.file), window: (start, min(5, max(0.5, song.seconds - start))), clip: dir.appendingPathComponent(file), trim: p.trims[file] ?? ClipTrim(), title: p.shortOptions.title(song: songName(song.title, 0)), subtitle: p.shortOptions.subtitle(project: p.shownTitle, playlist: p.tracks.count > 1), output: output, options: p.shortOptions, framing: p.shortOptions.framing[file] ?? ShortFraming(), W: 360, H: 640)
     }
 

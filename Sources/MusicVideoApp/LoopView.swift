@@ -401,7 +401,7 @@ struct LoopView: View {
                 HStack(alignment: .top, spacing: 14) {
                     if part != .sceneClip { clipWell }      // the New Design's Scenes stage shows the loop on its canvas
                     VStack(alignment: .leading, spacing: 8) {
-                        Button { confirmClip = true } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
+                        Button { model.checkClipsThen([ClipRisk.Item(label: "This scene", idea: p.scene, motion: p.motion)], kind: .loop) { confirmClip = true } } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
                             .buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
                             .help(p.picture == nil ? "Add or draw the picture first." : "Makes the chosen length from the picture. You see the price first.")
                         Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
@@ -557,7 +557,7 @@ struct LoopView: View {
     var loopClipConfirmation: String {
         let quality = p.sharpClip ? "Sharp: made at 2K" : "Standard: made at 768p"
         let credit = model.openRouterCredits.map { " Your credit: " + OpenRouter.formatCredits($0) + "." } ?? ""
-        return ClipOptions(seconds: p.clipLength).durationExplanation + " " + quality + ", at HeyGen's list price." + credit + " It takes a few minutes; you can keep working."
+        return ClipOptions(seconds: p.clipLength).durationExplanation + " " + quality + ", at HeyGen's list price." + credit + " It takes a few minutes; you can keep working." + model.clipAdviceNote
     }
 
     var clipStrip: some View {

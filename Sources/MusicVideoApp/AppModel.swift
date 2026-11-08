@@ -36,7 +36,11 @@ final class AppModel: ObservableObject {
     @Published var outputURL: URL?
     @Published var autoRenderShorts = true           // Shorts are made together with the video unless you untick it
     @Published var renderedShorts: [URL] = []
-    @Published var errorMessage: String?
+    @Published var errorMessage: String? { didSet { errorChanged(old: oldValue) } }
+    @Published var errorAdvice: ErrorTriage.Advice?          // Jev's one-sentence "what kind of problem, what to do" under the message (see JevAdvice.swift)
+    @Published var errorReady = true                         // false for a moment while that is worked out, so the box opens once with everything in it
+    @Published var clipAdvice: String?                       // what the quick Jev check found in the scenes a clip order is about to be made from
+    var triageTask: Task<Void, Never>?
     @Published var notice: String?
     @Published var config = Config.load()
 

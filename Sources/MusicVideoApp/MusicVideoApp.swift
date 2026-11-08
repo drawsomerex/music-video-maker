@@ -54,6 +54,7 @@ struct MusicVideoApp: App {
                     }
                     if Snapshots.directory != nil { FileHandle.standardError.write(Data("[snapshots] task start\n".utf8)); try? await Task.sleep(nanoseconds: 1_500_000_000); Snapshots.render(model: model); return }
                     if let d = Updater.env["MV_OPEN_LOOP"] { model.openLoop(URL(fileURLWithPath: d)) }      // test hook: open a looping project
+                    if let m = Updater.env["MV_TEST_ERROR"] { DispatchQueue.main.asyncAfter(deadline: .now() + 3) { model.errorMessage = m } }      // test hook: show this error message
                     Updater.log("task started; enabled=\(Updater.enabled) current=\(Updater.current)")
                     Task.detached(priority: .background) { Updater.cleanUpOldDownloads() }
                     if Updater.env["MV_UPDATE_SELFTEST"] != nil {            // test hook: check, then install without asking
@@ -76,10 +77,12 @@ struct MusicVideoApp: App {
                 .sheet(isPresented: $model.showReport) { ReportSheet(center: model.reportCenter).environmentObject(model) }
                 .sheet(isPresented: $model.showRecordingFix) { RecordingFixSheet().environmentObject(model) }
                 .frame(minWidth: 860, minHeight: 560)
-                .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+                .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil && model.errorReady }, set: { if !$0 { model.errorMessage = nil } })) {
                     Button("OK", role: .cancel) {}
+                    if model.errorAdvice?.action == .addKey { Button("Add the OpenRouter key…") { model.showOpenRouterKeySheet = true } }
+                    if model.errorAdvice?.action == .addCredit { Button("Add credit…") { if let u = URL(string: "https://openrouter.ai/settings/credits") { NSWorkspace.shared.open(u) } } }
                     Button("Report this problem") { model.reportPrefill = "I saw this message: " + (model.errorMessage ?? "") + "\n\nI was trying to: "; model.showReport = true }
-                } message: { Text(model.errorMessage ?? "") }
+                } message: { Text((model.errorMessage ?? "") + (model.errorAdvice.map { "\n\n" + $0.text } ?? "")) }
         }
         .commands {
             CommandGroup(replacing: .undoRedo) {

@@ -399,11 +399,12 @@ public struct Config: Codable {
     public var website: String = ""           // your website: added to every YouTube description (blank = none)
     public var tipJar: String = ""            // your tip jar link (Ko-fi, Buy Me a Coffee, PayPal…): added to every YouTube description
     public var logo: String = ""              // your logo (a file in the app's own folder): put small in a corner of every YouTube thumbnail (blank = none)
+    public var useDecisionModel: Bool = true   // Jev (a yes/no decision model on OpenRouter, a few thousandths of a cent a question) advises before paid clips, picks Shorts and explains errors
     public var videoRealismCheck: Bool = true  // after each video clip, a cheap cloud check looks for physically impossible things (about 0.1 cent)
     public var effectiveOpenRouterKey: String { openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines) }
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey, videoRealismCheck, website, tipJar, logo }
+    enum CodingKeys: String, CodingKey { case omlxURL, omlxKey, sttModel, llmModel, projectsFolder, outputFolder, openRouterKey, useDecisionModel, videoRealismCheck, website, tipJar, logo }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         omlxURL = try c.decodeIfPresent(String.self, forKey: .omlxURL) ?? ""
@@ -414,6 +415,7 @@ public struct Config: Codable {
         outputFolder = try c.decodeIfPresent(String.self, forKey: .outputFolder) ?? ""
         openRouterKey = try c.decodeIfPresent(String.self, forKey: .openRouterKey) ?? ""
         videoRealismCheck = try c.decodeIfPresent(Bool.self, forKey: .videoRealismCheck) ?? true
+        useDecisionModel = try c.decodeIfPresent(Bool.self, forKey: .useDecisionModel) ?? true
         website = try c.decodeIfPresent(String.self, forKey: .website) ?? ""; tipJar = try c.decodeIfPresent(String.self, forKey: .tipJar) ?? ""
         logo = try c.decodeIfPresent(String.self, forKey: .logo) ?? ""
     }

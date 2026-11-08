@@ -89,8 +89,9 @@ struct ClipPanel: View {
     func confirmMessage(_ chain: Bool) -> String {
         let l = model.clipSeconds(section: section, chain: chain)
         let cr = model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? ""
-        return chain ? "\(l.count) clip\(l.count == 1 ? "" : "s") (\(l.map { "\($0) s" }.joined(separator: " + "))) at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second. Each clip starts on the last frame of the one before, and you watch each one before the next is made.\(cr)"
-                     : sec.clipOptions.durationExplanation + " A \(l.first ?? 0)-second clip starting from this picture, at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second.\(cr) The real billed cost is shown after it finishes."
+        let note = model.clipAdviceNote
+        return (chain ? "\(l.count) clip\(l.count == 1 ? "" : "s") (\(l.map { "\($0) s" }.joined(separator: " + "))) at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second. Each clip starts on the last frame of the one before, and you watch each one before the next is made.\(cr)"
+                     : sec.clipOptions.durationExplanation + " A \(l.first ?? 0)-second clip starting from this picture, at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second.\(cr) The real billed cost is shown after it finishes.") + note
     }
 
     var clipOptions: some View {
@@ -128,12 +129,12 @@ struct ClipPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             let one = model.clipSeconds(section: section, chain: false)
             HStack(spacing: 10) {
-                Button { confirmChain = false } label: { Label("Make this a video clip (\(one.first ?? 0) s ≈ \(OpenRouter.formatUSD(price(false))))", systemImage: "sparkles.tv") }
+                Button { model.checkClipsThen(model.clipRiskItems([section]), kind: .video) { confirmChain = false } } label: { Label("Make this a video clip (\(one.first ?? 0) s ≈ \(OpenRouter.formatUSD(price(false))))", systemImage: "sparkles.tv") }
                     .buttonStyle(.borderedProminent).disabled(one.isEmpty || model.busy)
                     .help("Makes a video clip that starts from this picture. You see the price first and watch the clip before it is used. If the section is longer than the clip, the last frame holds and Ken Burns carries on.")
                 if sec.duration > Double(OpenRouterVideo.maxSeconds) + 0.5 {
                     let many = model.clipSeconds(section: section, chain: true)
-                    Button { confirmChain = true } label: { Label("Make the whole section as video (\(many.count) clips ≈ \(OpenRouterVideo.formatPrice(model.clipPriceUSD(many, sharp: sec.clipOptions.sharp))))", systemImage: "film.stack") }
+                    Button { model.checkClipsThen(model.clipRiskItems([section]), kind: .video) { confirmChain = true } } label: { Label("Make the whole section as video (\(many.count) clips ≈ \(OpenRouterVideo.formatPrice(model.clipPriceUSD(many, sharp: sec.clipOptions.sharp))))", systemImage: "film.stack") }
                         .disabled(model.busy)
                         .help("Covers the whole section with back-to-back clips, each starting on the last frame of the one before. You watch each clip before the next is made.")
                 }
@@ -169,7 +170,7 @@ struct ClipPanel: View {
             HStack(spacing: 10) {
                 let more = model.clipSeconds(section: section, chain: true)
                 if !more.isEmpty && sec.duration > coveredSeconds + 1 {
-                    Button { confirmChain = true } label: { Label("Continue with more video (\(more.count) clip\(more.count == 1 ? "" : "s") ≈ \(OpenRouterVideo.formatPrice(model.clipPriceUSD(more, sharp: sec.clipOptions.sharp))))", systemImage: "film.stack") }
+                    Button { model.checkClipsThen(model.clipRiskItems([section]), kind: .video) { confirmChain = true } } label: { Label("Continue with more video (\(more.count) clip\(more.count == 1 ? "" : "s") ≈ \(OpenRouterVideo.formatPrice(model.clipPriceUSD(more, sharp: sec.clipOptions.sharp))))", systemImage: "film.stack") }
                         .disabled(model.busy).help("Adds more clips after these, each starting on the last frame of the one before, until the section is covered.")
                 }
                 Spacer()

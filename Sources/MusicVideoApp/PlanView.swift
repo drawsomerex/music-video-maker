@@ -200,7 +200,7 @@ struct PlanView: View {
             Button("Make \(model.clipTargets.count) clip\(model.clipTargets.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.allClipsPriceUSD)))") { model.startAllClips() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("One clip (5–15 s) for each of \(model.clipTargets.count) picture\(model.clipTargets.count == 1 ? "" : "s") that have none, at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second — about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total (half while their promotion runs)." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " Each clip plays once, then the camera moves over its last picture. Pictures that already have clips are skipped.")
+            Text("One clip (5–15 s) for each of \(model.clipTargets.count) picture\(model.clipTargets.count == 1 ? "" : "s") that have none, at HeyGen's list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second — about \(OpenRouter.formatUSD(model.allClipsPriceUSD)) in total (half while their promotion runs)." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "") + " Each clip plays once, then the camera moves over its last picture. Pictures that already have clips are skipped." + model.clipAdviceNote)
         }
         .task { model.refreshVideoPrice() }
     }
@@ -215,7 +215,7 @@ struct PlanView: View {
     }
     func clipsAllButton(short: Bool) -> some View {
         let clipCount = model.clipTargets.count
-        return Button { confirmAllClips = true } label: {
+        return Button { model.checkClipsThen(model.clipRiskItems(model.clipTargets), kind: .video) { confirmAllClips = true } } label: {
             Label(clipCount == 0 ? (short ? "All have clips" : "Every picture has a video clip") : (short ? "Clips (\(clipCount))" : "Make video clips for all pictures (\(clipCount))"), systemImage: "film.stack").lineLimit(1)
         }
         .disabled(clipCount == 0 || model.busy || model.clipJob != nil)

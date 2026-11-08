@@ -43,7 +43,7 @@ struct NewPicturesStage: View {
             .confirmationDialog("Make a video clip for every picture?", isPresented: $confirmClips, titleVisibility: .visible) {
                 Button("Make \(model.clipTargets.count) clip\(model.clipTargets.count == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(model.allClipsPriceUSD)))") { model.startAllClips() }
                 Button("Cancel", role: .cancel) {}
-            } message: { Text("One clip (5–15 s) for each picture that has none, at the list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second. Each clip plays once, then the camera moves over its last picture. You see the price before anything is made.") }
+            } message: { Text("One clip (5–15 s) for each picture that has none, at the list price of \(OpenRouter.formatUSD(model.videoPricePerSecond)) per second. Each clip plays once, then the camera moves over its last picture. You see the price before anything is made." + model.clipAdviceNote) }
             .task { model.refreshVideoPrice() }
         } else { NewMusicSongStage() }
     }
@@ -63,7 +63,7 @@ struct NewPicturesStage: View {
             Spacer(minLength: 6)
             layoutSwitch
             CLink(title: timelineOpen ? "Fold timeline" : "Expand timeline") { withAnimation { timelineOpen.toggle() } }.help("The whole song to scale: drag picture borders and Shorts.")
-            Button("Clips for all…") { confirmClips = true }.buttonStyle(.classicalSmall).disabled(model.clipTargets.isEmpty || model.busy || model.clipJob != nil)
+            Button("Clips for all…") { model.checkClipsThen(model.clipRiskItems(model.clipTargets), kind: .video) { confirmClips = true } }.buttonStyle(.classicalSmall).disabled(model.clipTargets.isEmpty || model.busy || model.clipJob != nil)
                 .help("Makes one video clip for every picture that has none. You see the price first.")
             Button { model.hasOpenRouterKey ? (confirmMissing = true) : (model.showOpenRouterKeySheet = true) } label: {
                 Text(model.missing.isEmpty ? "All drawn" : "Draw \(model.missing.count) missing  \(OpenRouter.formatUSD(model.missingImagesCostUSD))")
