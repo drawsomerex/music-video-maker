@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 - New Design, looping Scenes: click a blank scene to add a picture from your Mac as that scene's picture, or drop a picture file on the scene (or on its place in the list). "Add a picture from my Mac…" is also under the scene.
+
+## [2.0.8] - 2026-11-11
 - Looping videos: use a still picture for the whole video. After the picture is drawn or added, "Use the picture as a still (no video clip)" makes it the video: free, instant, nothing to wait for, and everything else still works (an album of any number of songs, title cards, Shorts, the YouTube files). A real 12-song album made a 10-minute video from a still in about a minute. A square album cover works: when you add a picture that is not widescreen, "Add black bars" (free, in both designs) puts the whole picture in the middle of a black widescreen frame, with nothing cropped or painted.
 - Looping videos: new lengths "10 min" and "30 min" beside 1, 3, 8 and 12 hours (titles, file names and the project list say "10 minutes").
 - Captions: a double-check against the sound. The app now listens to the song itself, separately from the speech recogniser, and makes sure every caption starts where there is music; a caption that starts in silence (most often among the last lines) is moved onto the nearest start of sound. It runs when the song is first synced, before every video is made, and on demand ("Double-check against the sound" under the preview and on the New Design's Export page), with the result written beneath. When a video is finished the app also checks that its picture and sound end together and are as long as the song.
