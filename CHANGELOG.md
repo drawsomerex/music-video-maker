@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [2.0.9] - 2026-11-11
 - An obvious way to switch designs: a "Switch to the New Design" button in a strip across the very top of the original design, and an "Original design" button in the New Design's top bar (the Settings switch and the File menu item stay).
 - The New Design now has everything the original has: "Pictures & Shorts" lyric controls and "Cut the silence at the start and end" on the Song stage; "More" on the Pictures stage (Setting & description, Copy all picture ideas, Make every picture highest quality, the Pictures folder and your earlier pictures, this song's folder); a folder button in the top bar.
 - Help guide, README and changelog brought up to date.
