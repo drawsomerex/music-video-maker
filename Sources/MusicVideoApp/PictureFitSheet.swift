@@ -34,7 +34,7 @@ struct PictureFitSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(extended == nil ? "This picture isn't widescreen" : "Extended to widescreen").font(.title2.bold())
-            Text(extended == nil ? PictureFit.describe(req.source) + " Videos are 16:9. Extend it (the picture maker paints the missing sides; your photo itself stays exactly as it is) or choose the part to use."
+            Text(extended == nil ? PictureFit.describe(req.source) + " Videos are 16:9. Add black bars (the whole picture, nothing changed, free), extend it (the picture maker paints the missing sides; your photo itself stays exactly as it is) or choose the part to use."
                                  : "Your photo is untouched in the middle; only the sides are new. Check where they meet it.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ZStack {
@@ -56,6 +56,9 @@ struct PictureFitSheet: View {
                     Button { extend() } label: { Text("Try again (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))") }.disabled(working)
                     Button { if let e = extended { finish(e) } } label: { Text("Use it").frame(minWidth: 80) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(working)
                 } else {
+                    Button { useBars() } label: { Label("Add black bars", systemImage: "rectangle.center.inset.filled") }.disabled(working)
+                        .buttonStyle(.bordered).tint(aspect > 0.95 && aspect < 1.05 ? .accentColor : nil)
+                        .help("Shows the whole picture exactly as it is, in the middle of a black widescreen frame: black bars at the sides of a square album cover. Free; nothing is cropped or painted.")
                     Button("Use this crop") { useCrop() }.disabled(working)
                         .help("Uses only the part inside the frame. Drag the frame to choose which part.")
                     Button { extend() } label: { Label("Extend to 16:9 (≈ \(OpenRouter.formatUSD(model.perImageCostUSD)))", systemImage: "arrow.left.and.right.square") }
@@ -88,6 +91,11 @@ struct PictureFitSheet: View {
                 centre = CGPoint(x: (g.location.x - origin.x) / w, y: (g.location.y - origin.y) / h)
             })
         }
+    }
+
+    func useBars() {
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("framed-\(UUID().uuidString.prefix(8)).jpg")
+        do { try PictureFit.bars(req.source, output: out); finish(out) } catch { failure = error.localizedDescription }
     }
 
     func useCrop() {

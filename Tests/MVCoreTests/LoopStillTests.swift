@@ -71,3 +71,41 @@ final class LoopStillRealTests: XCTestCase {
         print("STILL lengths:", String(describing: l))
     }
 }
+
+final class PictureBarsTests: XCTestCase {
+    func square(_ dir: URL) throws -> URL {
+        let ctx = CGContext(data: nil, width: 1000, height: 1000, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 1000, height: 1000))
+        let u = dir.appendingPathComponent("cover.png")
+        let d = CGImageDestinationCreateWithURL(u as CFURL, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(d, ctx.makeImage()!, nil); CGImageDestinationFinalize(d)
+        return u
+    }
+    func pixel(_ i: CGImage, _ x: Int, _ y: Int) -> [UInt8] {
+        let c = CGContext(data: nil, width: i.width, height: i.height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        c.draw(i, in: CGRect(x: 0, y: 0, width: i.width, height: i.height))
+        let d = c.data!.assumingMemoryBound(to: UInt8.self), o = y * c.bytesPerRow + x * 4
+        return [d[o], d[o + 1], d[o + 2]]
+    }
+    func testASquareCoverGetsBlackBarsAndIsNotCropped() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bars-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: dir) }
+        let out = dir.appendingPathComponent("framed.jpg")
+        try PictureFit.bars(try square(dir), output: out)
+        let img = try XCTUnwrap(loadImage(out, maxPixel: 4000))
+        XCTAssertEqual(Double(img.width) / Double(img.height), 16.0 / 9, accuracy: 0.01)
+        XCTAssertLessThan(Int(pixel(img, 30, img.height / 2)[0]), 12, "black at the left edge")
+        XCTAssertLessThan(Int(pixel(img, img.width - 30, img.height / 2)[0]), 12, "black at the right edge")
+        let centre = pixel(img, img.width / 2, img.height / 2); XCTAssertGreaterThan(centre[0], 200); XCTAssertGreaterThan(centre[1], 200)
+        XCTAssertLessThan(Int(pixel(img, img.width / 2, 4)[2]), 80, "the cover reaches the top and bottom: nothing is cropped, nothing is added above")
+        XCTAssertFalse(PictureFit.needsFitting(out), "the framed picture is widescreen")
+    }
+    func testAStillClipOfASquareCoverHasBars() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("barclip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: dir) }
+        let out = dir.appendingPathComponent("still.mp4")
+        try await LoopVideo.makeStillClip(picture: try square(dir), output: out)
+        let frame = try AVAssetImageGenerator(asset: AVURLAsset(url: out)).copyCGImage(at: .zero, actualTime: nil)
+        XCTAssertLessThan(Int(pixel(frame, 40, frame.height / 2)[0]), 25); XCTAssertGreaterThan(pixel(frame, frame.width / 2, frame.height / 2)[0], 200)
+    }
+}

@@ -56,6 +56,20 @@ public enum PictureFit {
         try writeJPEG(c, to: output)
     }
 
+    /// The whole picture on a black 16:9 frame (black bars at the sides of a square or upright picture, above and below a wider one). Nothing is cropped,
+    /// painted or paid for: the picture is shown exactly as it is, never enlarged beyond the frame's height.
+    public static func bars(_ url: URL, output: URL) throws {
+        guard let img = native(url) else { throw MVError("The picture couldn't be read.") }
+        let iw = Double(img.width), ih = Double(img.height)
+        let (W, H): (Double, Double) = iw / ih < target ? ((max(1080, ih) * target).rounded(), max(1080, ih)) : (max(1920, iw), (max(1920, iw) / target).rounded())
+        let s = min(W / iw, H / ih), w = iw * s, h = ih * s
+        guard let framed = canvas(W, H, { ctx in
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+            ctx.draw(img, in: CGRect(x: (W - w) / 2, y: (H - h) / 2, width: w, height: h))
+        }) else { throw MVError("The picture couldn't be framed.") }
+        try writeJPEG(framed, to: output)
+    }
+
     /// Extends the picture to 16:9: the picture maker paints the missing sides, then the original is laid back over the middle. Returns the cost.
     public static func extend(_ url: URL, output: URL, scene: String = "", config: Config = .load()) async throws -> Double {
         guard let img = native(url) else { throw MVError("The picture couldn't be read.") }

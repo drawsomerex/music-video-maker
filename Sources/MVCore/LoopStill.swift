@@ -22,7 +22,9 @@ extension LoopVideo {
         guard let pb = pixelBuffer(width, height) else { throw MVError("Not enough memory to make the still clip.") }
         paint(pb) { ctx in
             ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-            let iw = Double(img.width), ih = Double(img.height), scale = max(Double(width) / iw, Double(height) / ih)
+            let iw = Double(img.width), ih = Double(img.height), target = Double(width) / Double(height)
+            // a picture that is not widescreen (a square album cover) is shown whole with black bars, never cropped
+            let scale = abs(iw / ih / target - 1) > PictureFit.tolerance ? min(Double(width) / iw, Double(height) / ih) : max(Double(width) / iw, Double(height) / ih)
             let w = iw * scale, h = ih * scale
             ctx.draw(img, in: CGRect(x: (Double(width) - w) / 2, y: (Double(height) - h) / 2, width: w, height: h))
         }
