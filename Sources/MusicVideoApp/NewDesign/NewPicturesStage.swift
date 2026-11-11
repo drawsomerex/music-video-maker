@@ -10,6 +10,8 @@ struct NewPicturesStage: View {
     @AppStorage("picturesLayout") private var layout = "list"            // list (2d), storyboard (2e), board (2f)
     @AppStorage("picturesTimeline") private var timelineOpen = false
     @State private var showLook = false
+    @State private var showDescription = false
+    @State private var confirmHighest = false
     @State private var confirmMissing = false
     @State private var confirmClips = false
     @State private var boardInspector = false
@@ -32,6 +34,12 @@ struct NewPicturesStage: View {
                 NewPicturesFooter()
             }
             .sheet(isPresented: $showLook) { NewLookPanel().environmentObject(model) }
+            .sheet(isPresented: $showDescription) { DescriptionSheet().environmentObject(model) }
+            .confirmationDialog("Make every picture highest quality?", isPresented: $confirmHighest, titleVisibility: .visible) {
+                let n = model.highestQualityTargets.count
+                Button("Redraw \(n) picture\(n == 1 ? "" : "s") (≈ \(OpenRouter.formatUSD(Double(n) * PictureQuality.enhanceEstimate)))") { model.makeHighestQuality(model.highestQualityTargets) }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("Each picture is redrawn from itself at the highest quality (finer detail, crisper edges, the same composition), then sharpened on your Mac. The earlier versions stay, so you can go back to any of them." + (model.openRouterCredits.map { " Your OpenRouter credit: \(OpenRouter.formatCredits($0))." } ?? "")) }
             .sheet(isPresented: $model.showFullPreview, onDismiss: { model.live.pause() }) { PreviewSheet(title: plan.title).environmentObject(model) }
             .onChange(of: model.requestRegenAll) { _, v in if v { model.requestRegenAll = false } }
             .sheet(isPresented: $model.showOpenRouterKeySheet) { OpenRouterKeySheet().environmentObject(model) }
@@ -60,6 +68,20 @@ struct NewPicturesStage: View {
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().font(Classical.body(12)).padding(.horizontal, 10).padding(.vertical, 4)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.neutral300, lineWidth: 1))
                 .help("A director plans the story and the pictures. Direct the rest does it in one click; the other choice lets you approve its plan first.")
+            Menu {
+                Button("Setting & description…") { showDescription = true }
+                Button("Copy all picture ideas") { model.copyAllPrompts() }
+                if !model.highestQualityTargets.isEmpty {
+                    Button("Make every picture highest quality (\(model.highestQualityTargets.count), ≈ \(OpenRouter.formatUSD(Double(model.highestQualityTargets.count) * PictureQuality.enhanceEstimate)))…") { confirmHighest = true }
+                }
+                Divider()
+                Button("Open the Pictures folder") { model.showPicturesFolder() }
+                Button("Add my earlier pictures and clips to it…") { model.backfillPictureLibrary() }
+                Button("Show this song's folder") { model.revealProject() }
+            } label: { HStack(spacing: 5) { Text("More"); Image(systemName: "chevron.down").font(.system(size: 8)) } }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().font(Classical.body(12)).padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.neutral300, lineWidth: 1)).disabled(model.busy)
+                .help("The song's description and the notes the picture ideas follow, copying every idea, making every picture highest quality, the Pictures folder and this song's folder.")
             Spacer(minLength: 6)
             layoutSwitch
             CLink(title: timelineOpen ? "Fold timeline" : "Expand timeline") { withAnimation { timelineOpen.toggle() } }.help("The whole song to scale: drag picture borders and Shorts.")

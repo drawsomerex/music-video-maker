@@ -21,6 +21,7 @@ struct NewMusicSongStage: View {
     @State private var targeted = false
     @State private var showStyles = false
     @State private var showIdeas = false
+    @State private var lyricMode = 0
 
     var recordingMode: Bool { model.audioInputMode == 1 }
 
@@ -100,14 +101,23 @@ struct NewMusicSongStage: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 ClassicalHeading(text: "Lyrics")
+                HStack(spacing: 0) {
+                    ForEach([(0, "Type or paste"), (1, "Pictures & Shorts")], id: \.0) { id, t in
+                        Button { lyricMode = id } label: { Text(t).font(Classical.body(11, weight: lyricMode == id ? .semibold : .regular)).foregroundStyle(lyricMode == id ? Classical.accent700 : Classical.neutral600).padding(.horizontal, 8).padding(.vertical, 4).background(lyricMode == id ? Classical.accent100 : Color.clear) }.buttonStyle(.plain)
+                    }
+                }.overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.divider, lineWidth: 1))
+                    .help("“Type or paste” edits your lyrics. “Pictures & Shorts” has separate controls for picture changes and independent Shorts.")
                 if model.liveTranscribing { HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Writing the words as they play…").font(Classical.body(11)).foregroundStyle(Classical.accent700) } }
                 Spacer()
                 CLink(title: "Paste") { model.pasteOverLyrics() }.help("Replaces the lyrics below with whatever you last copied (Command-C), for example from a lyrics web page.")
                 if model.audioURL != nil && !model.isRecording {
                     CLink(title: "Write them from the song") { model.transcribeLoadedAudio() }.disabled(model.busy)
                         .help("The app listens to the song and types out the lyrics for you. Check them afterwards.")
+                    CLink(title: "Cut the silence at the start and end") { model.trimLoadedAudioSilence() }.disabled(model.busy)
+                        .help("Trims empty silence from the beginning and end of the song.")
                 }
             }
+            if lyricMode == 1 { LyricDividerView() } else {
             TextEditor(text: $model.lyrics).font(Classical.body(14)).scrollContentBackground(.hidden).padding(10).background(Classical.paper)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(model.isRecording ? Classical.warn : Classical.divider, lineWidth: 1))
                 .overlay(alignment: .topLeading) {
@@ -119,6 +129,7 @@ struct NewMusicSongStage: View {
                 .help("Your lyrics. What you type or paste here is exactly what appears on the screen.")
             Text("A blank line starts a new verse and --- starts a new picture. Tags like [Chorus] never appear on screen. You can split and join pictures in the next stage.")
                 .font(Classical.body(11)).foregroundStyle(Classical.neutral600).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

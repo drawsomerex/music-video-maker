@@ -7,6 +7,22 @@ enum NewDesign {
     static let key = "newDesign"
 }
 
+/// The strip across the very top of the original design with the obvious way into the New Design. (The New Design's own top bar has the way back.)
+struct DesignSwitchStrip: View {
+    @AppStorage(NewDesign.key, store: Updater.defaults) private var newDesign = false
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles").foregroundStyle(.tint)
+            Text("There is a calmer, book-like look.").font(.callout).foregroundStyle(.secondary)
+            Button { newDesign = true } label: { Label("Switch to the New Design", systemImage: "arrow.left.arrow.right") }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                .help("Everything you have made is the same in both designs, and the same buttons are there. You can switch back at any time from the top of the New Design, or in Settings or the File menu.")
+            Spacer()
+        }
+        .padding(.horizontal, 20).padding(.vertical, 5).background(.bar)
+    }
+}
+
 /// Where the New Design window is: the home, or one of the four stages (a looping video's stages are Music, Scenes, Shorts, Export).
 @MainActor final class NewDesignState: ObservableObject {
     enum Route: Int { case home, song, pictures, shorts, export }
@@ -71,6 +87,7 @@ struct NewTopBar: View {
     @EnvironmentObject var nd: NewDesignState
     @Environment(\.openSettings) private var openSettings
     @State private var allSpent: Double = 0
+    @AppStorage(NewDesign.key, store: Updater.defaults) private var newDesign = true
 
     var isLoop: Bool { model.stage == .loop || model.loopProject != nil }
     var projectTitle: String { isLoop ? (model.loopProject?.title ?? "New looping video") : (model.plan?.title ?? (model.title.isEmpty ? "New music video" : model.title)) }
@@ -103,6 +120,12 @@ struct NewTopBar: View {
             if let r = updater.available, nd.route == .home || true {
                 Button { updater.showAvailable = true } label: { Text("Update \(r.version)") }.buttonStyle(.classicalSmall).help("A new version is ready. Updating takes about a minute and keeps all your work.")
             }
+            if hasWork {
+                Button { revealFolder() } label: { Image(systemName: "folder") }.buttonStyle(.plain).foregroundStyle(Classical.neutral700)
+                    .help("Opens this project's folder in Finder: the songs, pictures, clips and finished videos.")
+            }
+            Button { newDesign = false } label: { HStack(spacing: 5) { Image(systemName: "arrow.left.arrow.right").font(.system(size: 10)); Text("Original design") } }.buttonStyle(.classicalSmall)
+                .help("Switch back to the original design. Everything you have made is the same in both, and you can switch again at any time.")
             Button { openSettings() } label: { Image(systemName: "gearshape") }.buttonStyle(.plain).foregroundStyle(Classical.neutral700).help("Settings")
             Button { model.helpScreen = model.screenName; model.showHelp = true } label: { Image(systemName: "questionmark.circle") }.buttonStyle(.plain).foregroundStyle(Classical.neutral700)
                 .help("Ask a question in your own words, or read the guide. The helper knows what is on your screen right now.")
@@ -116,6 +139,9 @@ struct NewTopBar: View {
     }
 
     func goHome() { nd.route = .home }
+    func revealFolder() {
+        if isLoop { if let d = model.loopDir { NSWorkspace.shared.activateFileViewerSelecting([d]) } } else { model.revealProject() }
+    }
 
     var stageTabs: some View {
         HStack(spacing: 18) {

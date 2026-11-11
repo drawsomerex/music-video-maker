@@ -8,6 +8,7 @@ struct RootView: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
         VStack(spacing: 0) {
+            if !model.needsNativeSetup { DesignSwitchStrip() }
             UpdateStrip()
             TaskBanners()
             if !model.needsNativeSetup { CostBar() }
