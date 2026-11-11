@@ -2,6 +2,7 @@
 // The list is the scenes in playing order (see LoopSlots.swift): one per song at each song change, as many as you add every few minutes, one for a single clip.
 // A scene that has no picture or clip yet is a blank window. The selected scene's idea, picture and clip are the project's own, so every button works on it.
 import SwiftUI
+import UniformTypeIdentifiers
 import MVCore
 
 struct NewScenesStage: View {
@@ -108,11 +109,16 @@ struct NewScenesStage: View {
             .overlay(alignment: .leading) { Rectangle().fill(isSel ? Classical.accent : .clear).frame(width: 3) }
             .help("Select this scene. Drag it to move it\(p.sceneChange == .songs ? " (its songs move with it)" : "").")
             .draggable(s.id)
+            .dropDestination(for: URL.self) { urls, _ in          // a picture dropped on a scene becomes that scene's picture
+                guard let u = urls.first(where: { Self.isImage($0) }), !working else { return false }
+                model.slotSelect(s.id); model.loopUsePicture(u); return true
+            }
             .dropDestination(for: String.self) { ids, _ in
                 guard let id = ids.first, id != s.id, !working else { return false }
                 model.slotEdit { LoopVideo.moveSlot(&$0, id: id, to: i, focus: $1) }; return true
             }
     }
+    static func isImage(_ u: URL) -> Bool { UTType(filenameExtension: u.pathExtension)?.conforms(to: .image) == true }
     /// The scene's clip, else its picture, else a blank window.
     @ViewBuilder func thumb(_ s: LoopSlot) -> some View {
         if let c = s.clip, let d = model.loopDir, let t = LoopVideo.clipThumbnail(c, dir: d) { Thumb(file: t) }
@@ -160,6 +166,8 @@ struct NewScenesStage: View {
                     Button { model.loopPreview(.end) } label: { Text("▷ The end").fixedSize() }.buttonStyle(.classicalSmall)
                     Spacer()
                 }.disabled(working || !slots.contains { $0.clip != nil } || p.tracks.isEmpty)
+                CLink(title: p.picture == nil ? "Add a picture from my Mac…" : "Use another picture from my Mac…") { model.loopChoosePicture() }.disabled(working)
+                    .help("Uses a picture of your own as this scene's picture (or drop one on the scene). A square album cover gets black bars, free.")
                 if p.picture == nil, selectedIndex > 0, slots[..<selectedIndex].contains(where: { $0.picture != nil }) {
                     CLink(title: "Draw it as the next scene of the one before  ≈ \(OpenRouter.formatUSD(model.perImageCostUSD))") { model.slotDrawFromPrevious() }.disabled(working || !model.hasOpenRouterKey)
                         .help("Keeps the same place, building or subject as the scene before and changes one thing, with a slightly different angle.")
@@ -179,8 +187,15 @@ struct NewScenesStage: View {
             } else if let u = model.loopFile(p.picture) {
                 Thumb(file: u).onTapGesture { FullScreenPlayer.showImage(u, title: "Picture") }.help("Click to see the picture full screen and zoom in.")
             } else {
-                VStack(spacing: 6) { Image(systemName: "photo.badge.plus").font(.system(size: 26)); Text("Blank scene").font(Classical.body(12)) }.foregroundStyle(.white.opacity(0.6))
+                VStack(spacing: 6) { Image(systemName: "photo.badge.plus").font(.system(size: 28)); Text("Click to add a picture").font(Classical.body(13, weight: .semibold)); Text("or drop one here").font(Classical.body(11)) }.foregroundStyle(.white.opacity(0.75))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+                    .onTapGesture { if !working { model.loopChoosePicture() } }
+                    .help("Choose a picture from your Mac for this scene. A square album cover gets black bars.")
             }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let u = urls.first(where: { Self.isImage($0) }), !working else { return false }
+            model.loopUsePicture(u); return true
         }.aspectRatio(16.0 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 3)).overlay(RoundedRectangle(cornerRadius: 3).stroke(Classical.divider, lineWidth: 1))
     }
     /// Where this scene plays and how to move it.
