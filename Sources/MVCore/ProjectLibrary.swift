@@ -39,7 +39,7 @@ public enum ProjectLibrary {
         if LoopVideo.isLoopProject(dir), let p = try? LoopVideo.load(dir) {
             let file = dir.appendingPathComponent(LoopVideo.fileName)
             let video = p.output.map { URL(fileURLWithPath: $0) }.flatMap { fm.fileExists(atPath: $0.path) ? $0 : nil }
-            let hours = p.hours == p.hours.rounded() ? "\(Int(p.hours)) h" : String(format: "%.1f h", p.hours)
+            let hours = p.hours < 1 ? "\(Int((p.hours * 60).rounded())) min" : (p.hours == p.hours.rounded() ? "\(Int(p.hours)) h" : String(format: "%.1f h", p.hours))
             return ProjectInfo(folder: dir, kind: .loop, title: p.title, modified: modified(file), thumbnail: p.picture.map { dir.appendingPathComponent($0) },
                                spentUSD: p.imagesUSD + p.videoUSD, video: video, detail: "\(hours) · " + (p.clip == nil ? "no loop clip yet" : "loop clip ready"))
         }

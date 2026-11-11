@@ -1,4 +1,4 @@
-// Looping long music video: one song (any length) and one 15-second scene that loops seamlessly, made into a video of 1 to 12 hours (study music).
+// Looping long music video: one song (any length) and one 15-second scene that loops seamlessly, made into a video of 10 minutes to 12 hours (study music).
 //
 //   • the picture: drawn from your scene idea (or your own picture)            → the first frame of the clip
 //   • the clip: one HeyGen clip with a locked-off camera and gentle, cyclical motion; its end blends into its start, so it repeats without a seam

@@ -17,7 +17,7 @@ struct NewLoopStart: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     ClassicalHeading(text: "Songs", note: songs.isEmpty ? nil : "\(songs.count) song\(songs.count == 1 ? "" : "s")")
-                    Text("One song, or up to 100, over scenes that loop seamlessly, made into a 1 to 12 hour video for study or background music.")
+                    Text("One song, or up to 100, over scenes that loop seamlessly, made into a 10 minute to 12 hour video for study or background music.")
                         .font(Classical.body(13)).foregroundStyle(Classical.neutral700)
                     Button {
                         let o = NSOpenPanel(); o.allowedContentTypes = [.audio]; o.allowsMultipleSelection = true

@@ -24,7 +24,7 @@ struct NewHomeView: View {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .top, spacing: 20) {
                     startCard("New music video", "A song with its lyrics on screen, a picture for each part, and Shorts cut from it.", icon: "film") { newMusicVideo() }
-                    startCard("New looping video", "Up to 100 songs over scenes that loop seamlessly, from 1 to 12 hours long.", icon: "repeat") { newLoopingVideo() }
+                    startCard("New looping video", "Up to 100 songs over a still picture or scenes that loop seamlessly, from 10 minutes to 12 hours long.", icon: "repeat") { newLoopingVideo() }
                 }
                 Hairline()
                 if loaded && items.isEmpty { emptyHome } else { projects }

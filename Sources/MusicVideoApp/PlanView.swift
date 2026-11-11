@@ -950,6 +950,9 @@ struct CaptionTimingBar: View {
                 Button("Reset") { model.resetCaptionTiming() }.help("Goes back to the standard timing.")
             }
             Text("Now: words \(model.captionShiftText)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            Button { model.checkCaptions() } label: { Label(model.checkingCaptions ? "Checking…" : "Double-check against the sound", systemImage: "checkmark.shield") }.disabled(model.checkingCaptions)
+                .help("Listens to the song itself (not the speech recogniser) and makes sure every caption starts where there is music. Any that start in silence, most often the last lines, are moved onto the music. It also runs automatically before every video is made.")
+            if let c = model.plan?.captionCheck { Text(c).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
     }
 }

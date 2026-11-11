@@ -332,6 +332,17 @@ extension AppModel {
             return q
         }
     }
+    /// The picture as the whole video: a steady still clip, free and instant (good for an album).
+    func loopUseStill() {
+        guard loopProject?.picture != nil else { return }
+        let cfg = config
+        runLoop("Making a still clip from the picture…", estimate: 10) { p, d in
+            var q = p
+            try await LoopVideo.useStill(&q, dir: d, config: cfg)
+            if let c = q.clip { try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4"), trim: q.trim) }
+            return q
+        }
+    }
     func loopChooseClip() {
         let o = NSOpenPanel(); o.allowedContentTypes = [.movie]; o.message = "Choose a video clip to loop"
         if o.runModal() == .OK, let u = o.url { loopUseClip(u) }
@@ -383,7 +394,7 @@ extension AppModel {
     func loopOutputURL(_ p: LoopProject) -> URL {
         let folder = config.outputFolder.isEmpty ? (loopDir ?? config.projectsRoot) : URL(fileURLWithPath: (config.outputFolder as NSString).expandingTildeInPath)
         if p.playOnce { return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")).mp4") }     // each song once: just the name
-        let h = p.hours == p.hours.rounded() ? "\(Int(p.hours)) hour\(p.hours == 1 ? "" : "s")" : String(format: "%.1f hours", p.hours)
+        let h = LoopVideo.lengthWords(p.hours)
         return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h).mp4")      // YouTube suggests the file name as the title: nothing about looping
     }
     /// Where a looping video's Shorts go: a folder beside the long video.
@@ -465,7 +476,7 @@ extension AppModel {
     func loopRender() {
         guard let p = loopProject else { return }
         let out = loopOutputURL(p)
-        runLoop(p.playOnce ? "Making the video (each song once)…" : "Making the \(p.hours == p.hours.rounded() ? "\(Int(p.hours))-hour" : String(format: "%.1f-hour", p.hours)) looping video…") { [weak self] p, d in
+        runLoop(p.playOnce ? "Making the video (each song once)…" : "Making the \(LoopVideo.lengthWords(p.hours, dash: true)) looping video…") { [weak self] p, d in
             try await LoopVideo.render(p, dir: d, output: out) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = f } }
             var q = p; q.output = out.path
             await MainActor.run { self?.loopJob?.phase = "Writing the YouTube thumbnail and description…"; self?.loopJob?.progress = 0.99 }

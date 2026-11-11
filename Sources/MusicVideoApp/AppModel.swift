@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
     @Published var autoRenderShorts = true           // Shorts are made together with the video unless you untick it
     @Published var renderedShorts: [URL] = []
     @Published var errorMessage: String? { didSet { errorChanged(old: oldValue) } }
+    @Published var checkingCaptions = false
     @Published var errorAdvice: ErrorTriage.Advice?          // Jev's one-sentence "what kind of problem, what to do" under the message (see JevAdvice.swift)
     @Published var errorReady = true                         // false for a moment while that is worked out, so the box opens once with everything in it
     @Published var clipAdvice: String?                       // what the quick Jev check found in the scenes a clip order is about to be made from
@@ -1024,6 +1025,17 @@ final class AppModel: ObservableObject {
         p.captionShift = max(-0.5, min(0.5, ((p.captionShift + delta) * 100).rounded() / 100))
         plan = p; persist(); live.invalidate()
     }
+    /// "Check against the sound": the same double-check that runs before every video is made, on demand.
+    func checkCaptions() {
+        guard var p = plan, let w = workDir, !checkingCaptions else { return }
+        checkingCaptions = true
+        Task {
+            checkpoint("Check captions")
+            await Pipeline.checkCaptions(plan: &p, work: w)
+            plan = p; persist(); live.invalidate(); checkingCaptions = false
+            notice = p.captionCheck ?? "The captions could not be checked."
+        }
+    }
     func resetCaptionTiming() { guard var p = plan else { return }; p.captionShift = Plan.defaultCaptionShift; plan = p; persist(); live.invalidate() }
     var captionShiftText: String {
         let v = plan?.captionShift ?? Plan.defaultCaptionShift
@@ -1144,6 +1156,10 @@ final class AppModel: ObservableObject {
         videoTask?.cancel()
         videoTask = Task {
             do {
+                // a last look at the captions against the sound before anything is drawn: any that start in silence are moved onto the music
+                let before = p.lines
+                await Pipeline.checkCaptions(plan: &p, work: w)
+                if p.lines != before { plan = p; persist(); live.invalidate() } else if plan?.captionCheck != p.captionCheck { plan?.captionCheck = p.captionCheck; persist() }
                 let out = Pipeline.videoURL(plan: p, work: w, config: config)
                 let mainWeight = alsoShorts && !p.shorts.isEmpty ? 0.50 : 1.0
                 try await VideoRenderer.render(plan: p, work: w, output: out, settings: VideoSettings(height: q)) { [weak self] ph, f in
@@ -1181,7 +1197,9 @@ final class AppModel: ObservableObject {
                 videoJob?.phase = "Writing the YouTube thumbnail and description…"; videoJob?.progress = 0.99
                 await makeYouTubeFiles(plan: p, video: out)
                 outputURL = out; videoJob = nil
-                doneNote = DoneNote(text: "Your video is ready" + (shortURLs.isEmpty ? "" : " (and \(shortURLs.count) Short\(shortURLs.count == 1 ? "" : "s"))"), watch: true)
+                var ready = "Your video is ready" + (shortURLs.isEmpty ? "" : " (and \(shortURLs.count) Short\(shortURLs.count == 1 ? "" : "s"))")
+                if let l = await VideoRenderer.lengths(of: out), let warning = VideoRenderer.endCheck(video: l.video, audio: l.audio, expected: p.songDuration + p.introDuration) { ready += ". " + warning }
+                doneNote = DoneNote(text: ready, watch: true)
             } catch is CancellationError {
                 videoJob = nil
             } catch {

@@ -102,7 +102,10 @@ struct NewExportStage: View {
                 HStack(spacing: 8) {
                     Text("Words look early or late?").font(Classical.body(12)).foregroundStyle(Classical.neutral600)
                     CLink(title: "Show sooner") { model.nudgeCaptions(by: -0.1) }; CLink(title: "Show later") { model.nudgeCaptions(by: 0.1) }
+                    CLink(title: model.checkingCaptions ? "Checking…" : "Double-check against the sound") { model.checkCaptions() }.disabled(model.checkingCaptions)
+                        .help("Listens to the song itself and makes sure every caption starts where there is music; any that start in silence, most often the last lines, are moved onto the music. It also runs automatically before every video is made.")
                 }
+                if let c = model.plan?.captionCheck { Text(c).font(Classical.body(11)).foregroundStyle(Classical.neutral600).fixedSize(horizontal: false, vertical: true) }
             }
         }
     }

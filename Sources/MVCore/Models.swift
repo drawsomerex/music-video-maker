@@ -251,6 +251,7 @@ public struct Plan: Codable {
     /// Seconds added to every caption time when drawing (negative = captions appear sooner). Seen from the audience's side, captions that
     /// land exactly on the sound feel late, so new and old projects start slightly early; the user can fine-tune it per song.
     public var captionShift: Double = Plan.defaultCaptionShift
+    public var captionCheck: String? = nil      // what the last check of the captions against the sound found (see CaptionCheck.swift)
     /// Lyric-line numbers where the user's own parts start (empty = the app divided the song itself). Drives pictures and Shorts.
     public var partStarts: [Int] = []
     /// A setting/theme you typed (e.g. “Brightly lit colonial Philadelphia”). Every prompt follows it and states it explicitly.
@@ -266,7 +267,7 @@ public struct Plan: Codable {
 
     enum CodingKeys: String, CodingKey {
         case title, subject, audioPath, audioFile, songDuration, lines, intro, sections, description, style, introDuration, audioOffset, alignmentCoverage, projectID, shorts, timing, captionY
-        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, shot, sourceNote, sourceNoteFocus, treatment, cast, castSheet, pictureQuality, brightness, totalVideoCostUSD, songNotes, thumbText
+        case totalGenerationCostUSD, imagesGeneratedCount, lastImageCostUSD, captionShift, captionCheck, partStarts, setting, partsFromVerses, pictureBoundaries, sourceLyrics, styleGuideSection, subjectPicture, subjectKind, source, nextFocus, weather, timeOfDay, shot, sourceNote, sourceNoteFocus, treatment, cast, castSheet, pictureQuality, brightness, totalVideoCostUSD, songNotes, thumbText
     }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -305,6 +306,7 @@ public struct Plan: Codable {
         shot = try c.decodeIfPresent(ShotType.self, forKey: .shot) ?? .any
         totalVideoCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalVideoCostUSD) ?? 0
         captionShift = try c.decodeIfPresent(Double.self, forKey: .captionShift) ?? Plan.defaultCaptionShift
+        captionCheck = try c.decodeIfPresent(String.self, forKey: .captionCheck)
         partStarts = try c.decodeIfPresent([Int].self, forKey: .partStarts) ?? []
         setting = try c.decodeIfPresent(String.self, forKey: .setting) ?? ""
         partsFromVerses = try c.decodeIfPresent(Bool.self, forKey: .partsFromVerses) ?? false

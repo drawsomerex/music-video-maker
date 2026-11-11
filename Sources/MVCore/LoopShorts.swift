@@ -160,7 +160,7 @@ extension LoopVideo {
     public static func shortListing(_ p: LoopProject, track k: Int) -> String {
         let song = songName(p.tracks[k].title, k)
         let album = p.shownTitle
-        let full = p.playOnce ? "the full album" : "the full \(p.hours == p.hours.rounded() ? "\(Int(p.hours))-hour" : String(format: "%.1f-hour", p.hours)) video"
+        let full = p.playOnce ? "the full album" : "the full \(lengthWords(p.hours, dash: true)) video"
         let about = p.about.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = String((p.tracks.count > 1 ? "\(song) · \(album)" : song).prefix(90)) + " #shorts"
         var d = p.tracks.count > 1 ? "“\(song)” from \(album)." : "“\(song)”."

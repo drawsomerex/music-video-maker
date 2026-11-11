@@ -404,6 +404,8 @@ struct LoopView: View {
                         Button { model.checkClipsThen([ClipRisk.Item(label: "This scene", idea: p.scene, motion: p.motion)], kind: .loop) { confirmClip = true } } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
                             .buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
                             .help(p.picture == nil ? "Add or draw the picture first." : "Makes the chosen length from the picture. You see the price first.")
+                        Button { model.loopUseStill() } label: { Label("Use the picture as a still (no video clip)", systemImage: "photo") }.disabled(working || p.picture == nil)
+                            .help("The whole video shows this picture, perfectly still, with the music (an album, for example). It is free and instant: nothing is drawn or waited for, and title cards, Shorts and the YouTube files all work as usual.")
                         Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
                             .help("Loop a video from your Mac instead (or drag it onto the box). A still camera works best.")
                         if p.clip != nil {
@@ -665,15 +667,15 @@ struct LoopView: View {
         VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Text("Length").font(.callout.weight(.semibold))
-                    Picker("", selection: Binding(get: { p.playOnce ? -2 : ([1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1) }, set: { v in
+                    Picker("", selection: Binding(get: { p.playOnce ? -2 : ([LoopVideo.tenMinutes, 0.5, 1.0, 3, 8, 12].contains(p.hours) ? p.hours : -1) }, set: { v in
                         model.editLoop { q in
                             if v == -2 { q.playOnce = true } else { q.playOnce = false; q.hours = v > 0 ? v : customHours }
                         } })) {
                         Text(p.tracks.count > 1 ? "Each song once" : "The song once").tag(-2.0)
-                        Text("1 hour").tag(1.0); Text("3 hours").tag(3.0); Text("8 hours").tag(8.0); Text("12 hours").tag(12.0); Text("Other").tag(-1.0)
-                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 560)
+                        Text("10 min").tag(LoopVideo.tenMinutes); Text("30 min").tag(0.5); Text("1 hour").tag(1.0); Text("3 hours").tag(3.0); Text("8 hours").tag(8.0); Text("12 hours").tag(12.0); Text("Other").tag(-1.0)
+                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
                         .help("Each song once: play one complete pass through the album (or the one song), then add a short picture fade. The hours are the exact video length, including the final fade. The last song is shortened if needed.")
-                    if !p.playOnce && ![1.0, 3, 8, 12].contains(p.hours) {
+                    if !p.playOnce && ![LoopVideo.tenMinutes, 0.5, 1.0, 3, 8, 12].contains(p.hours) {
                         Stepper(String(format: "%.1f h", p.hours), value: Binding(get: { p.hours }, set: { v in customHours = v; model.editLoop { $0.hours = v } }), in: 0.5...12, step: 0.5).fixedSize()
                     }
                 }
@@ -828,7 +830,7 @@ struct LoopStartView: View {
     @State private var targeted = false
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("One song, one beautiful short scene that loops seamlessly, made into a 1 to 12 hour video, for study or background music.")
+            Text("One song, one beautiful short scene that loops seamlessly, made into a 10 minute to 12 hour video, for study or background music.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button {
                 let o = NSOpenPanel(); o.allowedContentTypes = [.audio]; o.allowsMultipleSelection = true

@@ -187,7 +187,7 @@ public enum YouTubeKit {
         guard p.playOnce else { return hoursText(p.hours) }
         return p.tracks.count > 1 ? "Full album" : durationText(total ?? p.tracks.first?.seconds ?? 0)
     }
-    public static func hoursText(_ h: Double) -> String { h == h.rounded() ? "\(Int(h)) Hour\(h == 1 ? "" : "s")" : String(format: "%.1f Hours", h) }
+    public static func hoursText(_ h: Double) -> String { h < 1 ? "\(Int((h * 60).rounded())) Minutes" : h == h.rounded() ? "\(Int(h)) Hour\(h == 1 ? "" : "s")" : String(format: "%.1f Hours", h) }
 
     /// Asks the local model for title / description / tags / hashtags as JSON.
     static func ask(_ prompt: String, config: Config) async -> (title: String, description: String, tags: [String], hashtags: [String])? {

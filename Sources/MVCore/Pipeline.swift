@@ -90,7 +90,7 @@ public enum Pipeline {
 
     /// Transcribes (Parakeet via oMLX), syncs your lyrics, splits the song into image sections and writes a prompt for each.
     /// What listening to the song gives: the lyric lines with the time each is sung, how well they matched, and the song's length.
-    public struct Heard { public var lines: [LyricLine]; public var coverage: Double; public var timing: String; public var duration: Double; public var parsed: LyricAligner.Parsed; public var omlx: OMLX; public var savedAudioPath: String }
+    public struct Heard { public var lines: [LyricLine]; public var coverage: Double; public var timing: String; public var duration: Double; public var parsed: LyricAligner.Parsed; public var omlx: OMLX; public var savedAudioPath: String; public var captionNote: String? = nil }
 
     /// Step 1a — listen to the song and match the lyrics to it (no picture ideas yet). Used by "Listen to the song first" and by `plan`.
     public static func listen(audioPath: String, title: String = "", lyrics: String, work: URL, config: Config = .load(), progress: ProgressHandler? = nil) async throws -> Heard {
@@ -154,13 +154,20 @@ public enum Pipeline {
             aligned = LyricAligner.align(lines: parsed.lines, windows: windows, windowLength: Transcriber.windowLength, songDuration: duration)
         }
         try Task.checkCancellation()
-        let lines = aligned.lines
+        var lines = aligned.lines
+        // A second look from the sound itself: a caption that starts in silence (typically the last lines) was timed wrongly and is moved onto the music.
+        var captionNote: String? = nil
+        if let pcm = try? await Transcriber.loadMono16k(path: audioPath), !pcm.isEmpty {
+            let r = CaptionCheck.run(lines: lines, env: CaptionCheck.envelope(pcm), songDuration: duration)
+            if r.checked > 0 { lines = r.lines }
+            captionNote = r.summary + (timing == "exact" ? "" : " Timing is approximate (exact word timing was not available).")
+        }
 
         // Pre-compute and cache waveform peaks and beat timestamps while the 16kHz PCM is already in memory.
         let savedAudioPath = FileManager.default.fileExists(atPath: ownAudio.path) ? ownAudio.path : audioPath
         _ = try? await Transcriber.waveform(audioPath: savedAudioPath, work: work)
         _ = await BeatDetector.beats(audioPath: savedAudioPath, start: 0, end: duration, work: work)
-        return Heard(lines: lines, coverage: aligned.coverage, timing: timing, duration: duration, parsed: parsed, omlx: omlx, savedAudioPath: savedAudioPath)
+        return Heard(lines: lines, coverage: aligned.coverage, timing: timing, duration: duration, parsed: parsed, omlx: omlx, savedAudioPath: savedAudioPath, captionNote: captionNote)
     }
 
     public static func plan(audioPath: String, title: String, subject: String, lyrics: String, work: URL, imageInterval: Double = 15,
@@ -212,6 +219,7 @@ public enum Pipeline {
                         audioFile: FileManager.default.fileExists(atPath: ownAudio.path) ? audioName : "", songDuration: duration, lines: lines, intro: intro, sections: sections, description: description, style: written.style, introDuration: introDur, audioOffset: offset,
                         alignmentCoverage: aligned.coverage)
         plan.timing = timing
+        plan.captionCheck = heard.captionNote
         plan.partStarts = cuts.sorted()
         plan.partsFromVerses = !explicitParts && !cuts.isEmpty
         plan.setting = settingNote
@@ -246,6 +254,7 @@ public enum Pipeline {
         let res = LyricAligner.align(lines: plan.lines.map(\.text), words: words, songDuration: plan.songDuration)
         plan.lines = res.lines; plan.alignmentCoverage = res.coverage; plan.timing = "exact"
         plan.sections = plan.pictureBoundaries == nil ? Planner.rebound(plan.sections, lines: plan.lines, duration: plan.songDuration) : TimelineEditor.assignLines(plan.sections, lines: plan.lines)
+        _ = await checkCaptions(plan: &plan, work: work)
         try? JSONEncoder().encode(WordCacheFile(key: "", words: words)).write(to: work.appendingPathComponent("transcript_words.json"))
         try Task.checkCancellation()
         try savePlan(plan, work)

@@ -437,4 +437,18 @@ public enum VideoRenderer {
         if writer.status != .completed { throw MVError("Encoding failed: \(writer.error?.localizedDescription ?? "unknown")") }
         progress?("Done", 1)
     }
+
+    /// The finished file's picture and sound lengths, to double-check that they end together (and with the song).
+    public static func lengths(of url: URL) async -> (video: Double, audio: Double)? {
+        let asset = AVURLAsset(url: url)
+        guard let v = try? await asset.loadTracks(withMediaType: .video).first, let a = try? await asset.loadTracks(withMediaType: .audio).first,
+              let vr = try? await v.load(.timeRange), let ar = try? await a.load(.timeRange) else { return nil }
+        return (CMTimeGetSeconds(vr.end), CMTimeGetSeconds(ar.end))
+    }
+    /// Nil when the picture and the sound end together (within three frames) and the sound is as long as the song; otherwise a plain sentence.
+    public static func endCheck(video: Double, audio: Double, expected: Double) -> String? {
+        if abs(video - audio) > 0.1 { return String(format: "The finished video's picture is %.1f s %@ than its sound. Make it again, or tell the maker.", abs(video - audio), video > audio ? "longer" : "shorter") }
+        if abs(audio - expected) > 0.25 { return String(format: "The finished video's sound is %.1f s %@ than the song, so the last captions may not match. Make it again, or tell the maker.", abs(audio - expected), audio > expected ? "longer" : "shorter") }
+        return nil
+    }
 }
