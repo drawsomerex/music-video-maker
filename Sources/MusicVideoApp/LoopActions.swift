@@ -397,6 +397,8 @@ extension AppModel {
         let h = LoopVideo.lengthWords(p.hours)
         return folder.appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – \(h).mp4")      // YouTube suggests the file name as the title: nothing about looping
     }
+    /// Where the video of each song goes: a folder beside the long video.
+    func loopSongVideosFolder(_ p: LoopProject) -> URL { loopOutputURL(p).deletingLastPathComponent().appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – Song videos") }
     /// Where a looping video's Shorts go: a folder beside the long video.
     func loopShortsFolder(_ p: LoopProject) -> URL { loopOutputURL(p).deletingLastPathComponent().appendingPathComponent("\(p.title.replacingOccurrences(of: "/", with: "-")) – Shorts") }
     func setLoopShortFraming(clip: String, x: Double, y: Double) {
@@ -473,15 +475,28 @@ extension AppModel {
             return q
         }
     }
-    func loopRender() {
+    /// The long video, and (when "Also make a separate video of each song" is on) a video of each song beside it. `songsOnly` makes just the song videos.
+    func loopRender(songsOnly: Bool = false) {
         guard let p = loopProject else { return }
-        let out = loopOutputURL(p)
-        runLoop(p.playOnce ? "Making the video (each song once)…" : "Making the \(LoopVideo.lengthWords(p.hours, dash: true)) looping video…") { [weak self] p, d in
-            try await LoopVideo.render(p, dir: d, output: out) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = f } }
-            var q = p; q.output = out.path
-            await MainActor.run { self?.loopJob?.phase = "Writing the YouTube thumbnail and description…"; self?.loopJob?.progress = 0.99 }
-            try? await LoopVideo.makeYouTubeFiles(&q, dir: d, video: out, config: Config.load())
-            await MainActor.run { self?.doneNote = DoneNote(text: "Your looping video is ready (\(out.lastPathComponent)), with its YouTube thumbnail and description", reveal: out) }
+        let out = loopOutputURL(p), folder = loopSongVideosFolder(p)
+        let withSongs = p.tracks.count > 1 && (p.songVideos || songsOnly)
+        let title = songsOnly ? "Making a video of each song…" : (p.playOnce ? "Making the video (each song once)…" : "Making the \(LoopVideo.lengthWords(p.hours, dash: true)) looping video…") + (withSongs ? " Then a video of each song." : "")
+        runLoop(title) { [weak self] p, d in
+            var q = p
+            let weight = songsOnly ? 0.0 : (withSongs ? 0.5 : 1.0)
+            if !songsOnly {
+                try await LoopVideo.render(p, dir: d, output: out) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = f * weight * 0.98 } }
+                q.output = out.path
+                await MainActor.run { self?.loopJob?.phase = "Writing the YouTube thumbnail and description…"; self?.loopJob?.progress = weight * 0.99 }
+                try? await LoopVideo.makeYouTubeFiles(&q, dir: d, video: out, config: Config.load())
+            }
+            var made = 0
+            if withSongs {
+                made = try await LoopVideo.makeSongVideos(p, dir: d, folder: folder, config: Config.load()) { ph, f in Task { @MainActor in self?.loopJob?.phase = ph; self?.loopJob?.progress = weight + (1 - weight) * f } }.count
+            }
+            let text = songsOnly ? "Your \(made) song video\(made == 1 ? " is" : "s are") ready, each with its YouTube thumbnail and description"
+                : "Your looping video is ready (\(out.lastPathComponent)), with its YouTube thumbnail and description" + (made > 0 ? ", and a video of each of the \(made) songs" : "")
+            await MainActor.run { self?.doneNote = DoneNote(text: text, reveal: songsOnly ? folder : out) }
             return q
         }
     }

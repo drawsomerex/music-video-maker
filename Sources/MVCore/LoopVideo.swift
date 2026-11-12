@@ -102,6 +102,7 @@ public struct LoopProject: Codable, Equatable {
     public var shuffle = false                  // shuffle each time the playlist repeats (the first time through is in your order)
     public var playOnce = false                 // each song once: the video is as long as the album (or the one song)
     public var cards: LoopCards = .none
+    public var songVideos = false               // also make a separate video of each song (with its repeats) beside the long video
     public var effectiveTransition: LoopTransition { transition ?? (tracks.count > 1 ? .automatic : .seamless) }
     public var effectiveEvenVolume: Bool { evenVolume ?? (tracks.count > 1) }
     public var scene = ""                       // what the scene shows
@@ -156,7 +157,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case songVideos, sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -170,6 +171,7 @@ public struct LoopProject: Codable, Equatable {
         evenVolume = try c.decodeIfPresent(Bool.self, forKey: .evenVolume); shuffle = try c.decodeIfPresent(Bool.self, forKey: .shuffle) ?? false
         playOnce = try c.decodeIfPresent(Bool.self, forKey: .playOnce) ?? false
         cards = try c.decodeIfPresent(LoopCards.self, forKey: .cards) ?? .none
+        songVideos = try c.decodeIfPresent(Bool.self, forKey: .songVideos) ?? false
         scene = try c.decodeIfPresent(String.self, forKey: .scene) ?? ""; style = try c.decodeIfPresent(String.self, forKey: .style) ?? ""
         motion = try c.decodeIfPresent(String.self, forKey: .motion) ?? ""
         about = try c.decodeIfPresent(String.self, forKey: .about) ?? ""

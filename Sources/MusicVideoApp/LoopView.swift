@@ -694,7 +694,7 @@ struct LoopView: View {
                 if part != .shorts {
                 if part == .all { lengthBlock }
                 scenesRow
-                let need = LoopVideo.estimatedBytes(seconds: model.loopPlan?.total ?? p.hours * 3600), out = model.loopOutputURL(p)
+                let need = LoopVideo.estimatedBytes(seconds: model.loopPlan?.total ?? p.hours * 3600) * (p.songVideos && p.tracks.count > 1 ? 2 : 1), out = model.loopOutputURL(p)
                 let free = LoopVideo.freeBytes(at: out.deletingLastPathComponent())
                 Text("1080p · about \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file))" + (free.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) free on this disk" } ?? "") + ". Saved as “\(out.lastPathComponent)”.")
                     .font(.callout).foregroundStyle((free ?? .max) < need + 2_000_000_000 ? .orange : .secondary).fixedSize(horizontal: false, vertical: true)
@@ -706,13 +706,26 @@ struct LoopView: View {
                     } label: { Label("Preview", systemImage: "play.rectangle") }
                         .fixedSize().disabled(working || p.clip == nil || p.tracks.isEmpty)
                         .help("Watch a short part of the long video with sound — the scene, the music, the joins between songs and the title cards — exactly as it will be. It takes a few seconds to make.")
-                    Button { model.loopRender() } label: { Label("Make the long video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 2) }
+                    Button { model.loopRender() } label: { Label(p.songVideos && p.tracks.count > 1 ? "Make the long video and \(p.tracks.count) song videos" : "Make the long video", systemImage: "film").font(.headline).padding(.horizontal, 6).padding(.vertical, 2) }
                         .buttonStyle(.borderedProminent).controlSize(.large).disabled(working || p.clip == nil || p.tracks.isEmpty)
                         .help(p.clip == nil ? "Make or add the loop clip first." : "Makes the long video. Only a minute of video is drawn; the rest is the same loop written again and again, so even 12 hours takes minutes, not hours. Progress shows in the strip at the top.")
                     if let o = p.output, FileManager.default.fileExists(atPath: o) {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: o)]) } label: { Label("Show the last video in Finder", systemImage: "folder") }
                     }
                 }
+                }
+                if part != .shorts && p.tracks.count > 1 {
+                    Toggle(isOn: bind(\.songVideos)) { Text("Also make a separate video of each song (\(p.tracks.count) more videos)").font(.callout) }
+                        .help("Besides the long video, one video for each song: the song with its own repeats, over the scene it plays under, each with its own title, YouTube thumbnail and description. Six songs that each repeat for 10 minutes give one 60-minute video and six 10-minute videos. Set each song's repeats in the song list above.")
+                    if p.songVideos {
+                        HStack(spacing: 10) {
+                            Button { model.loopRender(songsOnly: true) } label: { Label("Make only the song videos", systemImage: "film.stack") }.disabled(working || p.clip == nil || p.tracks.isEmpty)
+                                .help("Makes just the video of each song (when the long video is already made).")
+                            if FileManager.default.fileExists(atPath: model.loopSongVideosFolder(p).path) {
+                                Button { NSWorkspace.shared.open(model.loopSongVideosFolder(p)) } label: { Label("Show the song videos", systemImage: "folder") }
+                            }
+                        }
+                    }
                 }
                 if part == .all || part == .shorts {
                 LoopShortsOptionsView(project: p)
