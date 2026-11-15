@@ -310,7 +310,7 @@ extension AppModel {
                 let (made, cost) = try await Director.looping(q, scenes: scenes, config: cfg)
                 t = made; q.imagesUSD += cost
             }
-            let scenesToMake = Array((c.sceneTexts.isEmpty ? t.scenes : c.sceneTexts).prefix(scenes))
+            let scenesToMake = DirectorScenes.approved(c.sceneTexts.isEmpty ? t.scenes : c.sceneTexts, scenes: scenes)
             await MainActor.run { self?.directorRun?.scenes = scenesToMake }
             let style = treatment == nil ? t.style : c.style
             if !style.isEmpty { q.style = style }
@@ -378,6 +378,17 @@ struct DirectorSheet: View {
         isLoop ? Double(review.choices.scenes) * model.loopScenePrice + (review.choices.cast.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : review.choices.quality.estimate)
                : Double((model.plan?.sections.count ?? 0) + 1 + (review.choices.cast.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1)) * (review.choices.quality.estimate)
     }
+    /// Takes a proposed scene out of the plan; the scenes that stay (at least one) are exactly what gets made.
+    private func removeScene(_ k: Int) {
+        let left = DirectorScenes.remove(review.choices.sceneTexts, scenes: review.choices.scenes, at: k)
+        review.choices.sceneTexts = left.texts
+        review.choices.scenes = left.scenes
+    }
+    /// The words of one proposed scene, safe to edit while the list changes (removing a scene never reads a stale row).
+    private func sceneText(_ k: Int) -> Binding<String> {
+        Binding(get: { review.choices.sceneTexts.indices.contains(k) ? review.choices.sceneTexts[k] : "" },
+                set: { v in if review.choices.sceneTexts.indices.contains(k) { review.choices.sceneTexts[k] = v } })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -386,15 +397,27 @@ struct DirectorSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(review.logline).font(.title3).fixedSize(horizontal: false, vertical: true)
                     if let t = review.song { Text(t.summary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                    if review.loop != nil {
-                        ForEach(0..<min(review.choices.scenes, review.choices.sceneTexts.count), id: \.self) { k in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Scene \(k + 1)").font(.callout.weight(.semibold))
-                                TextField("Scene \(k + 1)", text: $review.choices.sceneTexts[k], axis: .vertical).lineLimit(2...4).textFieldStyle(.roundedBorder)
+                    if isLoop {
+                        Text("These are the director's scenes. Change any words, or press the minus button to take a scene out (at least one stays). Nothing is drawn until you press the blue button.")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        ForEach(DirectorScenes.approved(review.choices.sceneTexts, scenes: review.choices.scenes).indices, id: \.self) { k in
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Scene \(k + 1)").font(.callout.weight(.semibold))
+                                    TextField("Scene \(k + 1)", text: sceneText(k), axis: .vertical).lineLimit(2...4).textFieldStyle(.roundedBorder)
+                                }
+                                Button { removeScene(k) } label: { Image(systemName: "minus.circle") }
+                                    .buttonStyle(.borderless)
+                                    .disabled(review.choices.scenes <= 1 || review.choices.sceneTexts.count <= 1)
+                                    .help("Take this scene out of the plan. At least one scene stays; you can add more in the Scenes list later.")
+                                    .accessibilityLabel("Remove scene \(k + 1)")
                             }
                         }
+                        Text("“Make it all automatically” does it all in one click, with no questions. This screen is the “Plan with the director” way. Either way, you can always write your own idea for each scene in the Scenes list, make them one at a time, and remove any picture you do not like under Versions.")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Check the choices below and change any of them. Nothing is drawn until you press the blue button.").font(.callout).foregroundStyle(.secondary)
                     }
-                    Text("Check the choices below and change any of them. Nothing is drawn until you press the blue button.").font(.callout).foregroundStyle(.secondary)
                     Form {
                         Picker("Brightness", selection: c.brightness) { ForEach(Brightness.allCases, id: \.self) { Text($0.name).tag($0) } }
                         if review.choices.suggested != .bright && review.choices.suggested != review.choices.brightness {
@@ -418,8 +441,8 @@ struct DirectorSheet: View {
                             }
                         }
                         TextField(isLoop ? "The animals, objects and landmarks that stay the same (empty = none)" : "The people and things that stay the same (empty = none)", text: c.cast, axis: .vertical).lineLimit(2...5)
-                        if let t = review.loop, t.scenes.count > 1 {
-                            Picker("Scenes", selection: c.scenes) { ForEach(1...t.scenes.count, id: \.self) { Text("\($0)").tag($0) } }
+                        if isLoop, review.choices.sceneTexts.count > 1 {
+                            Picker("Scenes", selection: c.scenes) { ForEach(1...review.choices.sceneTexts.count, id: \.self) { Text("\($0)").tag($0) } }
                         }
                     }.formStyle(.grouped)
                 }
