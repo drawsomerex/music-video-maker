@@ -52,36 +52,46 @@ struct NewScenesStage: View {
 
     // MARK: toolbar
     var toolbar: some View {
-        HStack(spacing: 10) {
-            Button { showLook = true } label: { HStack(spacing: 5) { Image(systemName: "paintpalette").font(.system(size: 11)); Text("Look") } }.buttonStyle(.classicalSmall)
-                .help("Art style, quality, brightness, weather, time of day, shot, the picture to base it on, cloudless sky and what moves.")
-            Menu {
-                Button("Direct the rest (≈ \(OpenRouter.formatUSD(model.loopAutoPrice)))") { model.loopAutoAsk() }
-                Button("Plan with the director, then I approve…") { model.loopDirectorPlan() }
-            } label: { HStack(spacing: 5) { Image(systemName: "wand.and.stars").font(.system(size: 11)); Text("Director…") } }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().font(Classical.body(12)).padding(.horizontal, 10).padding(.vertical, 4)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.neutral300, lineWidth: 1)).disabled(working || p.tracks.isEmpty)
-            Rectangle().fill(Classical.divider).frame(width: 1, height: 18)
-            Text("Scenes change").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
-            Menu {
-                ForEach(LoopSceneChange.allCases, id: \.self) { c in Button(c.name) { model.slotEdit { q, f in LoopVideo.syncSlots(&q, focus: f); q.sceneChange = c } } }
-            } label: { Text(p.sceneChange.name).font(Classical.body(12, weight: .semibold)) }
-                .menuStyle(.borderlessButton).menuIndicator(.visible).fixedSize().disabled(working)
-                .help("At each song change: one scene for each song, in the songs' order. Every few minutes: the scenes you add, played in this order and then again. One clip: a single scene. Changes are a slow cross-fade; the music never changes because of them.")
-            if p.sceneChange == .time {
-                Stepper("every \(Int(p.sceneMinutes)) min", value: Binding(get: { p.sceneMinutes }, set: { v in model.editLoop { $0.sceneMinutes = v } }), in: 1...60, step: 1).fixedSize().font(Classical.body(12))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Button { showLook = true } label: { HStack(spacing: 5) { Image(systemName: "paintpalette").font(.system(size: 11)); Text("Look") } }.buttonStyle(.classicalSmall)
+                    .help("Art style, quality, brightness, weather, time of day, shot, the picture to base it on, cloudless sky and what moves.")
+                Menu {
+                    Button("Direct the rest (≈ \(OpenRouter.formatUSD(model.loopAutoPrice)))") { model.loopAutoAsk() }
+                    Button("Plan with the director, then I approve…") { model.loopDirectorPlan() }
+                } label: { HStack(spacing: 5) { Image(systemName: "wand.and.stars").font(.system(size: 11)); Text("Director…") } }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().font(Classical.body(12)).padding(.horizontal, 10).padding(.vertical, 4)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Classical.neutral300, lineWidth: 1)).disabled(working || p.tracks.isEmpty)
+                Rectangle().fill(Classical.divider).frame(width: 1, height: 18)
+                Text("Scenes change").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+                Menu {
+                    ForEach(LoopSceneChange.allCases, id: \.self) { c in Button(c.name) { model.slotEdit { q, f in LoopVideo.syncSlots(&q, focus: f); q.sceneChange = c } } }
+                } label: { Text(p.sceneChange.name).font(Classical.body(12, weight: .semibold)) }
+                    .menuStyle(.borderlessButton).menuIndicator(.visible).fixedSize().disabled(working)
+                    .help("At each song change: one scene for each song, in the songs' order. Every few minutes: the scenes you add, played in this order and then again. One clip: a single scene. Changes are a slow cross-fade; the music never changes because of them.")
+                if p.sceneChange == .time {
+                    Stepper("every \(Int(p.sceneMinutes)) min", value: Binding(get: { p.sceneMinutes }, set: { v in model.editLoop { $0.sceneMinutes = v } }), in: 1...60, step: 1).fixedSize().font(Classical.body(12))
+                }
+                Spacer()
+                switch p.sceneChange {
+                case .time:
+                    Text("\(slots.count) scene\(slots.count == 1 ? "" : "s")").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+                    Button { if let s = selected { confirmRemove = s.id } } label: { Text("− Take out") }.buttonStyle(.classicalSmall).disabled(working || slots.count <= 1 || selected == nil)
+                        .help("Takes the selected scene out of the list.")
+                    Button { model.slotEdit { LoopVideo.addSlot(&$0, focus: $1) } } label: { Text("+ Add a scene") }.buttonStyle(.classicalSmall).disabled(working)
+                        .help("Adds a blank scene at the end. It is free; you draw its picture and make its clip on the right.")
+                case .songs: Text("One scene for each of the \(p.tracks.count) song\(p.tracks.count == 1 ? "" : "s")").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
+                case .never: EmptyView()
+                }
             }
-            Spacer()
-            switch p.sceneChange {
-            case .time:
-                Text("\(slots.count) scene\(slots.count == 1 ? "" : "s")").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
-                Button { if let s = selected { confirmRemove = s.id } } label: { Text("− Take out") }.buttonStyle(.classicalSmall).disabled(working || slots.count <= 1 || selected == nil)
-                    .help("Takes the selected scene out of the list.")
-                Button { model.slotEdit { LoopVideo.addSlot(&$0, focus: $1) } } label: { Text("+ Add a scene") }.buttonStyle(.classicalSmall).disabled(working)
-                    .help("Adds a blank scene at the end. It is free; you draw its picture and make its clip on the right.")
-            case .songs: Text("One scene for each of the \(p.tracks.count) song\(p.tracks.count == 1 ? "" : "s")").font(Classical.body(12)).foregroundStyle(Classical.neutral700)
-            case .never: EmptyView()
+            VStack(alignment: .leading, spacing: 1) {
+                Text("“Direct the rest”: one click, no questions. The director makes up the scenes, draws the pictures and makes the clips.")
+                Text("“Plan with the director, then I approve”: you see and can change every scene and choice first; nothing is drawn until you approve.")
+                Text("Or write your own idea for each scene in the list: every scene has its own idea, picture and clip. Make them one at a time, and remove any picture you do not like under Versions.")
             }
+            .font(Classical.body(11)).foregroundStyle(Classical.neutral600)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }.padding(.horizontal, 20).padding(.vertical, 9).background(Classical.bg)
     }
 

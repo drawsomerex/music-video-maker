@@ -130,12 +130,25 @@ struct LoopView: View {
                 Text(p.title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            Button { model.loopDirectorPlan() } label: { Label("Plan with the director…", systemImage: "person.crop.rectangle.stack") }
-                .disabled(working || p.tracks.isEmpty)
-                .help("The director plans the scenes, then you see its choices (brightness, style, weather, time of day, quality, the picture to base it on, how many scenes) and approve or change them before anything is made.")
-            Button { model.loopAutoAsk() } label: { Label("Make it all automatically (≈ \(OpenRouter.formatUSD(model.loopAutoPrice)))", systemImage: "wand.and.stars") }
-                .buttonStyle(.borderedProminent).disabled(working || p.tracks.isEmpty)
-                .help("One click: a director plans \(model.loopAutoScenes) scene\(model.loopAutoScenes == 1 ? "" : "s") and the style (and finds a reference photo if it helps), then the app draws the pictures, makes the loop clips and opens a preview.")
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 8) {
+                    Button { model.loopDirectorPlan() } label: { Label("Plan with the director…", systemImage: "person.crop.rectangle.stack") }
+                        .disabled(working || p.tracks.isEmpty)
+                        .help("The director suggests the scenes, then you see and change its choices (brightness, style, weather, time of day, quality, the picture to base it on, how many scenes) and can change or remove each scene. Nothing is drawn until you approve.")
+                    Button { model.loopAutoAsk() } label: { Label("Make it all automatically (≈ \(OpenRouter.formatUSD(model.loopAutoPrice)))", systemImage: "wand.and.stars") }
+                        .buttonStyle(.borderedProminent).disabled(working || p.tracks.isEmpty)
+                        .help("One click, no questions: a director makes up \(model.loopAutoScenes) scene\(model.loopAutoScenes == 1 ? "" : "s") and the style (and finds a reference photo if it helps), then the app draws the pictures, makes the loop clips and opens a preview.")
+                }
+                Text("“Plan with the director”: the director suggests the scenes first; you read and change each scene and the choices, and nothing is drawn until you approve.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("“Make it all automatically”: one click. The director makes up the scenes, draws the pictures and makes the clips, with no questions.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("You can also write your own idea for each scene in the Scenes list (every scene has its own idea, picture and clip), make them one at a time, and remove any picture you do not like under Versions.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: 520, alignment: .trailing)
+            .fixedSize(horizontal: false, vertical: true)
             Text("Spent: \(OpenRouter.formatUSD(p.imagesUSD + p.videoUSD))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 .help("Picture \(OpenRouter.formatUSD(p.imagesUSD)) and loop clip \(OpenRouter.formatUSD(p.videoUSD)) for this looping video (the cost OpenRouter reported).")
             Button { if let d = model.loopDir { NSWorkspace.shared.activateFileViewerSelecting([d]) } } label: { Label("Show folder", systemImage: "folder") }.labelStyle(.iconOnly)

@@ -246,3 +246,21 @@ public enum Director {
         return (shows && note.count > 10, keep, note)
     }
 }
+
+/// The scenes a looping video will make, after you approved or changed the director's plan.
+public enum DirectorScenes {
+    /// The scenes to make: the edited list, cut to the number you chose. Never more than you have; at least one when there are any.
+    public static func approved(_ texts: [String], scenes: Int) -> [String] {
+        guard !texts.isEmpty else { return [] }
+        return Array(texts.prefix(max(1, min(scenes, texts.count))))
+    }
+
+    /// Takes one proposed scene out (at least one stays). If it was one you were going to make, the number to make drops by one.
+    public static func remove(_ texts: [String], scenes: Int, at index: Int) -> (texts: [String], scenes: Int) {
+        guard texts.indices.contains(index), texts.count > 1 else { return (texts, max(1, min(scenes, texts.count))) }
+        var left = texts
+        left.remove(at: index)
+        let want = index < scenes ? scenes - 1 : scenes
+        return (left, max(1, min(want, left.count)))
+    }
+}
