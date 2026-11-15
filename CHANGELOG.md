@@ -5,6 +5,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 
 ## [Unreleased]
 
+## [2.0.12] - 2026-11-14
+
 ## [2.0.11] - 2026-11-14
 - Looping videos: a "Slow pan and zoom on the picture (Ken Burns)" button beside "Use the picture as a still". It makes a free, seamless, 20-second slow pan and zoom on this Mac; every scene has its own clip, so one video can mix AI loop scenes, still scenes and Ken Burns scenes. In both designs.
 - Looping videos: a one-click "Keep the clouds still" switch (both designs) that tells the clip the clouds and sky stay frozen, and keeps clouds out of the "what moves" description.
