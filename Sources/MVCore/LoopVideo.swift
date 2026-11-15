@@ -1117,12 +1117,16 @@ public enum LoopVideo {
     public static func estimatedBytes(seconds: Double) -> Int64 { Int64(seconds * Double(videoBitrate + audioBitrate) / 8 * 1.03) }
 
     /// When each song's title card shows (only when cards are on for every song): as the song becomes the main sound, the first one after the video's title.
+    /// When the scene changes at each song change, the card waits until the cross-fade to the song's own scene has finished, so it is never over the
+    /// previous scene. Songs that keep the same scene (or scenes that change by time) show their card as before.
     public static func cardTimes(_ p: LoopProject, plan: LoopAudio.Plan) -> [(start: Double, text: String)] {
         guard p.cards == .everySong else { return [] }
+        let changes = Dictionary(uniqueKeysWithValues: songSceneChanges(p, plan: plan).map { ($0.play, $0.t) })
         var out: [(Double, String)] = []
-        for play in plan.turns where p.tracks.indices.contains(play.track) && p.tracks[play.track].cardOn {      // once per turn, not on its repeats
-            let s = max(play.start + play.fadeIn / 2, titleScreenEnd + 0.5)
-            if s + cardSeconds > plan.songsEnd { continue }
+        for (k, play) in plan.plays.enumerated() where play.rep == 0 && p.tracks.indices.contains(play.track) && p.tracks[play.track].cardOn {      // once per turn, not on its repeats
+            var s = max(play.start + play.fadeIn / 2, titleScreenEnd + 0.5)
+            if let t = changes[k] { s = max(s, t + sceneFade / 2) }                      // after the cross-fade, never over the previous scene
+            if s + cardSeconds > plan.songsEnd { continue }                              // never after the song's useful time
             if let last = out.last, s < last.0 + cardSeconds + 0.5 { continue }          // a very short song: never two cards on top of each other
             let t = p.tracks[play.track].title.trimmingCharacters(in: .whitespacesAndNewlines)
             out.append((s, t.isEmpty ? (p.tracks[play.track].file as NSString).deletingPathExtension.components(separatedBy: "/").last ?? "" : t))

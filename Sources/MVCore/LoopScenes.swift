@@ -77,15 +77,34 @@ extension LoopVideo {
             func clip(_ play: LoopAudio.Play) -> String? { tied.indices.contains(play.track) ? tied[play.track].clip : p.clip }
             guard let opening = plan.plays.first.flatMap(clip) ?? p.clip else { return [] }
             var out: [(t: Double, clip: String)] = [(0, opening)]
-            let earliest = titleScreenEnd + 5, latest = plan.songsEnd - 20
-            for (a, b) in zip(plan.plays, plan.plays.dropFirst()) where b.rep == 0 {
-                let t = (a.end + b.start) / 2
-                guard t >= earliest, t <= latest, let c = clip(b), c != out.last!.clip else { continue }
-                if out.count > 1, t - out.last!.t < sceneMinGap { continue }
-                out.append((t, c))
+            for change in songSceneChanges(p, plan: plan) {
+                guard let c = clip(plan.plays[change.play]) else { continue }
+                out.append((change.t, c))
             }
             return out
         }
+    }
+
+    /// The scene changes of "At each song change": the play (an index into `plan.plays`) the video changes into, and the time the 3-second
+    /// cross-fade is centred on (so it starts at t - sceneFade/2 and the new scene is fully shown at t + sceneFade/2).
+    /// A song that keeps the previous scene has no change; changes avoid the title, the ending and are at least 30 seconds apart.
+    public static func songSceneChanges(_ p: LoopProject, plan: LoopAudio.Plan) -> [(play: Int, t: Double)] {
+        guard p.sceneChange == .songs else { return [] }
+        let tied = songClips(p)
+        func clip(_ play: LoopAudio.Play) -> String? { tied.indices.contains(play.track) ? tied[play.track].clip : p.clip }
+        guard let opening = plan.plays.first.flatMap(clip) ?? p.clip else { return [] }
+        var out: [(play: Int, t: Double)] = []
+        var lastT = 0.0, lastClip = opening, scenes = 1                  // the video opens on a scene
+        let earliest = titleScreenEnd + 5, latest = plan.songsEnd - 20
+        for k in plan.plays.indices.dropFirst() {
+            let a = plan.plays[k - 1], b = plan.plays[k]
+            guard b.rep == 0 else { continue }                            // a song repeating itself is not a song change
+            let t = (a.end + b.start) / 2
+            guard t >= earliest, t <= latest, let c = clip(b), c != lastClip else { continue }
+            if scenes > 1, t - lastT < sceneMinGap { continue }
+            out.append((k, t)); lastT = t; lastClip = c; scenes += 1
+        }
+        return out
     }
 
     /// When the scene changes (seconds), whatever the number of clips: song changes and/or every few minutes, never during the title or the ending,
