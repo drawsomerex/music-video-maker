@@ -143,6 +143,7 @@ public struct LoopProject: Codable, Equatable {
     public var sceneDrawn: String?              // the scene words the picture in use was drawn from (words typed since then are your next scene)      // the major changes used for "next scene" pictures so far (not repeated)
     public var subject: String?                 // a photo of the subject the drawn picture shows (redrawn in the style), in the project folder
     public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
+    public var stillClouds = false               // the clip's instructions freeze the clouds and the sky (no billowing, no drifting)
     public var pendingJob: String?              // a HeyGen job that was paid for but not collected yet (the app was closed)
     public var hours = 1.0
     public var imagesUSD = 0.0, videoUSD = 0.0, pictureCount = 0
@@ -157,7 +158,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case songVideos, sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText }
+    enum CodingKeys: String, CodingKey { case songVideos, sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText, stillClouds }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -185,6 +186,7 @@ public struct LoopProject: Codable, Equatable {
         pendingOptions = try c.decodeIfPresent(ClipOptions.self, forKey: .pendingOptions)
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
         clearSky = try c.decodeIfPresent(Bool.self, forKey: .clearSky) ?? false
+        stillClouds = try c.decodeIfPresent(Bool.self, forKey: .stillClouds) ?? false
         subject = try c.decodeIfPresent(String.self, forKey: .subject)
         sceneClips = try c.decodeIfPresent([String].self, forKey: .sceneClips) ?? []
         subjectClose = try c.decodeIfPresent([String: Double].self, forKey: .subjectClose) ?? [:]
@@ -600,40 +602,57 @@ public enum LoopVideo {
     /// audio), sent word for word (its prompt rewriting off). The picture is the literal first frame, so the words go on what moves, what must not,
     /// and what must never happen; "no …" clauses are followed closely. A camera and lens are named only for photographic looks (on a painting they
     /// would pull it towards a photo).
-    public static func clipPrompt(scene: String, motion: String = "", style: String = "", seconds: Int = 15) -> String {
+    public static func clipPrompt(scene: String, motion: String = "", style: String = "", seconds: Int = 15, stillClouds: Bool = false) -> String {
         let m = motion.trimmingCharacters(in: CharacterSet(charactersIn: " \n.")), sc = scene.trimmingCharacters(in: .whitespacesAndNewlines)
         let st = StylePreset.withoutLighting(style).trimmingCharacters(in: CharacterSet(charactersIn: " \n."))
         let photographic = ["photo", "realistic", "cinematic", "35mm", "film still", "documentary", "live-action", "live action"].contains { st.lowercased().contains($0) }
+        let moving = stillClouds ? "water, waves, foliage and smoke" : "water, waves, clouds, foliage and smoke"
         return [
             "Camera: " + (photographic ? "Shot on a large-format cinema camera with a 35mm lens at T4, locked off on a heavy tripod. " : "") +
-                "The frame is locked and the camera does not move at all for the whole clip: no pan, no tilt, no zoom, no push-in, no drift, no shake.",
+                "Static locked camera: the camera stands at one fixed point and the frame never moves. The camera does not move at all for the whole clip: no travelling, no flying, no dolly, no drone, no moving forward, no pan, no tilt, no zoom, no push-in, no drift, no shake.",
             "Setting: " + (sc.isEmpty ? "the scene in the first frame." : sc + (sc.hasSuffix(".") ? "" : ".")) +
                 " The first frame is the finished picture: keep its composition, framing and every object exactly where they are.",
             "Look: " + (st.isEmpty ? "exactly the look of the first frame." : st + ".") + " The look, the colours and the texture stay exactly as in the first frame" +
                 (photographic ? "; natural film grain, no smoothing, no beauty filter." : "; the marks of the medium (brushstrokes, paper, grain) stay fixed in place and never shimmer, swim or smooth into a glossy digital or 3D look."),
+            "Colour and content: same colour grading, saturation and contrast as the first frame; do not shift hue or desaturate, and do not change the grade. Every landscape element in the first frame, such as valleys, hills, trees and buildings, stays visible, in place and in its own colour for the whole clip; nothing fades, vanishes or turns into something else.",
             "Light: the light stays exactly as in the first frame for the whole clip, with the same brightness, colours and direction: no fading, no flashes, no change of time of day (only real firelight or candlelight may flicker).",
             "Action, from the first second to the last: " + (m.isEmpty ? "everything that would really move in this scene moves gently (water, rain, snow, fire, smoke, mist or flickering light)." : m + ".") +
-                " This motion is continuous and steady and repeats in place at the same gentle pace for all \(seconds) seconds: nothing starts, builds, peaks or ends, and there are no one-off events (a single splash, a sudden gust). " +
-                "Clouds keep their places and only billow softly; they never slide across the sky. Anything that turns or flows (a water wheel, a waterfall, a stream) keeps the same direction and speed the whole time and never reverses. " +
-                "People and animals only move a little in place. Everything else stays perfectly still. The last second looks like the first.",
-            "Exclusions: one continuous shot with no visible edit. No cuts, no mirror flip, no change of scene, no morphing, no new objects, nothing entering or leaving the frame, no people or animals appearing, no text, logos or lettering.",
+                " Everything that moves is in slow motion at roughly a quarter of its natural speed: \(moving) drift, swell and sway only slowly and gently, never fast or rushed. " +
+                "This motion is continuous and steady and repeats in place at the same slow pace for all \(seconds) seconds: nothing starts, builds, peaks or ends, and there are no one-off events (a single splash, a sudden gust). " +
+                (stillClouds ? "The clouds and the sky stay completely still and frozen for the whole clip: no billowing, no drifting, no sliding, no reshaping." : "Clouds keep their places and only billow softly; they never slide across the sky.") + " " +
+                "Anything that turns or flows (a water wheel, a waterfall, a stream) keeps the same direction and speed the whole time and never reverses. " +
+                "People and animals only move a little in place. Everything else stays perfectly still. " +
+                "The camera stays static and locked from the first second to the last: it never travels, flies, dollies, drifts or moves forward. The last second looks like the first.",
+            "Exclusions: one continuous shot with no visible edit. Static locked camera, no camera movement of any kind: no travelling, no flying, no dolly, no drone, no moving forward, no zoom, no pan, no shake. No cuts, no mirror flip, no change of scene, no morphing, no new objects, nothing entering or leaving the frame, no people or animals appearing, no text, logos or lettering." +
+                (stillClouds ? " No moving clouds, no drifting sky." : ""),
             "Audio: quiet natural ambience of the scene only. No music, no dialogue.",
         ].joined(separator: "\n")
     }
 
+    /// The instruction for listing what moves in the picture (a separate wording when the clouds must stay still).
+    static func motionInstructions(stillClouds: Bool = false) -> String {
+        let sky = stillClouds
+            ? "the clouds and the sky never move at all (do not say the clouds or the sky move in any way); "
+            : "clouds and mist only billow softly where they are, very slowly, never drifting across; "
+        let example = stillClouds
+            ? "\"snow falling gently, smoke curling from the chimney, firelight flickering in the window; the cabin, the clouds and the pines stay still\""
+            : "\"snow falling gently, smoke curling from the chimney, firelight flickering in the window, clouds billowing softly in place; the cabin and the pines stay still\""
+        return "This picture becomes a short looping video with a completely still camera. Look carefully at THIS picture and list what in it should move, and how, " +
+            "so it looks real. Name only things you can actually see in it, in the order of how much they matter. Moving water, waves, rain, snow, fire, smoke and flames move " +
+            "naturally (for water, say how it moves near the shore or edge too), and everything moves slowly, at roughly a quarter of its natural speed; " + sky + "anything that turns or flows " +
+            "(a water wheel, a waterfall, a stream) keeps the same direction the whole time (say which way); people and animals only make small movements in place " +
+            "(never walking, riding or travelling across the picture, which would jump back when the clip repeats). Then say which large things stay still. The form, for a quite different picture " +
+            "(a snowy cabin): " + example + ". " +
+            "One line, 15–40 words. Reply with ONLY that line."
+    }
+
     /// Looks at the picture once (a cheap cloud vision call, a fraction of a cent) and lists what should move in the loop clip. Returns the text and its cost.
-    public static func describeMotion(file: URL, config: Config = .load()) async -> (text: String, cost: Double)? {
+    public static func describeMotion(file: URL, config: Config = .load(), stillClouds: Bool = false) async -> (text: String, cost: Double)? {
         guard let img = loadImage(file, maxPixel: 768) else { return nil }
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary); CGImageDestinationFinalize(dest)
-        let text = "This picture becomes a short looping video with a completely still camera. Look carefully at THIS picture and list what in it should move, and how, " +
-            "so it looks real. Name only things you can actually see in it, in the order of how much they matter. Moving water, waves, rain, snow, fire, smoke and flames move " +
-            "naturally (for water, say how it moves near the shore or edge too); clouds and mist only billow softly where they are, very slowly, never drifting across; anything that turns or flows " +
-            "(a water wheel, a waterfall, a stream) keeps the same direction the whole time (say which way); people and animals only make small movements in place " +
-            "(never walking, riding or travelling across the picture, which would jump back when the clip repeats). Then say which large things stay still. The form, for a quite different picture " +
-            "(a snowy cabin): \"snow falling gently, smoke curling from the chimney, firelight flickering in the window, clouds billowing softly in place; the cabin and the pines stay still\". " +
-            "One line, 15–40 words. Reply with ONLY that line."
+        let text = motionInstructions(stillClouds: stillClouds)
         var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!); req.httpMethod = "POST"; req.timeoutInterval = 60
         req.setValue("Bearer \(config.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization"); req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let content: [[String: Any]] = [["type": "text", "text": text], ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + (data as Data).base64EncodedString()]]]
@@ -651,7 +670,7 @@ public enum LoopVideo {
         let taskBase = p
         guard let pic = p.picture else { return }
         if let cached = p.motionByPicture[pic] { p.motion = cached; return }
-        guard let r = await describeMotion(file: dir.appendingPathComponent(pic), config: config) else { return }
+        guard let r = await describeMotion(file: dir.appendingPathComponent(pic), config: config, stillClouds: p.stillClouds) else { return }
         p.motion = r.text; p.motionByPicture[pic] = r.text; p.imagesUSD += r.cost; _ = try? saveMediaResult(p, startedFrom: taskBase, dir: dir)
     }
     public static func clipPrice(sharp: Bool, perSecond768: Double, seconds: Int? = nil) -> Double { ClipOptions(seconds: seconds, sharp: sharp).price(perSecond768: perSecond768) }
@@ -662,7 +681,7 @@ public enum LoopVideo {
         guard let pic = p.picture, let frame = Pipeline.firstFrameJPEG(file: dir.appendingPathComponent(pic), sharp: p.sharpClip) else { throw MVError("Make or add the picture first. The clip starts from it.") }
         let scene = p.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         let options = ClipOptions(seconds: p.clipLength, sharp: p.sharpClip)
-        let brief = await PromptCheck.fix(clipPrompt(scene: scene, motion: p.motion, style: p.style, seconds: options.generatedSeconds()), scene: scene, kind: .clip, apiKey: config.openRouterKey)
+        let brief = await PromptCheck.fix(clipPrompt(scene: scene, motion: p.motion, style: p.style, seconds: options.generatedSeconds(), stillClouds: p.stillClouds), scene: scene, kind: .clip, apiKey: config.openRouterKey)
         let clip = try await OpenRouterVideo.generate(prompt: brief, firstFrameJPEG: frame, seconds: options.generatedSeconds(), apiKey: config.openRouterKey,
                                                       resolution: p.sharpClip ? "2K" : OpenRouterVideo.resolution, exactPrompt: true,
                                                       onJob: { id in try recordLoopJob(PendingLoopJob(id: id, options: options), dir: dir) }, onPhase: onPhase)
