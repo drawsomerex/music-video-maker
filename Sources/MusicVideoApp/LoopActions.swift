@@ -343,6 +343,17 @@ extension AppModel {
             return q
         }
     }
+    /// The picture with a slow pan and zoom (Ken Burns) that loops perfectly: free, made on this Mac in a few seconds.
+    func loopUseKenBurns() {
+        guard loopProject?.picture != nil else { return }
+        let cfg = config
+        runLoop("Making a slow pan and zoom clip from the picture…", estimate: 40) { p, d in
+            var q = p
+            try await LoopVideo.useKenBurns(&q, dir: d, config: cfg)
+            if let c = q.clip { try await LoopVideo.makePreview(clip: d.appendingPathComponent(c), output: d.appendingPathComponent("preview-" + (c as NSString).deletingPathExtension + ".mp4"), trim: q.trim) }
+            return q
+        }
+    }
     func loopChooseClip() {
         let o = NSOpenPanel(); o.allowedContentTypes = [.movie]; o.message = "Choose a video clip to loop"
         if o.runModal() == .OK, let u = o.url { loopUseClip(u) }

@@ -408,6 +408,8 @@ struct LoopView: View {
                             .help(p.picture == nil ? "Add or draw the picture first." : "Makes the chosen length from the picture. You see the price first.")
                         Button { model.loopUseStill() } label: { Label("Use the picture as a still (no video clip)", systemImage: "photo") }.disabled(working || p.picture == nil)
                             .help("The whole video shows this picture, perfectly still, with the music (an album, for example). It is free and instant: nothing is drawn or waited for, and title cards, Shorts and the YouTube files all work as usual.")
+                        Button { model.loopUseKenBurns() } label: { Label("Slow pan and zoom on the picture (Ken Burns)", systemImage: "camera.viewfinder") }.disabled(working || p.picture == nil)
+                            .help("A slow, gentle pan and zoom across this picture, made on this Mac: free and a few seconds. The camera returns exactly where it began, so the clip loops without a seam (no HeyGen order).")
                         Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
                             .help("Loop a video from your Mac instead (or drag it onto the box). A still camera works best.")
                         if p.clip != nil {
