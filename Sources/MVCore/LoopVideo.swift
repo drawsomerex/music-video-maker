@@ -143,6 +143,7 @@ public struct LoopProject: Codable, Equatable {
     public var sceneDrawn: String?              // the scene words the picture in use was drawn from (words typed since then are your next scene)      // the major changes used for "next scene" pictures so far (not repeated)
     public var subject: String?                 // a photo of the subject the drawn picture shows (redrawn in the style), in the project folder
     public var clearSky = true                  // new pictures are drawn with a cloudless sky (it loops most cleanly); older projects keep their clouds
+    public var kenBurnsPaths: [String: LoopVideo.KenBurnsPath] = [:]     // each picture's own slow pan and zoom (its points), kept per picture so every scene has its own
     public var stillClouds = false               // the clip's instructions freeze the clouds and the sky (no billowing, no drifting)
     public var pendingJob: String?              // a HeyGen job that was paid for but not collected yet (the app was closed)
     public var hours = 1.0
@@ -158,7 +159,7 @@ public struct LoopProject: Codable, Equatable {
     public init() {}
     public var shownTitle: String { screenTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : screenTitle }
 
-    enum CodingKeys: String, CodingKey { case songVideos, sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText, stillClouds }
+    enum CodingKeys: String, CodingKey { case kenBurnsPaths, songVideos, sceneSlots, scenesV2, id, title, screenTitle, about, songFile, songSeconds, tracks, analysis, transition, crossfade, gap, evenVolume, shuffle, playOnce, cards, scene, style, motion, pictures, picture, clips, clip, sharpClip, shortOptions, clipLength, motionByPicture, versionCosts, versionQualities, pendingOptions, clearSky, subject, sceneClips, sceneChange, sceneMinutes, subjectClose, subjectKind, sceneChanges, nextFocus, sceneDrawn, weather, timeOfDay, shot, checks, enhanced, enlarged, cast, castSheet, source, pictureQuality, brightness, pendingJob, hours, imagesUSD, videoUSD, pictureCount, output, thumbnail, listing, trims, clipWarning, loopScores, loopDrift, thumbText, stillClouds }
     public init(from d: Decoder) throws {                          // every field has a default, so older loop projects always open
         let c = try d.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -187,6 +188,7 @@ public struct LoopProject: Codable, Equatable {
         sharpClip = try c.decodeIfPresent(Bool.self, forKey: .sharpClip) ?? false; pendingJob = try c.decodeIfPresent(String.self, forKey: .pendingJob)
         clearSky = try c.decodeIfPresent(Bool.self, forKey: .clearSky) ?? false
         stillClouds = try c.decodeIfPresent(Bool.self, forKey: .stillClouds) ?? false
+        kenBurnsPaths = try c.decodeIfPresent([String: LoopVideo.KenBurnsPath].self, forKey: .kenBurnsPaths) ?? [:]
         subject = try c.decodeIfPresent(String.self, forKey: .subject)
         sceneClips = try c.decodeIfPresent([String].self, forKey: .sceneClips) ?? []
         subjectClose = try c.decodeIfPresent([String: Double].self, forKey: .subjectClose) ?? [:]
@@ -898,7 +900,9 @@ public enum LoopVideo {
     /// The rating and the slowly dissolving share for the loop as it is now (after you move the markers, or for loops rated before the slow dissolve).
     public static func rateLoop(_ p: inout LoopProject, clip: String, dir: URL) {
         guard let b = loopBlend(dir.appendingPathComponent(clip), trim: p.trims[clip] ?? ClipTrim()) else { return }
-        p.loopScores[clip] = b.score; p.loopDrift[clip] = b.share
+        // a project must always be savable: a measurement that is not a number (it cannot be written to the project file) is left out
+        if b.score.isFinite { p.loopScores[clip] = b.score }
+        if b.share.isFinite { p.loopDrift[clip] = b.share }
     }
 
     /// Checks a new clip; if it flips, cuts or something in it starts turning the other way, the loop is set to the longest clean stretch and a warning is kept.

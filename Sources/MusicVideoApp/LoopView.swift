@@ -37,6 +37,7 @@ struct LoopView: View {
     @State private var pictureTargeted = false
     @State private var clipTargeted = false
     @State private var showTrim = false
+    @State private var moveStyle = 0                // the scene's clip: 0 a moving loop (HeyGen), 1 slow pan and zoom (Ken Burns), 2 a still picture
     @State private var showSubject = false
     @State private var confirmAddScene = false
 
@@ -400,6 +401,15 @@ struct LoopView: View {
     var clipCard: some View {
         card(3, "The loop clip", "A short clip made by HeyGen from the picture: a still camera with gentle, repeating motion. Its end blends into its start, so it loops without a seam.") {
             VStack(alignment: .leading, spacing: 10) {
+                choice("Movement", selection: $moveStyle) {
+                    Text("Moving loop").tag(0); Text("Ken Burns").tag(1); Text("Still").tag(2)
+                }.disabled(working)
+                    .help("How this scene moves. Every scene can move in its own way, so one video can mix them. A moving loop is made by HeyGen (it costs a little). A slow pan and zoom (Ken Burns) and a still picture are free, made on this Mac in seconds.")
+                Text(moveStyle == 0 ? "A moving loop: gentle repeating motion (water, light, weather) made from the picture. You see the price first."
+                     : moveStyle == 1 ? "Ken Burns: a slow, gentle pan and zoom across the picture that comes back exactly to where it began, so it repeats without a seam. Free."
+                     : "Still: the picture stays perfectly still. Free and instant.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if moveStyle == 1, let pic = p.picture { KenBurnsEditor(picture: pic).id(pic) }
+                if moveStyle == 0 {
                 choice("Clip length", selection: Binding(get: { p.clipLength ?? 15 }, set: { length in model.editLoop { $0.clipLength = length } })) {
                     Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("8 seconds").tag(8); Text("15 seconds").tag(15)
                 }.disabled(working)
@@ -413,17 +423,24 @@ struct LoopView: View {
                 Text("Either way the long video is 1080p. Standard is made at 768p and scaled up, so it's a little soft; Sharp is made at 2K and scaled down, so it has full 1080p detail.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ClipFirstFrameView(file: model.loopFile(p.picture), sharp: p.sharpClip)
+                }
                 HStack(alignment: .top, spacing: 14) {
                     if part != .sceneClip { clipWell }      // the New Design's Scenes stage shows the loop on its canvas
                     VStack(alignment: .leading, spacing: 8) {
-                        Button { model.checkClipsThen([ClipRisk.Item(label: "This scene", idea: p.scene, motion: p.motion)], kind: .loop) { confirmClip = true } } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
+                        if moveStyle == 0 {
+Button { model.checkClipsThen([ClipRisk.Item(label: "This scene", idea: p.scene, motion: p.motion)], kind: .loop) { confirmClip = true } } label: { Label(p.clip == nil ? "Make the loop clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))" : "Make another clip (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))", systemImage: "film") }
                             .buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
                             .help(p.picture == nil ? "Add or draw the picture first." : "Makes the chosen length from the picture. You see the price first.")
-                        Button { model.loopUseStill() } label: { Label("Use the picture as a still (no video clip)", systemImage: "photo") }.disabled(working || p.picture == nil)
-                            .help("The whole video shows this picture, perfectly still, with the music (an album, for example). It is free and instant: nothing is drawn or waited for, and title cards, Shorts and the YouTube files all work as usual.")
-                        Button { model.loopUseKenBurns() } label: { Label("Slow pan and zoom on the picture (Ken Burns)", systemImage: "camera.viewfinder") }.disabled(working || p.picture == nil)
+}
+if moveStyle == 1 {
+Button { model.loopUseKenBurns() } label: { Label("Make the slow pan and zoom (free)", systemImage: "camera.viewfinder") }.buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
                             .help("A slow, gentle pan and zoom across this picture, made on this Mac: free and a few seconds. The camera returns exactly where it began, so the clip loops without a seam (no HeyGen order).")
-                        Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
+}
+if moveStyle == 2 {
+Button { model.loopUseStill() } label: { Label("Use the picture as a still (free)", systemImage: "photo") }.buttonStyle(.borderedProminent).disabled(working || p.picture == nil)
+                            .help("The whole video shows this picture, perfectly still, with the music (an album, for example). It is free and instant: nothing is drawn or waited for, and title cards, Shorts and the YouTube files all work as usual.")
+}
+Button { model.loopChooseClip() } label: { Label("Use my own video clip…", systemImage: "film.stack") }.disabled(working)
                             .help("Loop a video from your Mac instead (or drag it onto the box). A still camera works best.")
                         if p.clip != nil {
                             Text("This is exactly how it repeats in the long video (shown without sound). Click it to watch full screen and zoom in.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -465,12 +482,19 @@ struct LoopView: View {
                 if !p.clips.isEmpty { clipStrip }
             }
         }
+        .onAppear { syncMoveStyle() }
+        .onChange(of: p.clip) { _, _ in syncMoveStyle() }
         .confirmationDialog("Make the loop clip?", isPresented: $confirmClip, titleVisibility: .visible) {
             Button("Make it (≈ \(OpenRouter.formatUSD(model.loopClipPrice)))") { model.loopMakeClip() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(loopClipConfirmation)
         }
+    }
+    /// Shows the kind of clip the scene has now (so a scene with a Ken Burns clip opens on that choice).
+    private func syncMoveStyle() {
+        guard let c = p.clip, let q = p.versionQualities[c] else { return }
+        moveStyle = q.hasPrefix("Ken Burns") ? 1 : (q.hasPrefix("Still") ? 2 : 0)
     }
     /// A choice of a few: a segmented control, or a menu in the New Design's narrow inspector.
     @ViewBuilder func choice<V: Hashable, C: View>(_ title: String, selection: Binding<V>, @ViewBuilder _ content: () -> C) -> some View {

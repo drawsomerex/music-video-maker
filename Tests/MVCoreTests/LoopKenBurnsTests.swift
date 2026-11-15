@@ -81,7 +81,7 @@ final class LoopKenBurnsTests: XCTestCase {
         let dest = CGImageDestinationCreateWithURL(pic as CFURL, "public.png" as CFString, 1, nil)!
         CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); CGImageDestinationFinalize(dest)
 
-        try await LoopVideo.makeKenBurnsClip(picture: pic, output: out, seconds: 4, width: 640, height: 360)
+        try await LoopVideo.makeKenBurnsClip(picture: pic, output: out, path: LoopVideo.KenBurnsPath(points: LoopVideo.KenBurnsPath.standard.points, seconds: 6), width: 640, height: 360)
         let first = try frame(AVURLAsset(url: out), .zero)
         let A = rgba(first)
         func pixel(_ x: Int, _ y: Int) -> [UInt8] {
@@ -123,5 +123,41 @@ final class LoopKenBurnsTests: XCTestCase {
         XCTAssertEqual(times.period, LoopVideo.kenBurnsSeconds, accuracy: 0.1)
         XCTAssertEqual(times.fade, 0, accuracy: 0.001)
         XCTAssertNotNil(p.loopScores[c], "the seamless join is rated like any other clip")
+    }
+
+    func testAPathNeedsTwoPointsAndLoopsThroughAnyNumberOfThem() {
+        XCTAssertEqual(LoopVideo.KenBurnsPath(points: [LoopVideo.KenBurnsPoint()]).cleaned.points.count, 2, "never fewer than two points")
+        XCTAssertEqual(LoopVideo.KenBurnsPath(points: []).cleaned.points.count, 2)
+        let dirty = LoopVideo.KenBurnsPath(points: [.init(x: .nan, y: 7, zoom: 99), .init(x: -3, y: .infinity, zoom: 0.2)], seconds: .nan).cleaned
+        for q in dirty.points { XCTAssertTrue((0...1).contains(q.x) && (0...1).contains(q.y) && (1...3).contains(q.zoom)) }
+        XCTAssertTrue(dirty.seconds.isFinite)
+        let path = LoopVideo.KenBurnsPath(points: [.init(x: 0.2, y: 0.3, zoom: 1), .init(x: 0.8, y: 0.3, zoom: 1.5), .init(x: 0.5, y: 0.8, zoom: 2), .init(x: 0.3, y: 0.6, zoom: 1.2)])
+        // it passes through each point, in order
+        for (k, q) in path.points.enumerated() {
+            let c = path.camera(at: Double(k) / Double(path.points.count))
+            XCTAssertEqual(c.x, q.x, accuracy: 0.001); XCTAssertEqual(c.y, q.y, accuracy: 0.001); XCTAssertEqual(c.zoom, q.zoom, accuracy: 0.001)
+        }
+        // and it comes back to the start without a jump (the step just before the end is as small as any other)
+        let a = path.camera(at: 0.9999), b = path.camera(at: 0)
+        XCTAssertEqual(a.x, b.x, accuracy: 0.01); XCTAssertEqual(a.y, b.y, accuracy: 0.01); XCTAssertEqual(a.zoom, b.zoom, accuracy: 0.02)
+    }
+
+    func testAThreePointPathMakesAClipThatLoopsAndMoves() async throws {
+        let dir = try folder(); defer { try? FileManager.default.removeItem(at: dir) }
+        let out = dir.appendingPathComponent("kb3.mp4")
+        let path = LoopVideo.KenBurnsPath(points: [.init(x: 0.3, y: 0.5, zoom: 1.6), .init(x: 0.7, y: 0.5, zoom: 1.6), .init(x: 0.5, y: 0.5, zoom: 1.0)], seconds: 6)
+        // a smooth picture (light to dark across, with a bright patch), so a small move is a small difference
+        let ctx = CGContext(data: nil, width: 1600, height: 900, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.drawLinearGradient(CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [CGColor(gray: 0, alpha: 1), CGColor(gray: 1, alpha: 1)] as CFArray, locations: [0, 1])!, start: .zero, end: CGPoint(x: 1600, y: 0), options: [])
+        let pic = dir.appendingPathComponent("gradient.png")
+        let dest = CGImageDestinationCreateWithURL(pic as CFURL, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); CGImageDestinationFinalize(dest)
+        try await LoopVideo.makeKenBurnsClip(picture: pic, output: out, path: path, width: 640, height: 360)
+        let asset = AVURLAsset(url: out)
+        let length = try await asset.load(.duration).seconds
+        XCTAssertEqual(length, 6, accuracy: 0.1)
+        let first = try frame(asset, .zero), mid = try frame(asset, CMTime(seconds: 2, preferredTimescale: 600)), last = try frame(asset, CMTime(seconds: 5.9, preferredTimescale: 600))
+        XCTAssertGreaterThan(meanDifference(first, mid), 10, "the picture moves between the points")
+        XCTAssertLessThan(meanDifference(last, first), meanDifference(mid, first), "the end leads back to the start")
     }
 }
