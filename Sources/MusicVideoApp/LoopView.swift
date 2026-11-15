@@ -301,6 +301,8 @@ struct LoopView: View {
                 referenceRows
                 Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky)).font(.callout)
                     .help("New pictures are drawn with a clear, cloudless sky. Clouds that move can't come back to where they started, so a clear sky gives the cleanest loop. Clouds still work: they just blend slowly at the join.")
+                Toggle("Keep the clouds still", isOn: bind(\.stillClouds)).font(.callout)
+                    .help("The clip's instructions say the clouds and the sky stay completely still and frozen: no billowing, no drifting, no sliding. Use it when the clouds move too much for a clean loop. It works with Cloudless sky: that keeps clouds out of new pictures, this keeps the clouds in the clip from moving.")
                 if let pic = p.picture, p.subjectClose[pic] != nil {
                     Label("This picture looks a lot like your subject photo (a similar pose or angle). To be safe, draw another.", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
@@ -336,7 +338,7 @@ struct LoopView: View {
                     }
                     TextField("e.g. waves rolling onto the beach, foam washing up the sand, clouds drifting very slowly", text: bind(\.motion), axis: .vertical)
                         .lineLimit(2...4).textFieldStyle(.roundedBorder)
-                        .help("Goes into the clip's instructions word for word. Anything else that would naturally move moves gently too; clouds and the sky always move very slowly so the loop's seam stays invisible.")
+                        .help("Goes into the clip's instructions word for word. Anything else that would naturally move moves gently too; clouds and the sky move very slowly so the loop's seam stays invisible (Keep the clouds still freezes them instead).")
                 }
             }
         }
@@ -658,6 +660,8 @@ struct LoopView: View {
             referenceRows
             Hairline(); ClassicalHeading(text: "Loops add", size: 20)
             Toggle("Cloudless sky (loops most cleanly)", isOn: bind(\.clearSky))
+            Toggle("Keep the clouds still", isOn: bind(\.stillClouds))
+                .help("The clip's instructions say the clouds and the sky stay completely still and frozen: no billowing, no drifting, no sliding. Use it when the clouds move too much for a clean loop. It works with Cloudless sky: that keeps clouds out of new pictures, this keeps the clouds in the clip from moving.")
             CField(label: "What moves", prompt: "e.g. rain on the glass; the rest stays still", text: bind(\.motion), axis: .vertical, lines: 1...3)
         }
     }
