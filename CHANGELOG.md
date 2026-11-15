@@ -4,6 +4,8 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+
+## [2.0.13] - 2026-11-14
 - Looping videos: you control the Ken Burns pan and zoom. A "Movement" choice on each scene's clip card (Moving loop, Ken Burns, Still) shows the picture with numbered dots: two or more, "Add a dot" / "Remove this dot", drag each to where the camera looks, set how close it is, and choose how long one round takes (10 to 90 seconds). The camera visits the dots in order and returns smoothly to the first, so it loops without a seam. Each picture keeps its own dots; both designs.
 - Fixed: after making a Ken Burns clip (2.0.11), "Your looping-video changes could not be saved … isn't in the correct format". The loop score for that clip was not a number and could not be written to the project file; it is now set properly, and any measurement that is not a number is left out so a project can always be saved.
 
