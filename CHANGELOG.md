@@ -4,6 +4,11 @@ All notable changes to Music Video Maker. Newest first. **Add every user-visible
 `./release.sh` turns that section into the GitHub release notes (shown to users in the in-app "Update available" dialog) and stamps it with the version and date.
 
 ## [Unreleased]
+- Looping videos: a "Slow pan and zoom on the picture (Ken Burns)" button beside "Use the picture as a still". It makes a free, seamless, 20-second slow pan and zoom on this Mac; every scene has its own clip, so one video can mix AI loop scenes, still scenes and Ken Burns scenes. In both designs.
+- Looping videos: a one-click "Keep the clouds still" switch (both designs) that tells the clip the clouds and sky stay frozen, and keeps clouds out of the "what moves" description.
+- Looping videos: song title cards now appear after the picture has changed to that song's scene, never over the previous scene.
+- Looping videos: the clip instructions are stronger against a flying or travelling camera, ask for water, waves and clouds at about a quarter of natural speed, and tie the colours, saturation and landscape (valleys, hills, trees) to the first frame so they stop drifting or vanishing. (Only real clips can show how well the model follows them.)
+- Director explained: next to "Plan with the director" and "Make it all automatically" there is now a plain sentence for each, and the director's plan lets you change or take out any scene before anything is drawn. You can always write each scene's own idea in the Scenes list and remove pictures you do not like under Versions.
 
 ## [2.0.10] - 2026-11-12
 - Looping videos: "Also make a separate video of each song" (two or more songs). Besides the long video it makes one video per song, automatically, in a "<title> – Song videos" folder: each is the song with its own repeats over its own scene, with its own title, YouTube thumbnail and description. Six songs that each repeat for 10 minutes give one hour-long video plus six 10-minute videos. "Make only the song videos" and "Show the song videos" are beside it. Same in both designs.
